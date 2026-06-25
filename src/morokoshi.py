@@ -2794,7 +2794,7 @@ class SpcPanel(QWidget):
             return
         lines = []
         for i in range(max(0, self._cur - 4), min(self._total, self._cur + 5)):
-            marker = "→ " if i == self._cur else "   "
+            marker = "→  " if i == self._cur else "   "
             name = self._spc_titles[i] if i < len(self._spc_titles) else ""
             lines.append(f"{marker}{i+1:03d}: {name}")
         self._track_tt_text = "\n".join(lines)
