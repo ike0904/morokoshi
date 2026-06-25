@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.4"
+APP_VERSION = "v1.5.5"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy
 import threading, base64, io
 from fractions import Fraction
@@ -1139,71 +1139,70 @@ class AudioEngine:
         if scb: scb("Done")
         return dur
 
-    def _nsf_mix_apply(self, cur_sec=None):
-        """現在のwavをengine.dataに設定する。戻り値: 長さ(sec)"""
-        nsf = self._nsf
-        if nsf is None or nsf.cur_track not in nsf.track_data:
+    # ── 共通: ch切替・セッション管理 ──────────────────────────
+
+    def _mix_apply(self, state, cur_sec=None):
+        """wavをengine.dataに設定する共通実装。戻り値: 長さ(sec)"""
+        if state is None or state.cur_track not in state.track_data:
             return 0.0
-        td = nsf.track_data[nsf.cur_track]
+        td = state.track_data[state.cur_track]
         wav = td.get('wav')
         if wav is None or len(wav) == 0:
             return 0.0
         raw_len = len(wav)
-        view_s = int(td.get('view_sec', raw_len / nsf.sr) * nsf.sr)
+        view_s = int(td.get('view_sec', raw_len / state.sr) * state.sr)
         view_s = max(1, min(view_s, raw_len))
         mixed = np.clip(wav[:view_s], -1.0, 1.0).astype(np.float32)
         stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
-        dur = len(stereo) / nsf.sr
+        dur = len(stereo) / state.sr
         with self._lock:
-            self.data = stereo; self.sr = nsf.sr
+            self.data = stereo; self.sr = state.sr
             self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
             if cur_sec is not None:
-                self.position = max(0, min(int(cur_sec * nsf.sr), len(stereo) - 1))
+                self.position = max(0, min(int(cur_sec * state.sr), len(stereo) - 1))
                 self._out_buf = np.zeros((0, 2), dtype=np.float32)
             else:
                 self.position = max(0, min(self.position, len(stereo) - 1))
         return dur
 
-    def _nsf_toggle_channel(self, ch_idx, solo=False, reset=False):
-        """NSFチャンネルのON/OFFを切り替える。戻り値: 新しいch_mask（再レンダリング用）"""
-        nsf = self._nsf
-        if nsf is None or ch_idx >= nsf.ch_count: return 0
-        td = nsf.track_data.get(nsf.cur_track)
+    def _toggle_channel(self, state, ch_idx, solo=False, reset=False):
+        """チャンネルON/OFFの共通実装。戻り値: 新しいch_mask"""
+        if state is None or ch_idx >= state.ch_count: return 0
+        td = state.track_data.get(state.cur_track)
         if td is None: return 0
         ch_used = td['ch_used']
         if reset:
-            for i in range(nsf.ch_count): nsf.ch_active[i] = ch_used[i]
+            for i in range(state.ch_count): state.ch_active[i] = ch_used[i]
         elif solo:
-            only_this = (ch_used[ch_idx] and nsf.ch_active[ch_idx] and
-                         all(not nsf.ch_active[i]
-                             for i in range(nsf.ch_count) if ch_used[i] and i != ch_idx))
+            only_this = (ch_used[ch_idx] and state.ch_active[ch_idx] and
+                         all(not state.ch_active[i]
+                             for i in range(state.ch_count) if ch_used[i] and i != ch_idx))
             if only_this:
-                for i in range(nsf.ch_count): nsf.ch_active[i] = ch_used[i]
+                for i in range(state.ch_count): state.ch_active[i] = ch_used[i]
             else:
-                for i in range(nsf.ch_count): nsf.ch_active[i] = (i == ch_idx and ch_used[i])
+                for i in range(state.ch_count): state.ch_active[i] = (i == ch_idx and ch_used[i])
         else:
-            if ch_used[ch_idx]: nsf.ch_active[ch_idx] = not nsf.ch_active[ch_idx]
+            if ch_used[ch_idx]: state.ch_active[ch_idx] = not state.ch_active[ch_idx]
         self._mem = ConvCache()
-        return sum((1 << i) for i in range(nsf.ch_count)
-                   if i < len(nsf.ch_active) and nsf.ch_active[i] and
+        return sum((1 << i) for i in range(state.ch_count)
+                   if i < len(state.ch_active) and state.ch_active[i] and
                    i < len(ch_used) and ch_used[i])
 
-    def _nsf_apply_new_wav(self, wav, ch_mask):
-        """ch切替レンダリング完了後、wavをホットスワップする（再生位置保持）"""
-        nsf = self._nsf
-        if nsf is None or nsf.cur_track not in nsf.track_data: return
-        td = nsf.track_data[nsf.cur_track]
+    def _apply_new_wav(self, state, wav, ch_mask):
+        """ch切替レンダリング完了後のwavホットスワップ共通実装（再生位置保持）"""
+        if state is None or state.cur_track not in state.track_data: return
+        td = state.track_data[state.cur_track]
         td['wav'] = wav; td['ch_mask'] = ch_mask
-        td['decoded_sec'] = len(wav) / nsf.sr
+        td['decoded_sec'] = len(wav) / state.sr
         raw_len = len(wav)
-        view_s = int(td.get('view_sec', raw_len / nsf.sr) * nsf.sr)
+        view_s = int(td.get('view_sec', raw_len / state.sr) * state.sr)
         view_s = max(1, min(view_s, raw_len))
         mixed = np.clip(wav[:view_s], -1.0, 1.0).astype(np.float32)
         stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
         cur_sec = self.current_sec()
-        new_pos = max(0, min(int(cur_sec * nsf.sr), len(stereo) - 1))
+        new_pos = max(0, min(int(cur_sec * state.sr), len(stereo) - 1))
         with self._lock:
-            self.data = stereo; self.sr = nsf.sr
+            self.data = stereo; self.sr = state.sr
             self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
             self.position = new_pos
         with self._rt_lock:
@@ -1219,26 +1218,62 @@ class AudioEngine:
                 self._out_buf = np.zeros((0, 2), dtype=np.float32)
             self._feeder_eof = False
 
+    def _save_track_session(self, state):
+        """切替前トラックのセッションをtrack_dataに保存する共通処理"""
+        old_track = state.cur_track
+        if old_track not in state.track_data: return
+        _pend_old = getattr(state, '_pending_track_sessions', {})
+        if old_track in _pend_old:
+            state.track_data[old_track]['session'] = _pend_old.pop(old_track)
+        else:
+            state.track_data[old_track]['session'] = {
+                'position':  self.current_sec(),
+                'markers':   dict(self.markers),
+                'ch_active': list(state.ch_active),
+                'ab_active': self.ab_active,
+                'ear_active': self.ear_active,
+            }
+
+    def _restore_track_session(self, state, track_idx):
+        """トラックのセッションを復元する共通処理。戻り値: restore_pos (sec)"""
+        td = state.track_data[track_idx]
+        session = td.get('session')
+        if session:
+            state.ch_active  = list(session.get('ch_active', td['ch_used']))
+            self.markers     = {int(k): float(v) for k, v in session.get('markers', {}).items()}
+            self.ab_active   = bool(session.get('ab_active', False))
+            self.ear_active  = bool(session.get('ear_active', False))
+            return float(session.get('position', 0.0))
+        else:
+            state.ch_active  = list(td['ch_used'])
+            self.markers     = {}
+            self.ab_active   = False
+            self.ear_active  = False
+            return 0.0
+
+    def _inject_pending_session(self, state, track_idx):
+        """ファイルロード時のpendingセッションをtrack_dataに注入する共通処理"""
+        _pend = getattr(state, '_pending_track_sessions', {})
+        if track_idx in _pend:
+            state.track_data[track_idx]['session'] = _pend.pop(track_idx)
+
+    # ── NSF固有 ───────────────────────────────────────────────
+
+    def _nsf_mix_apply(self, cur_sec=None):
+        return self._mix_apply(self._nsf, cur_sec)
+
+    def _nsf_toggle_channel(self, ch_idx, solo=False, reset=False):
+        return self._toggle_channel(self._nsf, ch_idx, solo, reset)
+
+    def _nsf_apply_new_wav(self, wav, ch_mask):
+        self._apply_new_wav(self._nsf, wav, ch_mask)
+
     def nsf_set_track(self, track_idx, scb=None):
         """NSFトラックを切り替える。必要に応じてデコードする。戻り値: 長さ(sec)"""
         nsf = self._nsf
         if nsf is None or track_idx < 0 or track_idx >= nsf.track_count: return 0.0
 
-        # 切替前のトラック状態をセッションとして保存
-        old_track = nsf.cur_track
-        if old_track in nsf.track_data:
-            _pend_old = getattr(nsf, '_pending_track_sessions', {})
-            if old_track in _pend_old:
-                # File-load pre-set session takes priority over stale live state
-                nsf.track_data[old_track]['session'] = _pend_old.pop(old_track)
-            else:
-                nsf.track_data[old_track]['session'] = {
-                    'position':  self.current_sec(),
-                    'markers':   dict(self.markers),
-                    'ch_active': list(nsf.ch_active),
-                    'ab_active': self.ab_active,
-                    'ear_active': self.ear_active,
-                }
+        self._save_track_session(nsf)
 
         nsf.cur_track = track_idx
         if track_idx not in nsf.track_data:
@@ -1265,26 +1300,10 @@ class AudioEngine:
                 'decoded_sec': actual_dur, 'view_sec': actual_dur,
                 'natural_end': natural_end,
             }
-            # Inject pending session from file load (ch_active, position, markers, etc.)
-            _pend = getattr(nsf, '_pending_track_sessions', {})
-            if track_idx in _pend:
-                nsf.track_data[track_idx]['session'] = _pend.pop(track_idx)
+            self._inject_pending_session(nsf, track_idx)
 
         td = nsf.track_data[track_idx]
-        session = td.get('session')
-        if session:
-            nsf.ch_active  = list(session.get('ch_active', td['ch_used']))
-            # Keys are stringified in JSON; convert back to int so all marker checks work
-            self.markers   = {int(k): float(v) for k, v in session.get('markers', {}).items()}
-            self.ab_active = bool(session.get('ab_active', False))
-            self.ear_active = bool(session.get('ear_active', False))
-            restore_pos    = float(session.get('position', 0.0))
-        else:
-            nsf.ch_active  = list(td['ch_used'])
-            self.markers   = {}
-            self.ab_active = False
-            self.ear_active = False
-            restore_pos    = 0.0
+        restore_pos = self._restore_track_session(nsf, track_idx)
 
         # セッション復元時: wavのch_maskとch_activeが異なれば再レンダリング
         target_ch_mask = sum((1 << i) for i in range(nsf.ch_count)
@@ -1469,98 +1488,23 @@ class AudioEngine:
         if scb: scb("Done")
         return dur
 
+    # ── SPC固有 ───────────────────────────────────────────────
+
     def _spc_mix_apply(self, cur_sec=None):
-        """現在のSPC wavをengine.dataに設定する。戻り値: 長さ(sec)"""
-        spc = self._spc
-        if spc is None or spc.cur_track not in spc.track_data:
-            return 0.0
-        td = spc.track_data[spc.cur_track]
-        wav = td.get('wav')
-        if wav is None or len(wav) == 0:
-            return 0.0
-        mixed = np.clip(wav, -1.0, 1.0).astype(np.float32)
-        stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
-        dur = len(stereo) / spc.sr
-        with self._lock:
-            self.data = stereo; self.sr = spc.sr
-            self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
-            if cur_sec is not None:
-                self.position = max(0, min(int(cur_sec * spc.sr), len(stereo) - 1))
-            else:
-                self.position = 0
-            self._out_buf = np.zeros((0, 2), dtype=np.float32)
-        return dur
+        return self._mix_apply(self._spc, cur_sec)
 
     def _spc_toggle_channel(self, ch_idx, solo=False, reset=False):
-        """SPCチャンネルのON/OFFを切り替える。戻り値: 新しいch_mask"""
-        spc = self._spc
-        if spc is None or ch_idx >= spc.ch_count: return 0
-        td = spc.track_data.get(spc.cur_track)
-        if td is None: return 0
-        ch_used = td['ch_used']
-        if reset:
-            for i in range(spc.ch_count): spc.ch_active[i] = ch_used[i]
-        elif solo:
-            only_this = (ch_used[ch_idx] and spc.ch_active[ch_idx] and
-                         all(not spc.ch_active[i]
-                             for i in range(spc.ch_count) if ch_used[i] and i != ch_idx))
-            if only_this:
-                for i in range(spc.ch_count): spc.ch_active[i] = ch_used[i]
-            else:
-                for i in range(spc.ch_count): spc.ch_active[i] = (i == ch_idx and ch_used[i])
-        else:
-            if ch_used[ch_idx]: spc.ch_active[ch_idx] = not spc.ch_active[ch_idx]
-        self._mem = ConvCache()
-        return sum((1 << i) for i in range(spc.ch_count)
-                   if i < len(spc.ch_active) and spc.ch_active[i] and
-                   i < len(ch_used) and ch_used[i])
+        return self._toggle_channel(self._spc, ch_idx, solo, reset)
 
     def _spc_apply_new_wav(self, wav, ch_mask):
-        """SPC ch切替レンダリング完了後、wavをホットスワップする（再生位置保持）"""
-        spc = self._spc
-        if spc is None or spc.cur_track not in spc.track_data: return
-        td = spc.track_data[spc.cur_track]
-        td['wav'] = wav; td['ch_mask'] = ch_mask
-        mixed = np.clip(wav, -1.0, 1.0).astype(np.float32)
-        stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
-        cur_sec = self.current_sec()
-        new_pos = max(0, min(int(cur_sec * spc.sr), len(stereo) - 1))
-        with self._lock:
-            self.data = stereo; self.sr = spc.sr
-            self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
-            self.position = new_pos
-        with self._rt_lock:
-            self._rt_gen += 1
-            self._src_pos = new_pos
-            self._played_orig = new_pos
-            _fo_len = min(len(self._out_buf), 2048)
-            if _fo_len > 0:
-                _fo = np.linspace(1.0, 0.0, _fo_len, dtype=np.float32)[:, np.newaxis]
-                self._out_buf[:_fo_len] *= _fo
-                self._out_buf = self._out_buf[:_fo_len].copy()
-            else:
-                self._out_buf = np.zeros((0, 2), dtype=np.float32)
-            self._feeder_eof = False
+        self._apply_new_wav(self._spc, wav, ch_mask)
 
     def spc_set_track(self, track_idx, scb=None):
         """SPCトラック(ZIP内)を切り替える。戻り値: 長さ(sec)"""
         spc = self._spc
         if spc is None or track_idx < 0 or track_idx >= spc.track_count: return 0.0
 
-        # 切替前のトラック状態をセッションとして保存
-        old_track = spc.cur_track
-        if old_track in spc.track_data:
-            _pend_old = getattr(spc, '_pending_track_sessions', {})
-            if old_track in _pend_old:
-                spc.track_data[old_track]['session'] = _pend_old.pop(old_track)
-            else:
-                spc.track_data[old_track]['session'] = {
-                    'position':   self.current_sec(),
-                    'markers':    dict(self.markers),
-                    'ch_active':  list(spc.ch_active),
-                    'ab_active':  self.ab_active,
-                    'ear_active': self.ear_active,
-                }
+        self._save_track_session(spc)
 
         spc.cur_track = track_idx
         if track_idx not in spc.track_data:
@@ -1582,25 +1526,10 @@ class AudioEngine:
             spc.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
             }
-            # Inject pending session from file load (ch_active, position, markers, etc.)
-            _pend = getattr(spc, '_pending_track_sessions', {})
-            if track_idx in _pend:
-                spc.track_data[track_idx]['session'] = _pend.pop(track_idx)
+            self._inject_pending_session(spc, track_idx)
 
         td = spc.track_data[track_idx]
-        session = td.get('session')
-        if session:
-            spc.ch_active   = list(session.get('ch_active', td['ch_used']))
-            self.markers    = {int(k): float(v) for k, v in session.get('markers', {}).items()}
-            self.ab_active  = bool(session.get('ab_active', False))
-            self.ear_active = bool(session.get('ear_active', False))
-            restore_pos     = float(session.get('position', 0.0))
-        else:
-            spc.ch_active   = list(td['ch_used'])
-            self.markers    = {}
-            self.ab_active  = False
-            self.ear_active = False
-            restore_pos     = 0.0
+        restore_pos = self._restore_track_session(spc, track_idx)
 
         # セッション復元時: ch_maskとch_activeが異なれば再レンダリング
         target_ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT)
@@ -4762,6 +4691,22 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────
     # Reset
     # ──────────────────────────────────────
+    def _collect_track_sessions(self, console_state):
+        """全デコード済みトラックのセッションをdictとして収集する共通処理"""
+        tracks = {}
+        for tidx, td in console_state.track_data.items():
+            if tidx == console_state.cur_track:
+                tracks[str(tidx)] = {
+                    'position':  self.engine.current_sec(),
+                    'markers':   dict(self.engine.markers),
+                    'ch_active': list(console_state.ch_active),
+                    'ab_active': self.engine.ab_active,
+                    'ear_active': self.engine.ear_active,
+                }
+            elif 'session' in td:
+                tracks[str(tidx)] = dict(td['session'])
+        return tracks
+
     def _get_state(self):
         state = {
             "markers":   dict(self.engine.markers),
@@ -4783,38 +4728,14 @@ class MainWindow(QMainWindow):
             nsf = self.engine._nsf
             state["nsf_track"] = nsf.cur_track
             state["nsf_ch_active"] = list(nsf.ch_active)
-            # Save per-track sessions for all decoded tracks
-            nsf_tracks = {}
-            for tidx, td in nsf.track_data.items():
-                if tidx == nsf.cur_track:
-                    nsf_tracks[str(tidx)] = {
-                        'position':  self.engine.current_sec(),
-                        'markers':   dict(self.engine.markers),
-                        'ch_active': list(nsf.ch_active),
-                        'ab_active': self.engine.ab_active,
-                        'ear_active': self.engine.ear_active,
-                    }
-                elif 'session' in td:
-                    nsf_tracks[str(tidx)] = dict(td['session'])
+            nsf_tracks = self._collect_track_sessions(nsf)
             if nsf_tracks:
                 state["nsf_tracks"] = nsf_tracks
         if self.engine._spc is not None:
             spc = self.engine._spc
             state["spc_track"] = spc.cur_track
             state["spc_ch_active"] = list(spc.ch_active)
-            # Save per-track sessions for all decoded tracks
-            spc_tracks = {}
-            for tidx, td in spc.track_data.items():
-                if tidx == spc.cur_track:
-                    spc_tracks[str(tidx)] = {
-                        'position':  self.engine.current_sec(),
-                        'markers':   dict(self.engine.markers),
-                        'ch_active': list(spc.ch_active),
-                        'ab_active': self.engine.ab_active,
-                        'ear_active': self.engine.ear_active,
-                    }
-                elif 'session' in td:
-                    spc_tracks[str(tidx)] = dict(td['session'])
+            spc_tracks = self._collect_track_sessions(spc)
             if spc_tracks:
                 state["spc_tracks"] = spc_tracks
         return state
