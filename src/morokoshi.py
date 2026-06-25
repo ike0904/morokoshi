@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.2"
+APP_VERSION = "v1.5.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy
 import threading, base64, io
 from fractions import Fraction
@@ -1546,6 +1546,18 @@ class AudioEngine:
         """SPCトラック(ZIP内)を切り替える。戻り値: 長さ(sec)"""
         spc = self._spc
         if spc is None or track_idx < 0 or track_idx >= spc.track_count: return 0.0
+
+        # 切替前のトラック状態をセッションとして保存
+        old_track = spc.cur_track
+        if old_track in spc.track_data:
+            spc.track_data[old_track]['session'] = {
+                'position':   self.current_sec(),
+                'markers':    dict(self.markers),
+                'ch_active':  list(spc.ch_active),
+                'ab_active':  self.ab_active,
+                'ear_active': self.ear_active,
+            }
+
         spc.cur_track = track_idx
         if track_idx not in spc.track_data:
             spc_raw = spc._spc_raws.get(track_idx)
@@ -1566,15 +1578,47 @@ class AudioEngine:
             spc.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
             }
-        spc.ch_active = list(spc.track_data[track_idx]['ch_used'])
+
+        td = spc.track_data[track_idx]
+        session = td.get('session')
+        if session:
+            spc.ch_active   = list(session.get('ch_active', td['ch_used']))
+            self.markers    = {int(k): float(v) for k, v in session.get('markers', {}).items()}
+            self.ab_active  = bool(session.get('ab_active', False))
+            self.ear_active = bool(session.get('ear_active', False))
+            restore_pos     = float(session.get('position', 0.0))
+        else:
+            spc.ch_active   = list(td['ch_used'])
+            self.markers    = {}
+            self.ab_active  = False
+            self.ear_active = False
+            restore_pos     = 0.0
+
+        # セッション復元時: ch_maskとch_activeが異なれば再レンダリング
+        target_ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT)
+                             if i < len(spc.ch_active) and spc.ch_active[i] and
+                             i < len(td['ch_used']) and td['ch_used'][i])
+        if target_ch_mask != td.get('ch_mask', -1):
+            spc_raw2 = spc._spc_raws.get(track_idx)
+            gme2 = _gme_load()
+            if spc_raw2 and gme2:
+                if scb: scb(f"SPC: re-rendering with session channels...")
+                meta_t2 = spc.track_metas[track_idx] if track_idx < len(spc.track_metas) else {}
+                new_wav, _, new_dur = _spc_render(
+                    gme2, spc_raw2, target_ch_mask,
+                    meta_t2.get('dur_sec', SPC_DEFAULT_DUR_SEC), scb,
+                    play_len_ms=meta_t2.get('play_len_ms', 0))
+                td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
+                td['decoded_sec'] = new_dur
+
         self.stop()
         self._mem = ConvCache()
-        dur = self._spc_mix_apply()
+        dur = self._spc_mix_apply(cur_sec=restore_pos)
         with self._rt_lock:
-            self._src_pos = 0
-            self._played_orig = 0
-        with self._lock:
-            self.markers = {}; self.ab_active = False; self.ear_active = False
+            data_len = len(self.data) if self.data is not None else 0
+            restore_s = max(0, min(int(restore_pos * spc.sr), data_len - 1))
+            self._src_pos     = restore_s
+            self._played_orig = restore_s
         return dur
 
     def _request_conv(self, spd, semi, scb, fast=False, resume=True):
@@ -5288,14 +5332,22 @@ class MainWindow(QMainWindow):
             self._waveform.update()
         else:
             self._waveform.reset_view()
-        self._waveform.set_position(0)
+        pos = self.engine.current_sec()
+        self._waveform.set_position(pos / dur if dur > 0 else 0)
         self._sync_wf_scroll()
         self._dur_lbl.setText(self._fmt(dur))
-        self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(0.0))
-        self.engine.markers = {}; self.engine.ab_active = False; self.engine.ear_active = False
+        self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(pos))
         self._rebuild_markers(); self._update_wf_ab()
-        self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), FG))
-        self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG)); self._stop_ear_blink()
+        if self.engine.ab_active:
+            self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), "#FFD700"))
+        else:
+            self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), FG))
+        if self.engine.ear_active:
+            self._ear_btn.setIcon(_get_icon("ear", self.S(28), "#FFD700"))
+            self._start_ear_blink()
+        else:
+            self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG))
+            self._stop_ear_blink()
         self._spc_update_panel()
         self._st(f"SPC: Track {spc.cur_track+1 if spc else 1}")
 
