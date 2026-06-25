@@ -2793,7 +2793,7 @@ class SpcPanel(QWidget):
             self._track_tt_text = "Track number\nDrag up/down or Wheel to change\n2-Click: Edit"
             return
         lines = []
-        for i in range(max(0, self._cur - 2), min(self._total, self._cur + 3)):
+        for i in range(max(0, self._cur - 4), min(self._total, self._cur + 5)):
             marker = "→ " if i == self._cur else "   "
             name = self._spc_titles[i] if i < len(self._spc_titles) else ""
             lines.append(f"{marker}{i+1:03d}: {name}")
