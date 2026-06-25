@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.3"
+APP_VERSION = "v1.5.4"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy
 import threading, base64, io
 from fractions import Fraction
@@ -1550,13 +1550,17 @@ class AudioEngine:
         # 切替前のトラック状態をセッションとして保存
         old_track = spc.cur_track
         if old_track in spc.track_data:
-            spc.track_data[old_track]['session'] = {
-                'position':   self.current_sec(),
-                'markers':    dict(self.markers),
-                'ch_active':  list(spc.ch_active),
-                'ab_active':  self.ab_active,
-                'ear_active': self.ear_active,
-            }
+            _pend_old = getattr(spc, '_pending_track_sessions', {})
+            if old_track in _pend_old:
+                spc.track_data[old_track]['session'] = _pend_old.pop(old_track)
+            else:
+                spc.track_data[old_track]['session'] = {
+                    'position':   self.current_sec(),
+                    'markers':    dict(self.markers),
+                    'ch_active':  list(spc.ch_active),
+                    'ab_active':  self.ab_active,
+                    'ear_active': self.ear_active,
+                }
 
         spc.cur_track = track_idx
         if track_idx not in spc.track_data:
@@ -1578,6 +1582,10 @@ class AudioEngine:
             spc.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
             }
+            # Inject pending session from file load (ch_active, position, markers, etc.)
+            _pend = getattr(spc, '_pending_track_sessions', {})
+            if track_idx in _pend:
+                spc.track_data[track_idx]['session'] = _pend.pop(track_idx)
 
         td = spc.track_data[track_idx]
         session = td.get('session')
@@ -4794,6 +4802,21 @@ class MainWindow(QMainWindow):
             spc = self.engine._spc
             state["spc_track"] = spc.cur_track
             state["spc_ch_active"] = list(spc.ch_active)
+            # Save per-track sessions for all decoded tracks
+            spc_tracks = {}
+            for tidx, td in spc.track_data.items():
+                if tidx == spc.cur_track:
+                    spc_tracks[str(tidx)] = {
+                        'position':  self.engine.current_sec(),
+                        'markers':   dict(self.engine.markers),
+                        'ch_active': list(spc.ch_active),
+                        'ab_active': self.engine.ab_active,
+                        'ear_active': self.engine.ear_active,
+                    }
+                elif 'session' in td:
+                    spc_tracks[str(tidx)] = dict(td['session'])
+            if spc_tracks:
+                state["spc_tracks"] = spc_tracks
         return state
 
     def _apply_state(self, state):
@@ -5257,19 +5280,32 @@ class MainWindow(QMainWindow):
         if is_spc and session:
             spc = self.engine._spc
             saved_track = session.get("spc_track", 0)
-            ch_ac = session.get("spc_ch_active")
-            if ch_ac and len(ch_ac) == spc.ch_count:
-                spc.ch_active = [bool(x) for x in ch_ac]
-                td0 = spc.track_data.get(0)
-                if td0:
-                    new_mask = sum((1 << i) for i in range(spc.ch_count)
-                                   if i < len(spc.ch_active) and spc.ch_active[i]
-                                   and i < len(td0['ch_used']) and td0['ch_used'][i])
-                    if new_mask != td0.get('ch_mask', -1):
-                        self._spc_start_ch_render(new_mask, 0, td0.get('decoded_sec', SPC_DEFAULT_DUR_SEC))
+            raw_tracks = session.get('spc_tracks', {})
+            if not raw_tracks and session.get('spc_ch_active') is not None:
+                # Legacy: build single entry for saved_track from top-level fields
+                raw_tracks = {str(saved_track): {
+                    'ch_active':  session.get('spc_ch_active'),
+                    'position':   float(session.get('position', 0.0)),
+                    'markers':    {int(k): float(v) for k, v in session.get('markers', {}).items()},
+                    'ab_active':  bool(session.get('ab_active', False)),
+                    'ear_active': bool(session.get('ear_active', False)),
+                }}
+            spc._pending_track_sessions = {int(k): v for k, v in raw_tracks.items()}
             if spc.is_zip and isinstance(saved_track, int) and 0 < saved_track < spc.track_count:
                 self._spc_set_track(saved_track)
             else:
+                ts0 = spc._pending_track_sessions.pop(0, None)
+                if ts0:
+                    ch_ac = ts0.get('ch_active')
+                    td0 = spc.track_data.get(0)
+                    if td0 and ch_ac and len(ch_ac) == spc.ch_count:
+                        spc.ch_active = [bool(x) for x in ch_ac]
+                        spc.track_data[0]['session'] = ts0
+                        new_mask = sum((1 << i) for i in range(spc.ch_count)
+                                       if i < len(spc.ch_active) and spc.ch_active[i]
+                                       and i < len(td0['ch_used']) and td0['ch_used'][i])
+                        if new_mask != td0.get('ch_mask', -1):
+                            self._spc_start_ch_render(new_mask, 0, td0.get('decoded_sec', SPC_DEFAULT_DUR_SEC))
                 self._spc_update_panel()
 
     # ──────────────────────────────────────
