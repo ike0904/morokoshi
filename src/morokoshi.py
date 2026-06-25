@@ -2563,6 +2563,7 @@ class SpcPanel(QWidget):
         self._total = 1; self._cur = 0
         self._drag_y0 = 0; self._drag_base = 0; self._dragging = False
         self._spc_titles = []
+        self._track_tt_text = "Track number\nDrag up/down or Wheel to change\n2-Click: Edit"
         self._wheel_timer = QTimer(self)
         self._wheel_timer.setSingleShot(True)
         self._wheel_timer.timeout.connect(self._emit_track_changed)
@@ -2597,7 +2598,6 @@ class SpcPanel(QWidget):
         self._track_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._track_edit.setReadOnly(True)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
-        _attach_tt(self._track_edit, "Track number\nDrag up/down or Wheel to change\n2-Click: Edit")
         self._track_edit.setStyleSheet(
             f"QLineEdit{{color:{FG};background:{BG3};border:1px solid {BORDER};padding:0 2px;}}"
             f"QLineEdit:hover{{border:1px solid {FG2};}}"
@@ -2608,6 +2608,7 @@ class SpcPanel(QWidget):
         self._track_edit.wheelEvent = self._track_wheel
         self._track_edit.mousePressEvent = self._track_press
         self._track_edit.leaveEvent = self._track_leave
+        self._track_edit.enterEvent = lambda e, s=self: show_tt(s._track_tt_text, s._track_edit)
         self._track_edit.mouseMoveEvent = self._track_move
         self._track_edit.mouseReleaseEvent = self._track_release
         r1lo.addWidget(self._track_edit)
@@ -2684,6 +2685,7 @@ class SpcPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
+            show_tt(self._track_tt_text, self._track_edit)
             self._wheel_timer.start(300)
 
     def _track_release(self, e):
@@ -2694,6 +2696,7 @@ class SpcPanel(QWidget):
         if top: top.setFocus()
 
     def _track_leave(self, e):
+        hide_tt()
         if self._track_edit.isReadOnly():
             top = self.window()
             if top: top.setFocus()
@@ -2709,6 +2712,7 @@ class SpcPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
+            show_tt(self._track_tt_text, self._track_edit)
             self._wheel_timer.start(300)
 
     def _emit_track_changed(self):
@@ -2786,14 +2790,14 @@ class SpcPanel(QWidget):
 
     def _update_track_tooltip(self):
         if not self._spc_titles:
-            _attach_tt(self._track_edit, "Track number\nDrag up/down or Wheel to change\n2-Click: Edit")
+            self._track_tt_text = "Track number\nDrag up/down or Wheel to change\n2-Click: Edit"
             return
         lines = []
         for i in range(max(0, self._cur - 2), min(self._total, self._cur + 3)):
             marker = "→ " if i == self._cur else "   "
             name = self._spc_titles[i] if i < len(self._spc_titles) else ""
             lines.append(f"{marker}{i+1:03d}: {name}")
-        _attach_tt(self._track_edit, "\n".join(lines))
+        self._track_tt_text = "\n".join(lines)
 
 
 # ════════════════════════════════════════
