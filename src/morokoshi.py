@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.8"
+APP_VERSION = "v1.5.13"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -460,6 +460,8 @@ def _gme_load():
             lib.gme_voice_name.argtypes  = [_ct.c_void_p, _ct.c_int]
             lib.gme_mute_voice.restype   = None
             lib.gme_mute_voice.argtypes  = [_ct.c_void_p, _ct.c_int, _ct.c_int]
+            lib.gme_seek.restype         = _ct.c_char_p
+            lib.gme_seek.argtypes        = [_ct.c_void_p, _ct.c_int]
             lib.gme_track_info.restype   = _ct.c_char_p
             lib.gme_track_info.argtypes  = [_ct.c_void_p, _ct.POINTER(_ct.c_void_p), _ct.c_int]
             lib.gme_free_info.restype    = None
@@ -733,6 +735,7 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
     # mute-after: INIT後にマスク設定（タイミング正確化）
     for i in range(ch_count):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
+    gme_lib.gme_seek(emu, 0)  # STEP1: ミュート維持のまま先頭へシーク→INIT再実行でノイズ消去
     buf16 = (_ct.c_int16 * (CHUNK * 2))()
     samples = []; rendered = 0
     while rendered < target_s:
@@ -908,6 +911,7 @@ def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=
         gme_lib.gme_set_fade(emu, play_len_ms)
     for i in range(SPC_CH_COUNT):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
+    gme_lib.gme_seek(emu, 0)  # STEP1: ミュート維持のまま先頭へシーク→INIT再実行でノイズ消去
     buf16 = (_ct.c_int16 * (CHUNK * 2))()
     samples = []; rendered = 0
     while rendered < target_s:
@@ -1096,6 +1100,7 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
             return np.zeros(0, dtype=np.int16), True
         for i in range(GBS_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
+        gme_lib.gme_seek(emu, 0)  # STEP1: ミュート維持のまま先頭へシーク→INIT再実行でノイズ消去
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         segs = []; rendered = 0; ended = False
         while rendered < stop_s:
