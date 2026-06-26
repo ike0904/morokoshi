@@ -3031,19 +3031,15 @@ class NsfPanel(QWidget):
         _attach_tt(self._track_prev_btn, "Previous track\nKey: [,] or Shift+← / Shift+[,]: ×10")
         self._track_prev_btn.clicked.connect(self._on_prev_track)
         r1lo.addWidget(self._track_prev_btn)
-        self._track_edit=QLineEdit("001")
+        self._track_edit=QLabel("001")
         self._track_edit.setFixedWidth(self.S(36)); self._track_edit.setFixedHeight(self.S(22))
         self._track_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._track_edit.setReadOnly(True)
-        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
         _attach_tt(self._track_edit, "Track number\nDrag up/down or Wheel to change\n2-Click: Edit")
         self._track_edit.setStyleSheet(
-            f"QLineEdit{{color:{FG};background:{BG3};border:1px solid {BORDER};padding:0 2px;}}"
-            f"QLineEdit:hover{{border:1px solid {FG2};}}"
-            f"QLineEdit:focus{{border:1px solid {ACC};}}")
-        self._track_edit.returnPressed.connect(self._commit_track)
-        self._track_edit.editingFinished.connect(self._commit_track)
+            f"QLabel{{color:{FG};background:{BG3};border:1px solid {BORDER};padding:0 2px;}}"
+            f"QLabel:hover{{border:1px solid {FG2};}}")
+        self._track_editor = None
         self._track_edit.mouseDoubleClickEvent=lambda e: self._start_edit()
         self._track_edit.wheelEvent=self._track_wheel
         self._track_edit.mousePressEvent=self._track_press
@@ -3075,34 +3071,39 @@ class NsfPanel(QWidget):
         self.setStyleSheet(f"background:{BG};")
 
     def _start_edit(self):
-        self._track_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._track_edit.setCursor(Qt.CursorShape.IBeamCursor)
-        self._track_edit.setReadOnly(False)
-        self._track_edit.setFocus()
-        self._track_edit.selectAll()
-
-    def _commit_track(self):
-        self._track_edit.setReadOnly(True)
-        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
-        top = self.window()
-        if top: top.setFocus()
-        try:
-            v=max(1, min(self._total, int(self._track_edit.text())))
-            if v-1!=self._cur: self.track_changed.emit(v-1)
-        except ValueError: pass
-        self._track_edit.setText(f"{self._cur+1:03d}")
+        if self._track_editor is not None: return
+        from PyQt6.QtWidgets import QLineEdit as _QLE
+        ed = _QLE(self._track_edit)
+        ed.setText(f"{self._cur+1:03d}")
+        ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
+        ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        ed.setGeometry(0, 0, self._track_edit.width(), self._track_edit.height())
+        ed.setFocus(); ed.selectAll()
+        self._track_editor = ed
+        def commit():
+            if self._track_editor is None: return
+            txt = self._track_editor.text()
+            self._track_editor.deleteLater(); self._track_editor = None
+            self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
+            try:
+                v = max(1, min(self._total, int(txt)))
+                if v - 1 != self._cur: self.track_changed.emit(v - 1)
+            except ValueError: pass
+            self._track_edit.setText(f"{self._cur+1:03d}")
+            top = self.window()
+            if top: top.setFocus()
+        ed.returnPressed.connect(commit)
+        ed.editingFinished.connect(commit)
 
     # ── 楽曲番号ドラッグ ───────────────────────
     def _track_press(self, e):
-        if not self._track_edit.isReadOnly():
-            from PyQt6.QtWidgets import QLineEdit as _QLE
-            _QLE.mousePressEvent(self._track_edit, e); return
+        if self._track_editor is not None: return
         if e.button()==Qt.MouseButton.LeftButton:
             self._drag_y0=e.position().y(); self._drag_base=self._cur; self._dragging=False
 
     def _track_move(self, e):
-        if not self._track_edit.isReadOnly(): return
+        if self._track_editor is not None: return
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
         dy = self._drag_y0 - e.position().y()  # 上=正=インクリメント
         if abs(dy) < 4: return
@@ -3116,21 +3117,17 @@ class NsfPanel(QWidget):
             self._wheel_timer.start(300)
 
     def _track_release(self, e):
-        if not self._track_edit.isReadOnly():
-            from PyQt6.QtWidgets import QLineEdit as _QLE
-            _QLE.mouseReleaseEvent(self._track_edit, e); return
-        # ドラッグ完了後はメインウィンドウにフォーカスを戻す
+        if self._track_editor is not None: return
         top = self.window()
         if top: top.setFocus()
 
     def _track_leave(self, e):
-        # マウスがウィジェット外に出たらメインウィンドウにフォーカスを戻す
-        if self._track_edit.isReadOnly():
-            top = self.window()
-            if top: top.setFocus()
+        if self._track_editor is not None: return
+        top = self.window()
+        if top: top.setFocus()
 
     def _track_wheel(self, e):
-        if not self._track_edit.isReadOnly(): return
+        if self._track_editor is not None: return
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         step = 10 if shift else 1
         delta = e.angleDelta().y()
@@ -3269,18 +3266,14 @@ class SpcPanel(QWidget):
         _attach_tt(self._track_prev_btn, "Previous track\nKey: [,] or Shift+←")
         self._track_prev_btn.clicked.connect(self._on_prev_track)
         r1lo.addWidget(self._track_prev_btn)
-        self._track_edit = QLineEdit("001")
+        self._track_edit = QLabel("001")
         self._track_edit.setFixedWidth(self.S(36)); self._track_edit.setFixedHeight(self.S(22))
         self._track_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._track_edit.setReadOnly(True)
-        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
         self._track_edit.setStyleSheet(
-            f"QLineEdit{{color:{FG};background:{BG3};border:1px solid {BORDER};padding:0 2px;}}"
-            f"QLineEdit:hover{{border:1px solid {FG2};}}"
-            f"QLineEdit:focus{{border:1px solid {ACC};}}")
-        self._track_edit.returnPressed.connect(self._commit_track)
-        self._track_edit.editingFinished.connect(self._commit_track)
+            f"QLabel{{color:{FG};background:{BG3};border:1px solid {BORDER};padding:0 2px;}}"
+            f"QLabel:hover{{border:1px solid {FG2};}}")
+        self._track_editor = None
         self._track_edit.mouseDoubleClickEvent = lambda e: self._start_edit()
         self._track_edit.wheelEvent = self._track_wheel
         self._track_edit.mousePressEvent = self._track_press
@@ -3330,33 +3323,38 @@ class SpcPanel(QWidget):
 
     # ── トラックナビゲーション ──────────────────────
     def _start_edit(self):
-        self._track_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._track_edit.setCursor(Qt.CursorShape.IBeamCursor)
-        self._track_edit.setReadOnly(False)
-        self._track_edit.setFocus()
-        self._track_edit.selectAll()
-
-    def _commit_track(self):
-        self._track_edit.setReadOnly(True)
-        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
-        top = self.window()
-        if top: top.setFocus()
-        try:
-            v = max(1, min(self._total, int(self._track_edit.text())))
-            if v - 1 != self._cur: self.track_changed.emit(v - 1)
-        except ValueError: pass
-        self._track_edit.setText(f"{self._cur+1:03d}")
+        if self._track_editor is not None: return
+        from PyQt6.QtWidgets import QLineEdit as _QLE
+        ed = _QLE(self._track_edit)
+        ed.setText(f"{self._cur+1:03d}")
+        ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
+        ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        ed.setGeometry(0, 0, self._track_edit.width(), self._track_edit.height())
+        ed.setFocus(); ed.selectAll()
+        self._track_editor = ed
+        def commit():
+            if self._track_editor is None: return
+            txt = self._track_editor.text()
+            self._track_editor.deleteLater(); self._track_editor = None
+            self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
+            try:
+                v = max(1, min(self._total, int(txt)))
+                if v - 1 != self._cur: self.track_changed.emit(v - 1)
+            except ValueError: pass
+            self._track_edit.setText(f"{self._cur+1:03d}")
+            top = self.window()
+            if top: top.setFocus()
+        ed.returnPressed.connect(commit)
+        ed.editingFinished.connect(commit)
 
     def _track_press(self, e):
-        if not self._track_edit.isReadOnly():
-            from PyQt6.QtWidgets import QLineEdit as _QLE
-            _QLE.mousePressEvent(self._track_edit, e); return
+        if self._track_editor is not None: return
         if e.button() == Qt.MouseButton.LeftButton:
             self._drag_y0 = e.position().y(); self._drag_base = self._cur; self._dragging = False
 
     def _track_move(self, e):
-        if not self._track_edit.isReadOnly(): return
+        if self._track_editor is not None: return
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
         dy = self._drag_y0 - e.position().y()
         if abs(dy) < 4: return
@@ -3372,20 +3370,18 @@ class SpcPanel(QWidget):
             self._wheel_timer.start(300)
 
     def _track_release(self, e):
-        if not self._track_edit.isReadOnly():
-            from PyQt6.QtWidgets import QLineEdit as _QLE
-            _QLE.mouseReleaseEvent(self._track_edit, e); return
+        if self._track_editor is not None: return
         top = self.window()
         if top: top.setFocus()
 
     def _track_leave(self, e):
         hide_tt()
-        if self._track_edit.isReadOnly():
+        if self._track_editor is None:
             top = self.window()
             if top: top.setFocus()
 
     def _track_wheel(self, e):
-        if not self._track_edit.isReadOnly(): return
+        if self._track_editor is not None: return
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         step = 10 if shift else 1
         delta = e.angleDelta().y()
@@ -4119,7 +4115,11 @@ class MainWindow(QMainWindow):
         urls=e.mimeData().urls()
         if urls:
             p=urls[0].toLocalFile()
-            if os.path.exists(p): self._load(p)
+            if os.path.exists(p):
+                if os.path.isdir(p):
+                    self._load_folder(p)
+                else:
+                    self._load(p)
 
     # ── UI構築
     def _build_ui(self):
