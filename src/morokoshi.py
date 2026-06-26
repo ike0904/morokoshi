@@ -818,7 +818,7 @@ GBS_CH_COUNT        = 4
 GBS_DEFAULT_DUR_SEC = 60.0
 GBS_MIN_DUR_SEC     = 10.0    # 楽曲最低再生時間（秒）
 GBS_SILENCE_DUR_SEC = 5.0     # 自然終了判定：最後N秒が無音
-GBS_EXT_STEP_SEC    = 30.0    # 手動延長ステップ（秒）
+GBS_EXT_STEP_SEC    = 60.0    # 手動延長ステップ（秒）
 GBS_MAX_DUR_SEC     = 600.0   # 手動延長上限（秒）
 GBS_SILENCE_THRESH  = 32.0 / 32768.0
 GBS_CH_NAMES        = ['1', '2', '3', '4']
@@ -1035,13 +1035,12 @@ def _gbs_get_loop_info(gme_lib, gbs_raw, track_idx):
 def _gbs_compute_target_no_m3u(gme_lib, gbs_raw, track_idx):
     """m3u未収録GBSトラックのlibgme情報からレンダリング目標時間を計算する。
     戻り値: (target_sec, single_loop_sec or None, detect_silence)"""
-    intro_ms, loop_ms, play_ms = _gbs_get_loop_info(gme_lib, gbs_raw, track_idx)
+    intro_ms, loop_ms, _ = _gbs_get_loop_info(gme_lib, gbs_raw, track_idx)
     if loop_ms > 0:
         intro_s = intro_ms / 1000.0
         loop_s  = loop_ms  / 1000.0
         return max(GBS_MIN_DUR_SEC, intro_s + loop_s * 2), loop_s, False
-    if play_ms > 0:
-        return max(GBS_MIN_DUR_SEC, play_ms / 1000.0), None, True
+    # loop情報なし: GBSのplay_msは不正確なので無視。60s+無音検出で赤点滅モード
     return GBS_DEFAULT_DUR_SEC, None, True
 
 
@@ -1828,6 +1827,8 @@ class AudioEngine:
         if scb: scb("GBS: rendering track 1...")
         wav, actual_dur, natural_end = _gbs_render(
             gme, gbs_raw, 0, ch_mask, dur_sec, single_loop, detect_sil, scb)
+        if meta0.get('has_m3u', False):
+            natural_end = True  # m3uが時間を明示→自然終了扱い（赤点滅なし）
 
         gbs = GbsState()
         gbs.path = path; gbs.game = game_title
@@ -1962,6 +1963,8 @@ class AudioEngine:
             if scb: scb(f"GBS: rendering track {track_idx+1}...")
             wav, actual_dur, natural_end = _gbs_render(
                 gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, single_loop, detect_sil, scb)
+            if meta_t.get('has_m3u', False):
+                natural_end = True  # m3uが時間を明示→自然終了扱い（赤点滅なし）
             gbs.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
@@ -1987,6 +1990,8 @@ class AudioEngine:
                     dur_sec2, sl2, detect_sil2 = _gbs_compute_target_no_m3u(gme2, gbs._gbs_raw, track_idx)
                 new_wav, new_dur, new_nat = _gbs_render(
                     gme2, gbs._gbs_raw, track_idx, target_ch_mask, dur_sec2, sl2, detect_sil2, scb)
+                if meta_t2.get('has_m3u', False):
+                    new_nat = True
                 td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
                 td['decoded_sec'] = new_dur; td['natural_end'] = new_nat; td['view_sec'] = new_dur
 
