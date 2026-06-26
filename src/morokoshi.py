@@ -819,7 +819,7 @@ GBS_DEFAULT_DUR_SEC = 60.0
 GBS_MIN_DUR_SEC     = 10.0    # 楽曲最低再生時間（秒）
 GBS_SILENCE_DUR_SEC = 5.0     # 自然終了判定：最後N秒が無音
 GBS_EXT_STEP_SEC    = 60.0    # 手動延長ステップ（秒）
-GBS_MAX_DUR_SEC     = 600.0   # 手動延長上限（秒）
+GBS_MAX_DUR_SEC     = 900.0   # 手動延長上限（秒）
 GBS_SILENCE_THRESH  = 32.0 / 32768.0
 GBS_CH_NAMES        = ['1', '2', '3', '4']
 
@@ -1279,6 +1279,11 @@ class AudioEngine:
             if ztype == 'gbs':
                 self._nsf = None; self._spc = None
                 return self._load_gbs_zip(path, scb)
+            if ztype == 'nsf':
+                self._spc = None; self._gbs = None
+                return self._load_nsf_zip(path, scb)
+            if ztype is None:
+                raise RuntimeError("No supported files found in ZIP (NSF/SPC/GBS)")
             self._nsf = None; self._gbs = None
             return self._load_spc_zip(path, scb)
         self._nsf = None
@@ -1311,6 +1316,26 @@ class AudioEngine:
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return len(data)/sr
+
+    def load_folder(self, folder_path, scb=None):
+        """フォルダ内のチップチューンファイルを読み込む（ZIP展開済みとして処理）"""
+        import os as _os
+        entries = _os.listdir(folder_path)
+        exts = set(e.rsplit('.', 1)[-1].lower() for e in entries if '.' in e)
+        if 'gbs' in exts:
+            self._nsf = None; self._spc = None
+            return self._load_gbs_folder(folder_path, scb)
+        if 'spc' in exts:
+            self._nsf = None; self._gbs = None
+            return self._load_spc_folder(folder_path, scb)
+        if 'nsf' in exts or 'nsfe' in exts:
+            self._spc = None; self._gbs = None
+            nsf_files = sorted(e for e in entries
+                               if e.lower().endswith('.nsf') or e.lower().endswith('.nsfe'))
+            if len(nsf_files) == 1:
+                return self._load_nsf(_os.path.join(folder_path, nsf_files[0]), scb)
+            raise RuntimeError(f"Multiple NSF files in folder ({len(nsf_files)}). Open individually.")
+        raise RuntimeError("No supported files found in folder (NSF/SPC/GBS)")
 
     # ── NSF専用メソッド ───────────────────────────────────────────
     def _load_nsf(self, path, scb=None):
@@ -1380,7 +1405,7 @@ class AudioEngine:
         nsf.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
             'decoded_sec': actual_dur, 'view_sec': actual_dur,
-            'natural_end': natural_end,
+            'natural_end': natural_end, 'initial_sec': actual_dur,
         }
         nsf.ch_active = list(ch_used)
 
@@ -1559,7 +1584,7 @@ class AudioEngine:
             nsf.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'view_sec': actual_dur,
-                'natural_end': natural_end,
+                'natural_end': natural_end, 'initial_sec': actual_dur,
             }
             self._inject_pending_session(nsf, track_idx)
 
@@ -1598,8 +1623,7 @@ class AudioEngine:
         td = nsf.track_data[track_idx]
         decoded_sec = td.get('decoded_sec', 0.0)
         natural_end = td.get('natural_end', True)
-        min_dur = NSF_MIN_DURATION if natural_end else 60.0
-        new_view_sec = max(min_dur, min(new_view_sec, NSF_MAX_DUR_SEC))
+        new_view_sec = max(NSF_MIN_DURATION, min(new_view_sec, NSF_MAX_DUR_SEC))
 
         if new_view_sec <= decoded_sec:
             # 短縮/既存範囲内: view_secを更新するだけ
@@ -1619,9 +1643,6 @@ class AudioEngine:
             return dur, natural_end
 
         # 延長が必要
-        if natural_end:
-            return self._nsf_mix_apply(), True
-
         if nsf._nsf_raw is None: return self._nsf_mix_apply(), False
         gme = _gme_load()
         if gme is None: return self._nsf_mix_apply(), False
@@ -1698,7 +1719,7 @@ class AudioEngine:
         with zipfile.ZipFile(path, 'r') as zf:
             all_names = sorted([n for n in zf.namelist() if n.lower().endswith('.spc')])
             if not all_names:
-                raise RuntimeError("No SPC files found in ZIP")
+                raise RuntimeError("No SPC files found in ZIP (expected SPC format)")
             spc_raws_list = []
             for n in all_names:
                 spc_raws_list.append(zf.read(n))
@@ -1749,6 +1770,86 @@ class AudioEngine:
         if scb: scb("Done")
         return dur
 
+    def _load_nsf_zip(self, path, scb=None):
+        """ZIPファイル内のNSFが1つのみの場合、一時ディレクトリに展開してNSFとして読み込む"""
+        import zipfile, tempfile, shutil
+        with zipfile.ZipFile(path, 'r') as zf:
+            nsf_names = sorted(n for n in zf.namelist()
+                               if n.lower().endswith('.nsf') or n.lower().endswith('.nsfe'))
+        if len(nsf_names) == 0:
+            raise RuntimeError("No NSF files found in ZIP")
+        if len(nsf_names) > 1:
+            raise RuntimeError(f"Multiple NSF files in ZIP ({len(nsf_names)}). Open individually.")
+        if scb: scb("Extracting NSF from ZIP...")
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            with zipfile.ZipFile(path, 'r') as zf:
+                zf.extract(nsf_names[0], tmp_dir)
+            import os as _os
+            nsf_path = _os.path.join(tmp_dir, nsf_names[0].replace('/', _os.sep).replace('\\', _os.sep))
+            return self._load_nsf(nsf_path, scb)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _load_spc_folder(self, folder_path, scb=None):
+        """フォルダ内のSPCファイルを読み込む（ZIP内と同じ処理）"""
+        import os as _os
+        gme = _gme_load()
+        if gme is None:
+            raise RuntimeError("libgme.dll not found")
+        if scb: scb("Loading folder...")
+        all_names = sorted(e for e in _os.listdir(folder_path) if e.lower().endswith('.spc'))
+        if not all_names:
+            raise RuntimeError("No SPC files found in folder")
+        spc_raws_list = []
+        for n in all_names:
+            with open(_os.path.join(folder_path, n), 'rb') as _f:
+                spc_raws_list.append(_f.read())
+        track_count = len(all_names)
+        display_names = all_names
+        if scb: scb("SPC: reading metadata...")
+        track_metas = []
+        for i, raw in enumerate(spc_raws_list):
+            m = _spc_get_meta(gme, raw)
+            track_metas.append(m)
+        if scb: scb("SPC: detecting channels (track 1)...")
+        ch_used = _spc_detect_ch_used(gme, spc_raws_list[0], scb=scb)
+        ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
+        if ch_mask == 0:
+            ch_used = [True] * SPC_CH_COUNT
+            ch_mask = (1 << SPC_CH_COUNT) - 1
+        if scb: scb("SPC: rendering track 1...")
+        wav, natural_end, actual_dur = _spc_render(
+            gme, spc_raws_list[0], ch_mask, track_metas[0]['dur_sec'], scb,
+            play_len_ms=track_metas[0].get('play_len_ms', 0))
+        spc = SpcState()
+        spc.path = folder_path
+        spc.is_zip = True
+        spc.spc_names = display_names
+        spc.track_metas = track_metas
+        spc.track_count = track_count
+        spc.cur_track = 0
+        spc.ch_active = list(ch_used)
+        spc._spc_raws = {i: raw for i, raw in enumerate(spc_raws_list)}
+        spc.track_data[0] = {
+            'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+        }
+        with self._lock:
+            self._spc = spc
+        dur = self._spc_mix_apply()
+        fh = _fhash(folder_path)
+        with self._lock:
+            self._file_hash = fh
+            self.speed = 1.0; self.semitones = 0; self.fine_semi = 0.0
+            self.position = 0; self._src_pos = 0
+            self.markers = {}; self.ab_active = False; self.ear_active = False
+            self._mem = ConvCache()
+            self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
+            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        threading.Thread(target=purge_old_cache, daemon=True).start()
+        if scb: scb("Done")
+        return dur
+
     def _load_gbs_zip(self, path, scb=None):
         """ZIPまたは単独GBSファイルを読み込む"""
         import zipfile
@@ -1761,7 +1862,7 @@ class AudioEngine:
             with zipfile.ZipFile(path, 'r') as zf:
                 gbs_names = sorted(n for n in zf.namelist() if n.lower().endswith('.gbs'))
                 if not gbs_names:
-                    raise RuntimeError("GBSファイルがZIP内に見つかりません")
+                    raise RuntimeError("No GBS files found in ZIP")
                 gbs_raw = zf.read(gbs_names[0])
                 m3u_names = sorted(n for n in zf.namelist() if n.lower().endswith('.m3u'))
                 track_metas_raw = []
@@ -1838,12 +1939,111 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
             'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-            'natural_end': natural_end, 'view_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
         }
         with self._lock:
             self._gbs = gbs
         dur = self._gbs_mix_apply()
         fh = _fhash(path)
+        with self._lock:
+            self._file_hash = fh
+            self.speed = 1.0; self.semitones = 0; self.fine_semi = 0.0
+            self.position = 0; self._src_pos = 0
+            self.markers = {}; self.ab_active = False; self.ear_active = False
+            self._mem = ConvCache()
+            self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
+            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        threading.Thread(target=purge_old_cache, daemon=True).start()
+        if scb: scb("Done")
+        return dur
+
+    def _load_gbs_folder(self, folder_path, scb=None):
+        """フォルダ内のGBSファイルを読み込む"""
+        import os as _os
+        gme = _gme_load()
+        if gme is None:
+            raise RuntimeError("libgme.dll not found")
+        if scb: scb("Loading folder...")
+        gbs_files = sorted(e for e in _os.listdir(folder_path) if e.lower().endswith('.gbs'))
+        if not gbs_files:
+            raise RuntimeError("No GBS files found in folder")
+        with open(_os.path.join(folder_path, gbs_files[0]), 'rb') as _f:
+            gbs_raw = _f.read()
+        m3u_files = sorted(e for e in _os.listdir(folder_path) if e.lower().endswith('.m3u'))
+        track_metas_raw = []
+        for m3u_name in m3u_files:
+            try:
+                with open(_os.path.join(folder_path, m3u_name), encoding='utf-8', errors='replace') as _f:
+                    content = _f.read().strip()
+                meta = parse_gbs_m3u(content)
+                if meta:
+                    track_metas_raw.append(meta)
+            except Exception:
+                pass
+        _buf = _ct.create_string_buffer(gbs_raw, len(gbs_raw))
+        emu = _ct.c_void_p()
+        err = gme.gme_open_data(_buf, len(gbs_raw), _ct.byref(emu), GBS_SR)
+        if err is not None:
+            raise RuntimeError(f"GBS load error: {err.decode(errors='replace')}")
+        try:
+            track_count = gme.gme_track_count(emu)
+            game_title = ""
+            info_p = _ct.c_void_p()
+            if gme.gme_track_info(emu, _ct.byref(info_p), 0) is None:
+                try:
+                    info = _ct.cast(info_p, _ct.POINTER(_GmeInfo)).contents
+                    game_title = (info.game or b'').decode(errors='replace').strip()
+                finally:
+                    gme.gme_free_info(info_p)
+        finally:
+            gme.gme_delete(emu)
+        meta_by_track = {m['track_idx']: m for m in track_metas_raw}
+        if not meta_by_track:
+            for i in range(track_count):
+                meta_by_track[i] = {
+                    'track_idx': i, 'title': f"Track {i+1}", 'composer': '', 'game': game_title,
+                    'duration_sec': GBS_DEFAULT_DUR_SEC, 'loop_count': 1, 'has_m3u': False,
+                }
+        meta0 = meta_by_track.get(0, {})
+        if meta0.get('has_m3u', False):
+            dur_sec, single_loop = _gbs_target_sec(meta0)
+            detect_sil = False
+        else:
+            dur_sec, single_loop, detect_sil = _gbs_compute_target_no_m3u(gme, gbs_raw, 0)
+        gme2 = _gme_load()
+        if gme2 is None:
+            raise RuntimeError("libgme.dll not found")
+        all_mask = (1 << GBS_CH_COUNT) - 1
+        if scb: scb("GBS: rendering track 1...")
+        wav, actual_dur, natural_end = _gbs_render(
+            gme2, gbs_raw, 0, all_mask, dur_sec, single_loop, detect_sil, scb)
+        if meta0.get('has_m3u', False):
+            natural_end = True
+        actual_dur = max(GBS_MIN_DUR_SEC, actual_dur)
+        gbs = GbsState()
+        gbs.path = folder_path; gbs.game = game_title
+        track_metas_list = []
+        for i in range(track_count):
+            m = meta_by_track.get(i)
+            if m:
+                track_metas_list.append(m)
+            else:
+                track_metas_list.append({
+                    'track_idx': i, 'title': f"Track {i+1}", 'composer': '', 'game': game_title,
+                    'duration_sec': GBS_DEFAULT_DUR_SEC, 'loop_count': 1, 'has_m3u': False,
+                })
+        gbs.track_count = track_count; gbs.track_metas = track_metas_list
+        gbs.cur_track = 0; gbs.ch_active = [True] * GBS_CH_COUNT
+        gbs._gbs_raw = gbs_raw
+        gbs.track_data[0] = {
+            'wav': wav, 'ch_used': [True] * GBS_CH_COUNT,
+            'ch_mask': all_mask, 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+        }
+        with self._lock:
+            self._gbs = gbs
+        dur = self._gbs_mix_apply()
+        fh = _fhash(folder_path)
         with self._lock:
             self._file_hash = fh
             self.speed = 1.0; self.semitones = 0; self.fine_semi = 0.0
@@ -1968,7 +2168,7 @@ class AudioEngine:
             gbs.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-                'natural_end': natural_end, 'view_sec': actual_dur,
+                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
             }
             self._inject_pending_session(gbs, track_idx)
 
@@ -2027,9 +2227,6 @@ class AudioEngine:
                 self._rt_gen += 1
                 self._feeder_eof = False
             return dur, natural_end
-
-        if natural_end:
-            return self._gbs_mix_apply(), True
 
         if gbs._gbs_raw is None: return self._gbs_mix_apply(), False
         gme = _gme_load()
@@ -2838,6 +3035,7 @@ class NsfPanel(QWidget):
         self._track_edit.setFixedWidth(self.S(36)); self._track_edit.setFixedHeight(self.S(22))
         self._track_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._track_edit.setReadOnly(True)
+        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
         _attach_tt(self._track_edit, "Track number\nDrag up/down or Wheel to change\n2-Click: Edit")
         self._track_edit.setStyleSheet(
@@ -2877,12 +3075,18 @@ class NsfPanel(QWidget):
         self.setStyleSheet(f"background:{BG};")
 
     def _start_edit(self):
+        self._track_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._track_edit.setCursor(Qt.CursorShape.IBeamCursor)
-        self._track_edit.setReadOnly(False); self._track_edit.selectAll()
+        self._track_edit.setReadOnly(False)
+        self._track_edit.setFocus()
+        self._track_edit.selectAll()
 
     def _commit_track(self):
         self._track_edit.setReadOnly(True)
+        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
+        top = self.window()
+        if top: top.setFocus()
         try:
             v=max(1, min(self._total, int(self._track_edit.text())))
             if v-1!=self._cur: self.track_changed.emit(v-1)
@@ -3069,6 +3273,7 @@ class SpcPanel(QWidget):
         self._track_edit.setFixedWidth(self.S(36)); self._track_edit.setFixedHeight(self.S(22))
         self._track_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._track_edit.setReadOnly(True)
+        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
         self._track_edit.setStyleSheet(
             f"QLineEdit{{color:{FG};background:{BG3};border:1px solid {BORDER};padding:0 2px;}}"
@@ -3125,12 +3330,18 @@ class SpcPanel(QWidget):
 
     # ── トラックナビゲーション ──────────────────────
     def _start_edit(self):
+        self._track_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._track_edit.setCursor(Qt.CursorShape.IBeamCursor)
-        self._track_edit.setReadOnly(False); self._track_edit.selectAll()
+        self._track_edit.setReadOnly(False)
+        self._track_edit.setFocus()
+        self._track_edit.selectAll()
 
     def _commit_track(self):
         self._track_edit.setReadOnly(True)
+        self._track_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
+        top = self.window()
+        if top: top.setFocus()
         try:
             v = max(1, min(self._total, int(self._track_edit.text())))
             if v - 1 != self._cur: self.track_changed.emit(v - 1)
@@ -3863,6 +4074,8 @@ class MainWindow(QMainWindow):
         self._nsf_dur_blink_timer.timeout.connect(self._nsf_dur_blink_tick)
         self._nsf_dur_drag_y = None
         self._nsf_dur_drag_base = None
+        self._nsf_dur_drag_initial = None
+        self._nsf_dur_drag_steps = 0
         self._nsf_extend_done_sig.connect(self._on_nsf_extend_done)
         # SPC 関連
         self._spc_loading = False
@@ -4083,7 +4296,7 @@ class MainWindow(QMainWindow):
             [None,
              ("help","Help [H]","_help_btn",self._show_help),
              ("zoom","Zoom [Z]","_zoom_btn",self._toggle_zoom)],
-            [("open","Open [O]","_open_btn",self._open),
+            [("open","Open [O] / Shift: Folder","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
              ("tempo_search","Tempo Detection [T]","_tempo_btn",self._tempo_detect),
              ("reset","Reset All [R / Shift: Clear Cache]","_reset_btn",
               lambda: self._do_cache_clear() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._do_reset())],
@@ -4231,7 +4444,7 @@ class MainWindow(QMainWindow):
         self._dur_lbl.wheelEvent        = self._dur_lbl_wheel
         self._dur_lbl.enterEvent        = self._dur_lbl_enter
         self._dur_lbl.leaveEvent        = self._dur_lbl_leave
-        self._attach_tip(self._dur_lbl, "Total time\n(NSF: Drag up/Wheel↑ to extend\nDrag down/Wheel↓ to shorten)")
+        self._attach_tip(self._dur_lbl, "Total time\n(NSF/GBS: Wheel↑/↓ or Drag to step\nR-Click: Reset to detected time)")
         self._vol_slider=QSlider(Qt.Orientation.Horizontal)
         self._vol_slider.setRange(0,200); self._vol_slider.setValue(100)
         self._vol_slider.setFixedWidth(self.S(80))
@@ -5608,6 +5821,41 @@ class MainWindow(QMainWindow):
             self._save_last_folder(folder)
             self._load(path)
 
+    def _open_folder(self):
+        import os
+        start_dir = self._load_last_folder()
+        if not start_dir or not os.path.isdir(start_dir):
+            profile = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+            start_dir = os.path.join(profile, "Music")
+        if not os.path.isdir(start_dir):
+            start_dir = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+        folder = QFileDialog.getExistingDirectory(self, "Open Folder", start_dir)
+        if folder:
+            self._last_folder = folder
+            self._save_last_folder(folder)
+            self._load_folder(folder)
+
+    def _load_folder(self, folder_path):
+        _log(f"_load_folder: path={folder_path}")
+        import os
+        prev = self.engine._file_hash
+        if prev: save_session(prev, self._get_state())
+        fname = os.path.basename(folder_path)
+        self.setWindowTitle(f"Morokoshi Time - {fname}")
+        self.engine.stop()
+        threading.Thread(target=self._load_folder_th, args=(folder_path,), daemon=True).start()
+
+    def _load_folder_th(self, folder_path):
+        _log(f"_load_folder_th: start path={folder_path}")
+        try:
+            tot = self.engine.load_folder(folder_path, self._st)
+            _log(f"_load_folder_th: loaded tot={tot}")
+            wf = self.engine.get_waveform(700)
+            session = load_session(self.engine._file_hash)
+            self._load_done_sig.emit(tot, wf, session)
+        except Exception as ex:
+            self._status_sig.emit(f"Load failed: {ex}")
+
     def _last_folder_path(self):
         import os
         return os.path.join(CACHE, "last_folder.txt")
@@ -5674,8 +5922,7 @@ class MainWindow(QMainWindow):
             self._spec_timer.stop()
             self._nsf_update_panel()
             nsf = self.engine._nsf
-            td = nsf.track_data.get(nsf.cur_track, {})
-            self._nsf_set_dur_editable(not td.get('natural_end', True))
+            self._nsf_set_dur_editable(True)
         elif is_spc:
             self._spec_timer.stop()
             self._spc_update_panel()
@@ -5683,9 +5930,7 @@ class MainWindow(QMainWindow):
         elif is_gbs:
             self._spec_timer.stop()
             self._gbs_update_panel()
-            gbs = self.engine._gbs
-            td_gbs = gbs.track_data.get(gbs.cur_track, {}) if gbs else {}
-            self._nsf_set_dur_editable(not td_gbs.get('natural_end', True))
+            self._nsf_set_dur_editable(True)
         else:
             self._spec_timer.start(40)
             self._nsf_set_dur_editable(False)
@@ -5982,8 +6227,7 @@ class MainWindow(QMainWindow):
             self._stop_ear_blink()
         self._gbs_update_panel()
         if gbs:
-            td = gbs.track_data.get(gbs.cur_track, {})
-            self._nsf_set_dur_editable(not td.get('natural_end', True))
+            self._nsf_set_dur_editable(True)
         self._st(f"GBS: Track {gbs.cur_track+1 if gbs else 1}")
 
     def _gbs_on_ch_toggle(self, ch_idx, solo, reset):
@@ -6126,8 +6370,7 @@ class MainWindow(QMainWindow):
         self._nsf_update_panel()
         nsf=self.engine._nsf
         if nsf:
-            td = nsf.track_data.get(nsf.cur_track, {})
-            self._nsf_set_dur_editable(not td.get('natural_end', True))
+            self._nsf_set_dur_editable(True)
         fname=os.path.basename(nsf.path) if nsf else ""
         trk=nsf.cur_track+1 if nsf else 0
         tot=nsf.track_count if nsf else 0
@@ -6172,38 +6415,73 @@ class MainWindow(QMainWindow):
     def _dur_lbl_leave(self, e):
         self._dur_lbl.unsetCursor()
 
+    def _dur_step_list(self, initial_sec):
+        """総再生時間ステップリストを返す（初期検出時間を含む）"""
+        import bisect
+        base = [10, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]
+        rounded = round(initial_sec, 1)
+        if rounded not in base and 10 <= rounded <= 900:
+            steps = list(base)
+            bisect.insort(steps, rounded)
+            return steps
+        return list(base)
+
+    def _dur_step_navigate(self, initial_sec, cur_sec, direction):
+        """ステップリスト内で現在値から上下に移動した値を返す"""
+        steps = self._dur_step_list(initial_sec)
+        if direction > 0:
+            for s in steps:
+                if s > cur_sec + 0.5:
+                    return s
+            return steps[-1]
+        else:
+            for s in reversed(steps):
+                if s < cur_sec - 0.5:
+                    return s
+            return steps[0]
+
     def _dur_lbl_press(self, e):
         if not self._nsf_dur_editable: return
+        nsf = self.engine._nsf
+        gbs = self.engine._gbs
+        if e.button() == Qt.MouseButton.RightButton:
+            if nsf:
+                td = nsf.track_data.get(nsf.cur_track, {})
+                initial = td.get('initial_sec', NSF_DEFAULT_DUR_SEC)
+                self._nsf_start_extend(nsf.cur_track, initial)
+            elif gbs:
+                td = gbs.track_data.get(gbs.cur_track, {})
+                initial = td.get('initial_sec', GBS_DEFAULT_DUR_SEC)
+                self._gbs_start_extend(gbs.cur_track, initial)
+            return
         if e.button() == Qt.MouseButton.LeftButton:
             self._nsf_dur_drag_y = e.position().y()
-            nsf = self.engine._nsf
-            gbs = self.engine._gbs
+            self._nsf_dur_drag_steps = 0
             if nsf:
                 td = nsf.track_data.get(nsf.cur_track, {})
                 self._nsf_dur_drag_base = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
+                self._nsf_dur_drag_initial = td.get('initial_sec', NSF_DEFAULT_DUR_SEC)
             elif gbs:
                 td = gbs.track_data.get(gbs.cur_track, {})
                 self._nsf_dur_drag_base = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
+                self._nsf_dur_drag_initial = td.get('initial_sec', GBS_DEFAULT_DUR_SEC)
+            else:
+                self._nsf_dur_drag_base = None
+                self._nsf_dur_drag_initial = None
 
     def _dur_lbl_move(self, e):
         if not self._nsf_dur_editable: return
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
         if self._nsf_dur_drag_y is None or self._nsf_dur_drag_base is None: return
+        if self._nsf_dur_drag_initial is None: return
         dy = self._nsf_dur_drag_y - e.position().y()
         steps = int(dy // 20)
-        if steps == 0: return
-        nsf = self.engine._nsf
-        gbs = self.engine._gbs
-        if nsf:
-            ext_step = NSF_EXT_STEP_SEC; min_dur = NSF_MIN_DURATION; max_dur = NSF_MAX_DUR_SEC
-        elif gbs:
-            ext_step = GBS_EXT_STEP_SEC; min_dur = GBS_MIN_DUR_SEC; max_dur = GBS_MAX_DUR_SEC
-        else:
-            return
-        new_sec = self._nsf_dur_drag_base + steps * ext_step
-        new_sec = max(min_dur, min(max_dur, new_sec))
-        # ラベルをプレビュー更新（実際の延長はリリース時）
-        self._dur_lbl.setText(self._fmt(new_sec))
+        if steps == self._nsf_dur_drag_steps: return
+        self._nsf_dur_drag_steps = steps
+        cur = self._nsf_dur_drag_base
+        for _ in range(abs(steps)):
+            cur = self._dur_step_navigate(self._nsf_dur_drag_initial, cur, 1 if steps > 0 else -1)
+        self._dur_lbl.setText(self._fmt(cur))
 
     def _dur_lbl_release(self, e):
         if not self._nsf_dur_editable: return
@@ -6211,7 +6489,10 @@ class MainWindow(QMainWindow):
         if self._nsf_dur_drag_y is None or self._nsf_dur_drag_base is None: return
         dy = self._nsf_dur_drag_y - e.position().y()
         steps = int(dy // 20)
+        drag_base = self._nsf_dur_drag_base
+        drag_initial = self._nsf_dur_drag_initial
         self._nsf_dur_drag_y = None; self._nsf_dur_drag_base = None
+        self._nsf_dur_drag_initial = None; self._nsf_dur_drag_steps = 0
         nsf = self.engine._nsf
         gbs = self.engine._gbs
         if steps == 0:
@@ -6222,17 +6503,16 @@ class MainWindow(QMainWindow):
                 td = gbs.track_data.get(gbs.cur_track, {})
                 self._dur_lbl.setText(self._fmt(td.get('view_sec', GBS_DEFAULT_DUR_SEC)))
             return
+        if drag_base is None or drag_initial is None: return
+        cur = drag_base
+        for _ in range(abs(steps)):
+            cur = self._dur_step_navigate(drag_initial, cur, 1 if steps > 0 else -1)
+        new_sec = cur
         if nsf:
             if self._nsf_loading: return
-            td = nsf.track_data.get(nsf.cur_track, {})
-            base = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
-            new_sec = max(NSF_MIN_DURATION, min(NSF_MAX_DUR_SEC, base + steps * NSF_EXT_STEP_SEC))
             self._nsf_start_extend(nsf.cur_track, new_sec)
         elif gbs:
             if self._gbs_loading: return
-            td = gbs.track_data.get(gbs.cur_track, {})
-            base = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
-            new_sec = max(GBS_MIN_DUR_SEC, min(GBS_MAX_DUR_SEC, base + steps * GBS_EXT_STEP_SEC))
             self._gbs_start_extend(gbs.cur_track, new_sec)
 
     def _dur_lbl_wheel(self, e):
@@ -6243,18 +6523,18 @@ class MainWindow(QMainWindow):
         gbs = self.engine._gbs
         if nsf:
             if self._nsf_loading: return
-            step = NSF_EXT_STEP_SEC if delta > 0 else -NSF_EXT_STEP_SEC
             td = nsf.track_data.get(nsf.cur_track, {})
             cur = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
-            new_sec = max(NSF_MIN_DURATION, min(NSF_MAX_DUR_SEC, cur + step))
+            initial = td.get('initial_sec', NSF_DEFAULT_DUR_SEC)
+            new_sec = self._dur_step_navigate(initial, cur, 1 if delta > 0 else -1)
             if new_sec == cur: return
             self._nsf_start_extend(nsf.cur_track, new_sec)
         elif gbs:
             if self._gbs_loading: return
-            step = GBS_EXT_STEP_SEC if delta > 0 else -GBS_EXT_STEP_SEC
             td = gbs.track_data.get(gbs.cur_track, {})
             cur = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
-            new_sec = max(GBS_MIN_DUR_SEC, min(GBS_MAX_DUR_SEC, cur + step))
+            initial = td.get('initial_sec', GBS_DEFAULT_DUR_SEC)
+            new_sec = self._dur_step_navigate(initial, cur, 1 if delta > 0 else -1)
             if new_sec == cur: return
             self._gbs_start_extend(gbs.cur_track, new_sec)
 
@@ -6304,8 +6584,6 @@ class MainWindow(QMainWindow):
         self._waveform.set_total(dur)
         self._waveform.update(); self._sync_wf_scroll()
         self._dur_lbl.setText(self._fmt(dur))
-        if natural_end:
-            self._nsf_set_dur_editable(False)
         gbs = self.engine._gbs
         if gbs:
             td = gbs.track_data.get(gbs.cur_track)
@@ -6342,8 +6620,6 @@ class MainWindow(QMainWindow):
         # 延長後はズームを保持（reset_view()しない）
         self._waveform.update(); self._sync_wf_scroll()
         self._dur_lbl.setText(self._fmt(dur))
-        if natural_end:
-            self._nsf_set_dur_editable(False)
         nsf = self.engine._nsf
         if nsf:
             td = nsf.track_data.get(nsf.cur_track)
@@ -6685,6 +6961,12 @@ class MainWindow(QMainWindow):
             if vk==66: self._tap_set_marker(11); return True  # Shift+B → B をSet
             if key==K.Key_4: self._tap_set_marker(10); return True  # Shift+テンキー4 → A をSet
             if key==K.Key_6: self._tap_set_marker(11); return True  # Shift+テンキー6 → B をSet
+            if vk==79:  # Shift+O → フォルダオープン
+                try: self._open_folder()
+                finally:
+                    _b=getattr(self,"_open_btn",None)
+                    if _b is not None: self._flash_off(_b)
+                return True
             if vk==82:  # Shift+R → キャッシュクリア（キャンセル時もアイコンを戻す）
                 try: self._do_cache_clear()
                 finally:
@@ -6857,10 +7139,17 @@ class MainWindow(QMainWindow):
                     self._goto_marker(11)
                 return True
             if key==K.Key_7:
-                try: self._open()
-                finally:
-                    _b=getattr(self,"_open_btn",None)
-                    if _b is not None: self._flash_off(_b)
+                if enter_recent:
+                    self._kp_enter_time=0.0
+                    try: self._open_folder()
+                    finally:
+                        _b=getattr(self,"_open_btn",None)
+                        if _b is not None: self._flash_off(_b)
+                else:
+                    try: self._open()
+                    finally:
+                        _b=getattr(self,"_open_btn",None)
+                        if _b is not None: self._flash_off(_b)
                 return True
             if key==K.Key_8: self._tempo_detect(); return True
             if key==K.Key_9:
