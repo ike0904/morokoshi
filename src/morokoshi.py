@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.6"
-import sys, os, time, hashlib, json, tempfile, subprocess, copy
+APP_VERSION = "v1.5.7"
+import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
 
@@ -792,10 +792,31 @@ SPC_SILENCE_DUR_SEC = 5.0
 SPC_MAX_DUR_SEC     = 600.0
 SPC_SILENCE_THRESH  = 32.0 / 32768.0
 
+# ════════════════════════════════════════════════════════════════
+# 【楽曲タイミング共通ルール】全ゲーム機共通
+#
+#  1. ループなし・終了時間が明確な楽曲
+#     → その時間で終了する。最低 GBS_MIN_DUR_SEC（10秒）を保証。
+#
+#  2. ループする楽曲
+#     → 基本２周ループで終了する。
+#     → ２周が 10秒未満の場合は 10秒を超えるまでループを延長する。
+#
+#  3. ループ・曲時間が検出できない楽曲（ファミコン等）
+#     → まず１分だけロードし、総時間を赤点滅で表示する。
+#     → ユーザーが総時間を変更したら、その長さで楽曲の続きをロードする。
+#     → 全ch 5秒以上の連続無音を検出したら楽曲終了とみなし、
+#        赤点滅を解除して総時間の変更を不可にする。
+#
+#  ★ 最低 10秒ルールはすべてのケースに適用される。
+#     短い楽曲でも無音パディングを加えて 10秒以上にする。
+# ════════════════════════════════════════════════════════════════
+
 # GBS (Game Boy Sound System) 対応
 GBS_SR              = 44100
 GBS_CH_COUNT        = 4
 GBS_DEFAULT_DUR_SEC = 60.0
+GBS_MIN_DUR_SEC     = 10.0    # 楽曲最低再生時間（秒）
 GBS_SILENCE_THRESH  = 32.0 / 32768.0
 GBS_CH_NAMES        = ['1', '2', '3', '4']
 
@@ -970,6 +991,22 @@ def parse_gbs_m3u(content: str):
             'game': game, 'duration_sec': duration_sec, 'loop_count': loop_count}
 
 
+def _gbs_target_sec(meta):
+    """m3uメタデータからGBSのレンダリング目標時間と1ループ時間を計算する。
+    戻り値: (target_sec, single_loop_sec or None)"""
+    duration_sec = meta.get('duration_sec', GBS_DEFAULT_DUR_SEC)
+    loop_count   = meta.get('loop_count', 1)
+    if loop_count <= 1:
+        # ループなし: そのまま再生、最低 GBS_MIN_DUR_SEC 秒
+        return max(GBS_MIN_DUR_SEC, duration_sec), None
+    # ループあり: 2周、最低 GBS_MIN_DUR_SEC 秒
+    single = duration_sec / loop_count
+    if single <= 0:
+        return GBS_MIN_DUR_SEC, None
+    n = max(2, math.ceil(GBS_MIN_DUR_SEC / single))
+    return max(GBS_MIN_DUR_SEC, single * n), single
+
+
 def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
     """GBSの各chが音を出すか判定（mute-after方式）。戻り値: list[bool]"""
     ch_used = []; CHUNK = 735; target_s = int(detect_sec * GBS_SR)
@@ -1004,36 +1041,53 @@ def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
     return ch_used
 
 
-def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, scb=None):
-    """指定マスクでGBSを1パスレンダリング。戻り値: (float32 mono array, actual_dur_sec)"""
+def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_sec=None, scb=None):
+    """指定マスクでGBSをレンダリング（ループ折り返し対応）。
+    戻り値: (float32 mono array, actual_dur_sec)"""
     if dur_sec is None: dur_sec = GBS_DEFAULT_DUR_SEC
     CHUNK = 735; target_s = int(dur_sec * GBS_SR)
-    _buf = _ct.create_string_buffer(gbs_raw, len(gbs_raw))
-    emu = _ct.c_void_p()
-    err = gme_lib.gme_open_data(_buf, len(gbs_raw), _ct.byref(emu), GBS_SR)
-    if err is not None:
-        return np.zeros(target_s, dtype=np.float32), dur_sec
-    err2 = gme_lib.gme_start_track(emu, track_idx)
-    if err2 is not None:
+
+    def _one_pass(stop_s):
+        """1パスレンダリング。(arr_int16, ended_early)を返す"""
+        _buf = _ct.create_string_buffer(gbs_raw, len(gbs_raw))
+        emu = _ct.c_void_p()
+        if gme_lib.gme_open_data(_buf, len(gbs_raw), _ct.byref(emu), GBS_SR) is not None:
+            return np.zeros(0, dtype=np.int16), True
+        if gme_lib.gme_start_track(emu, track_idx) is not None:
+            gme_lib.gme_delete(emu)
+            return np.zeros(0, dtype=np.int16), True
+        for i in range(GBS_CH_COUNT):
+            gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
+        buf16 = (_ct.c_int16 * (CHUNK * 2))()
+        segs = []; rendered = 0; ended = False
+        while rendered < stop_s:
+            if gme_lib.gme_play(emu, CHUNK * 2, buf16) is not None:
+                ended = True; break
+            mono = np.frombuffer(bytes(buf16), dtype=np.int16)[::2].copy()
+            need = stop_s - rendered
+            if len(mono) > need: mono = mono[:need]
+            segs.append(mono); rendered += len(mono)
         gme_lib.gme_delete(emu)
-        return np.zeros(target_s, dtype=np.float32), dur_sec
-    for i in range(GBS_CH_COUNT):
-        gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-    buf16 = (_ct.c_int16 * (CHUNK * 2))()
-    samples = []; rendered = 0
-    while rendered < target_s:
-        if gme_lib.gme_play(emu, CHUNK * 2, buf16) is not None: break
-        mono = np.frombuffer(bytes(buf16), dtype=np.int16)[::2].copy()
-        need = target_s - rendered
-        if len(mono) > need: mono = mono[:need]
-        samples.append(mono); rendered += len(mono)
-    gme_lib.gme_delete(emu)
-    if rendered < target_s:
-        samples.append(np.zeros(target_s - rendered, dtype=np.int16))
-    arr = (np.concatenate(samples)[:target_s] if samples else np.zeros(target_s, dtype=np.int16))
-    arr_f = arr.astype(np.float32) / 32768.0
+        arr = np.concatenate(segs) if segs else np.zeros(0, dtype=np.int16)
+        return arr, ended or rendered < stop_s
+
+    arr, ended_early = _one_pass(target_s)
+
+    # libgmeが早期終了 & 1ループ時間が判明している場合はタイル繰り返し
+    if ended_early and single_loop_sec and single_loop_sec > 0 and len(arr) > 0:
+        one_loop_s = int(single_loop_sec * GBS_SR)
+        if 0 < one_loop_s <= len(arr):
+            one_loop = arr[:one_loop_s]
+            n = math.ceil(target_s / one_loop_s) + 1
+            arr = np.tile(one_loop, n)[:target_s]
+            ended_early = False
+
+    # 不足分をゼロ埋め（最低 GBS_MIN_DUR_SEC 秒保証は呼び出し側で保証済み）
+    if len(arr) < target_s:
+        arr = np.concatenate([arr, np.zeros(target_s - len(arr), dtype=np.int16)])
+    arr_f = arr[:target_s].astype(np.float32) / 32768.0
     actual_dur_sec = len(arr_f) / GBS_SR
-    _log(f"GBS render: mask={ch_mask:#b} dur={actual_dur_sec:.1f}s")
+    _log(f"GBS render: mask={ch_mask:#b} dur={actual_dur_sec:.1f}s single_loop={single_loop_sec}")
     return arr_f, actual_dur_sec
 
 
@@ -1712,9 +1766,9 @@ class AudioEngine:
         if ch_mask == 0:
             ch_used = [True] * GBS_CH_COUNT
             ch_mask = (1 << GBS_CH_COUNT) - 1
-        dur_sec = track_metas[0]['duration_sec'] if track_metas else GBS_DEFAULT_DUR_SEC
+        dur_sec, single_loop = _gbs_target_sec(track_metas[0]) if track_metas else (GBS_DEFAULT_DUR_SEC, None)
         if scb: scb("GBS: rendering track 1...")
-        wav, actual_dur = _gbs_render(gme, gbs_raw, 0, ch_mask, dur_sec, scb)
+        wav, actual_dur = _gbs_render(gme, gbs_raw, 0, ch_mask, dur_sec, single_loop, scb)
 
         gbs = GbsState()
         gbs.path = path; gbs.game = game_title
@@ -1722,7 +1776,8 @@ class AudioEngine:
         gbs.cur_track = 0; gbs.ch_active = list(ch_used)
         gbs._gbs_raw = gbs_raw
         gbs.track_data[0] = {
-            'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+            'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
+            'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
         }
         with self._lock:
             self._gbs = gbs
@@ -1839,11 +1894,12 @@ class AudioEngine:
                 ch_used = [True] * GBS_CH_COUNT
                 ch_mask = (1 << GBS_CH_COUNT) - 1
             meta_t = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
-            dur_sec = meta_t.get('duration_sec', GBS_DEFAULT_DUR_SEC)
+            dur_sec, single_loop = _gbs_target_sec(meta_t)
             if scb: scb(f"GBS: rendering track {track_idx+1}...")
-            wav, actual_dur = _gbs_render(gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, scb)
+            wav, actual_dur = _gbs_render(gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, single_loop, scb)
             gbs.track_data[track_idx] = {
-                'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+                'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
+                'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
             }
             self._inject_pending_session(gbs, track_idx)
 
@@ -1858,9 +1914,9 @@ class AudioEngine:
             if gme2:
                 if scb: scb(f"GBS: re-rendering with session channels...")
                 meta_t2 = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
+                dur_sec2, sl2 = _gbs_target_sec(meta_t2)
                 new_wav, new_dur = _gbs_render(
-                    gme2, gbs._gbs_raw, track_idx, target_ch_mask,
-                    meta_t2.get('duration_sec', GBS_DEFAULT_DUR_SEC), scb)
+                    gme2, gbs._gbs_raw, track_idx, target_ch_mask, dur_sec2, sl2, scb)
                 td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
                 td['decoded_sec'] = new_dur
 
@@ -5825,12 +5881,14 @@ class MainWindow(QMainWindow):
         gbs_raw = gbs._gbs_raw if gbs else None
         if gbs_raw is None:
             self._gbs_ch_rendering = False; return
+        td = gbs.track_data.get(track_idx) if gbs else None
+        single_loop_sec = td.get('single_loop_sec') if td else None
         def do_render():
             try:
                 gme = _gme_load()
                 if gme is None:
                     self._gbs_ch_rendering = False; return
-                wav, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec)
+                wav, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec)
                 self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx)
             except Exception as ex:
                 self._gbs_ch_rendering = False
