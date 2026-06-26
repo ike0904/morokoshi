@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.7"
+APP_VERSION = "v1.5.8"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -817,6 +817,9 @@ GBS_SR              = 44100
 GBS_CH_COUNT        = 4
 GBS_DEFAULT_DUR_SEC = 60.0
 GBS_MIN_DUR_SEC     = 10.0    # 楽曲最低再生時間（秒）
+GBS_SILENCE_DUR_SEC = 5.0     # 自然終了判定：最後N秒が無音
+GBS_EXT_STEP_SEC    = 30.0    # 手動延長ステップ（秒）
+GBS_MAX_DUR_SEC     = 600.0   # 手動延長上限（秒）
 GBS_SILENCE_THRESH  = 32.0 / 32768.0
 GBS_CH_NAMES        = ['1', '2', '3', '4']
 
@@ -988,7 +991,7 @@ def parse_gbs_m3u(content: str):
         try: loop_count = int(fields[4].strip())
         except ValueError: pass
     return {'track_idx': track_idx, 'title': title, 'composer': composer,
-            'game': game, 'duration_sec': duration_sec, 'loop_count': loop_count}
+            'game': game, 'duration_sec': duration_sec, 'loop_count': loop_count, 'has_m3u': True}
 
 
 def _gbs_target_sec(meta):
@@ -999,12 +1002,47 @@ def _gbs_target_sec(meta):
     if loop_count <= 1:
         # ループなし: そのまま再生、最低 GBS_MIN_DUR_SEC 秒
         return max(GBS_MIN_DUR_SEC, duration_sec), None
-    # ループあり: 2周、最低 GBS_MIN_DUR_SEC 秒
-    single = duration_sec / loop_count
+    # ループあり: m3uのduration_secは1ループ分。2周、最低 GBS_MIN_DUR_SEC 秒
+    single = duration_sec  # duration_sec IS one full loop in m3u format
     if single <= 0:
         return GBS_MIN_DUR_SEC, None
     n = max(2, math.ceil(GBS_MIN_DUR_SEC / single))
     return max(GBS_MIN_DUR_SEC, single * n), single
+
+
+def _gbs_get_loop_info(gme_lib, gbs_raw, track_idx):
+    """libgmeからGBSトラックのイントロ・ループ・総再生時間（ms）を取得する。
+    戻り値: (intro_ms, loop_ms, play_ms)"""
+    _buf = _ct.create_string_buffer(gbs_raw, len(gbs_raw))
+    emu = _ct.c_void_p()
+    if gme_lib.gme_open_data(_buf, len(gbs_raw), _ct.byref(emu), GBS_SR) is not None:
+        return 0, 0, 0
+    intro_ms = loop_ms = play_ms = 0
+    info_p = _ct.c_void_p()
+    if gme_lib.gme_track_info(emu, _ct.byref(info_p), track_idx) is None:
+        try:
+            info = _ct.cast(info_p, _ct.POINTER(_GmeInfo)).contents
+            intro_ms = max(0, info.intro_length or 0)
+            loop_ms  = max(0, info.loop_length  or 0)
+            play_ms  = max(0, info.play_length  or 0)
+        finally:
+            gme_lib.gme_free_info(info_p)
+    gme_lib.gme_delete(emu)
+    _log(f"GBS loop_info track={track_idx}: intro={intro_ms}ms loop={loop_ms}ms play={play_ms}ms")
+    return intro_ms, loop_ms, play_ms
+
+
+def _gbs_compute_target_no_m3u(gme_lib, gbs_raw, track_idx):
+    """m3u未収録GBSトラックのlibgme情報からレンダリング目標時間を計算する。
+    戻り値: (target_sec, single_loop_sec or None, detect_silence)"""
+    intro_ms, loop_ms, play_ms = _gbs_get_loop_info(gme_lib, gbs_raw, track_idx)
+    if loop_ms > 0:
+        intro_s = intro_ms / 1000.0
+        loop_s  = loop_ms  / 1000.0
+        return max(GBS_MIN_DUR_SEC, intro_s + loop_s * 2), loop_s, False
+    if play_ms > 0:
+        return max(GBS_MIN_DUR_SEC, play_ms / 1000.0), None, True
+    return GBS_DEFAULT_DUR_SEC, None, True
 
 
 def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
@@ -1041,9 +1079,10 @@ def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
     return ch_used
 
 
-def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_sec=None, scb=None):
+def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_sec=None,
+                detect_silence=False, scb=None):
     """指定マスクでGBSをレンダリング（ループ折り返し対応）。
-    戻り値: (float32 mono array, actual_dur_sec)"""
+    戻り値: (float32 mono array, actual_dur_sec, natural_end)"""
     if dur_sec is None: dur_sec = GBS_DEFAULT_DUR_SEC
     CHUNK = 735; target_s = int(dur_sec * GBS_SR)
 
@@ -1086,9 +1125,23 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
     if len(arr) < target_s:
         arr = np.concatenate([arr, np.zeros(target_s - len(arr), dtype=np.int16)])
     arr_f = arr[:target_s].astype(np.float32) / 32768.0
+
+    # 無音検出（detect_silence=True のとき）
+    natural_end = False
+    if detect_silence:
+        sil_s = int(GBS_SILENCE_DUR_SEC * GBS_SR)
+        sil_start = len(arr_f) - sil_s
+        if (sil_start >= 0 and sil_s > 0 and
+                float(np.max(np.abs(arr_f[sil_start:]))) < GBS_SILENCE_THRESH):
+            natural_end = True
+            nz = np.where(np.abs(arr_f) > GBS_SILENCE_THRESH)[0]
+            min_s = int(GBS_MIN_DUR_SEC * GBS_SR)
+            music_end = (min(len(arr_f), nz[-1] + int(0.5 * GBS_SR)) if len(nz) > 0 else min_s)
+            arr_f = arr_f[:max(min_s, music_end)]
+
     actual_dur_sec = len(arr_f) / GBS_SR
-    _log(f"GBS render: mask={ch_mask:#b} dur={actual_dur_sec:.1f}s single_loop={single_loop_sec}")
-    return arr_f, actual_dur_sec
+    _log(f"GBS render: mask={ch_mask:#b} dur={actual_dur_sec:.1f}s natural_end={natural_end}")
+    return arr_f, actual_dur_sec, natural_end
 
 
 class SpcState:
@@ -1756,7 +1809,7 @@ class AudioEngine:
                 track_metas.append({
                     'track_idx': i, 'title': f"Track {i+1}",
                     'composer': '', 'game': game_title,
-                    'duration_sec': GBS_DEFAULT_DUR_SEC, 'loop_count': 1,
+                    'duration_sec': GBS_DEFAULT_DUR_SEC, 'loop_count': 1, 'has_m3u': False,
                 })
 
         # トラック0をデコード
@@ -1766,9 +1819,15 @@ class AudioEngine:
         if ch_mask == 0:
             ch_used = [True] * GBS_CH_COUNT
             ch_mask = (1 << GBS_CH_COUNT) - 1
-        dur_sec, single_loop = _gbs_target_sec(track_metas[0]) if track_metas else (GBS_DEFAULT_DUR_SEC, None)
+        meta0 = track_metas[0] if track_metas else {}
+        if meta0.get('has_m3u', False):
+            dur_sec, single_loop = _gbs_target_sec(meta0)
+            detect_sil = False
+        else:
+            dur_sec, single_loop, detect_sil = _gbs_compute_target_no_m3u(gme, gbs_raw, 0)
         if scb: scb("GBS: rendering track 1...")
-        wav, actual_dur = _gbs_render(gme, gbs_raw, 0, ch_mask, dur_sec, single_loop, scb)
+        wav, actual_dur, natural_end = _gbs_render(
+            gme, gbs_raw, 0, ch_mask, dur_sec, single_loop, detect_sil, scb)
 
         gbs = GbsState()
         gbs.path = path; gbs.game = game_title
@@ -1778,6 +1837,7 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
             'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
+            'natural_end': natural_end, 'view_sec': actual_dur,
         }
         with self._lock:
             self._gbs = gbs
@@ -1894,12 +1954,18 @@ class AudioEngine:
                 ch_used = [True] * GBS_CH_COUNT
                 ch_mask = (1 << GBS_CH_COUNT) - 1
             meta_t = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
-            dur_sec, single_loop = _gbs_target_sec(meta_t)
+            if meta_t.get('has_m3u', False):
+                dur_sec, single_loop = _gbs_target_sec(meta_t)
+                detect_sil = False
+            else:
+                dur_sec, single_loop, detect_sil = _gbs_compute_target_no_m3u(gme, gbs._gbs_raw, track_idx)
             if scb: scb(f"GBS: rendering track {track_idx+1}...")
-            wav, actual_dur = _gbs_render(gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, single_loop, scb)
+            wav, actual_dur, natural_end = _gbs_render(
+                gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, single_loop, detect_sil, scb)
             gbs.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
+                'natural_end': natural_end, 'view_sec': actual_dur,
             }
             self._inject_pending_session(gbs, track_idx)
 
@@ -1914,11 +1980,15 @@ class AudioEngine:
             if gme2:
                 if scb: scb(f"GBS: re-rendering with session channels...")
                 meta_t2 = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
-                dur_sec2, sl2 = _gbs_target_sec(meta_t2)
-                new_wav, new_dur = _gbs_render(
-                    gme2, gbs._gbs_raw, track_idx, target_ch_mask, dur_sec2, sl2, scb)
+                if meta_t2.get('has_m3u', False):
+                    dur_sec2, sl2 = _gbs_target_sec(meta_t2)
+                    detect_sil2 = False
+                else:
+                    dur_sec2, sl2, detect_sil2 = _gbs_compute_target_no_m3u(gme2, gbs._gbs_raw, track_idx)
+                new_wav, new_dur, new_nat = _gbs_render(
+                    gme2, gbs._gbs_raw, track_idx, target_ch_mask, dur_sec2, sl2, detect_sil2, scb)
                 td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
-                td['decoded_sec'] = new_dur
+                td['decoded_sec'] = new_dur; td['natural_end'] = new_nat; td['view_sec'] = new_dur
 
         self.stop()
         self._mem = ConvCache()
@@ -1929,6 +1999,50 @@ class AudioEngine:
             self._src_pos     = restore_s
             self._played_orig = restore_s
         return dur
+
+    def gbs_extend_track(self, track_idx, new_view_sec, scb=None):
+        """GBSトラックの再生時間を変更する。戻り値: (dur, natural_end)"""
+        gbs = self._gbs
+        if gbs is None or track_idx not in gbs.track_data: return 0.0, True
+        td = gbs.track_data[track_idx]
+        decoded_sec   = td.get('decoded_sec', 0.0)
+        natural_end   = td.get('natural_end', True)
+        new_view_sec  = max(GBS_MIN_DUR_SEC, min(new_view_sec, GBS_MAX_DUR_SEC))
+
+        if new_view_sec <= decoded_sec:
+            td['view_sec'] = new_view_sec
+            dur = self._gbs_mix_apply()
+            with self._rt_lock:
+                new_len = len(self.data) if self.data is not None else 1
+                spd = self.speed if self.speed > 0 else 1.0
+                buf_keep = max(0, int((new_len - self._played_orig) / spd))
+                if len(self._out_buf) > buf_keep:
+                    self._out_buf = self._out_buf[:buf_keep]
+                self._src_pos = min(self._src_pos, new_len)
+                self._rt_gen += 1
+                self._feeder_eof = False
+            return dur, natural_end
+
+        if natural_end:
+            return self._gbs_mix_apply(), True
+
+        if gbs._gbs_raw is None: return self._gbs_mix_apply(), False
+        gme = _gme_load()
+        if gme is None: return self._gbs_mix_apply(), False
+
+        ch_mask     = td.get('ch_mask', (1 << GBS_CH_COUNT) - 1)
+        single_loop = td.get('single_loop_sec')
+        if scb: scb(f"GBS: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
+        new_wav, new_dur, new_nat = _gbs_render(
+            gme, gbs._gbs_raw, track_idx, ch_mask, new_view_sec, single_loop,
+            detect_silence=True, scb=scb)
+        td['wav']         = new_wav
+        td['decoded_sec'] = new_dur
+        td['view_sec']    = new_dur
+        td['natural_end'] = new_nat
+        self._mem = ConvCache()
+        dur = self._gbs_mix_apply()
+        return dur, new_nat
 
     def _request_conv(self, spd, semi, scb, fast=False, resume=True):
         if self.data is None: return
@@ -3712,6 +3826,7 @@ class MainWindow(QMainWindow):
     _spc_track_done_sig = pyqtSignal(float, object)        # dur, waveform
     _spc_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
     _gbs_track_done_sig = pyqtSignal(float, object)        # dur, waveform
+    _gbs_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
     _gbs_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
 
     def __init__(self):
@@ -3755,6 +3870,7 @@ class MainWindow(QMainWindow):
         self._gbs_ch_rendering = False
         self._gbs_wf_views = {}
         self._gbs_track_done_sig.connect(self._on_gbs_track_done)
+        self._gbs_extend_done_sig.connect(self._on_gbs_extend_done)
         self._gbs_ch_render_done_sig.connect(self._on_gbs_ch_render_done)
         self._tick_sig.connect(self._on_tick)
         self._status_sig.connect(lambda m: self._msg.setText(m))
@@ -5562,7 +5678,9 @@ class MainWindow(QMainWindow):
         elif is_gbs:
             self._spec_timer.stop()
             self._gbs_update_panel()
-            self._nsf_set_dur_editable(False)
+            gbs = self.engine._gbs
+            td_gbs = gbs.track_data.get(gbs.cur_track, {}) if gbs else {}
+            self._nsf_set_dur_editable(not td_gbs.get('natural_end', True))
         else:
             self._spec_timer.start(40)
             self._nsf_set_dur_editable(False)
@@ -5858,6 +5976,9 @@ class MainWindow(QMainWindow):
             self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG))
             self._stop_ear_blink()
         self._gbs_update_panel()
+        if gbs:
+            td = gbs.track_data.get(gbs.cur_track, {})
+            self._nsf_set_dur_editable(not td.get('natural_end', True))
         self._st(f"GBS: Track {gbs.cur_track+1 if gbs else 1}")
 
     def _gbs_on_ch_toggle(self, ch_idx, solo, reset):
@@ -5888,7 +6009,7 @@ class MainWindow(QMainWindow):
                 gme = _gme_load()
                 if gme is None:
                     self._gbs_ch_rendering = False; return
-                wav, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec)
+                wav, _, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec)
                 self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx)
             except Exception as ex:
                 self._gbs_ch_rendering = False
@@ -6049,11 +6170,15 @@ class MainWindow(QMainWindow):
     def _dur_lbl_press(self, e):
         if not self._nsf_dur_editable: return
         if e.button() == Qt.MouseButton.LeftButton:
-            self._nsf_dur_drag_y    = e.position().y()
+            self._nsf_dur_drag_y = e.position().y()
             nsf = self.engine._nsf
+            gbs = self.engine._gbs
             if nsf:
                 td = nsf.track_data.get(nsf.cur_track, {})
                 self._nsf_dur_drag_base = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
+            elif gbs:
+                td = gbs.track_data.get(gbs.cur_track, {})
+                self._nsf_dur_drag_base = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
 
     def _dur_lbl_move(self, e):
         if not self._nsf_dur_editable: return
@@ -6063,11 +6188,15 @@ class MainWindow(QMainWindow):
         steps = int(dy // 20)
         if steps == 0: return
         nsf = self.engine._nsf
-        if nsf is None: return
-        td = nsf.track_data.get(nsf.cur_track, {})
-        decoded = td.get('decoded_sec', NSF_DEFAULT_DUR_SEC)
-        new_sec = self._nsf_dur_drag_base + steps * NSF_EXT_STEP_SEC
-        new_sec = max(NSF_MIN_DURATION, min(NSF_MAX_DUR_SEC, new_sec))
+        gbs = self.engine._gbs
+        if nsf:
+            ext_step = NSF_EXT_STEP_SEC; min_dur = NSF_MIN_DURATION; max_dur = NSF_MAX_DUR_SEC
+        elif gbs:
+            ext_step = GBS_EXT_STEP_SEC; min_dur = GBS_MIN_DUR_SEC; max_dur = GBS_MAX_DUR_SEC
+        else:
+            return
+        new_sec = self._nsf_dur_drag_base + steps * ext_step
+        new_sec = max(min_dur, min(max_dur, new_sec))
         # ラベルをプレビュー更新（実際の延長はリリース時）
         self._dur_lbl.setText(self._fmt(new_sec))
 
@@ -6078,33 +6207,51 @@ class MainWindow(QMainWindow):
         dy = self._nsf_dur_drag_y - e.position().y()
         steps = int(dy // 20)
         self._nsf_dur_drag_y = None; self._nsf_dur_drag_base = None
+        nsf = self.engine._nsf
+        gbs = self.engine._gbs
         if steps == 0:
-            # 元の値に戻す
-            nsf = self.engine._nsf
             if nsf:
                 td = nsf.track_data.get(nsf.cur_track, {})
                 self._dur_lbl.setText(self._fmt(td.get('view_sec', NSF_DEFAULT_DUR_SEC)))
+            elif gbs:
+                td = gbs.track_data.get(gbs.cur_track, {})
+                self._dur_lbl.setText(self._fmt(td.get('view_sec', GBS_DEFAULT_DUR_SEC)))
             return
-        nsf = self.engine._nsf
-        if nsf is None or self._nsf_loading: return
-        td = nsf.track_data.get(nsf.cur_track, {})
-        base = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
-        new_sec = base + steps * NSF_EXT_STEP_SEC
-        new_sec = max(NSF_MIN_DURATION, min(NSF_MAX_DUR_SEC, new_sec))
-        self._nsf_start_extend(nsf.cur_track, new_sec)
+        if nsf:
+            if self._nsf_loading: return
+            td = nsf.track_data.get(nsf.cur_track, {})
+            base = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
+            new_sec = max(NSF_MIN_DURATION, min(NSF_MAX_DUR_SEC, base + steps * NSF_EXT_STEP_SEC))
+            self._nsf_start_extend(nsf.cur_track, new_sec)
+        elif gbs:
+            if self._gbs_loading: return
+            td = gbs.track_data.get(gbs.cur_track, {})
+            base = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
+            new_sec = max(GBS_MIN_DUR_SEC, min(GBS_MAX_DUR_SEC, base + steps * GBS_EXT_STEP_SEC))
+            self._gbs_start_extend(gbs.cur_track, new_sec)
 
     def _dur_lbl_wheel(self, e):
         if not self._nsf_dur_editable: return
-        nsf = self.engine._nsf
-        if nsf is None or self._nsf_loading: return
         delta = e.angleDelta().y()
         if delta == 0: return
-        step = NSF_EXT_STEP_SEC if delta > 0 else -NSF_EXT_STEP_SEC
-        td = nsf.track_data.get(nsf.cur_track, {})
-        cur = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
-        new_sec = max(NSF_MIN_DURATION, min(NSF_MAX_DUR_SEC, cur + step))
-        if new_sec == cur: return
-        self._nsf_start_extend(nsf.cur_track, new_sec)
+        nsf = self.engine._nsf
+        gbs = self.engine._gbs
+        if nsf:
+            if self._nsf_loading: return
+            step = NSF_EXT_STEP_SEC if delta > 0 else -NSF_EXT_STEP_SEC
+            td = nsf.track_data.get(nsf.cur_track, {})
+            cur = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
+            new_sec = max(NSF_MIN_DURATION, min(NSF_MAX_DUR_SEC, cur + step))
+            if new_sec == cur: return
+            self._nsf_start_extend(nsf.cur_track, new_sec)
+        elif gbs:
+            if self._gbs_loading: return
+            step = GBS_EXT_STEP_SEC if delta > 0 else -GBS_EXT_STEP_SEC
+            td = gbs.track_data.get(gbs.cur_track, {})
+            cur = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
+            new_sec = max(GBS_MIN_DUR_SEC, min(GBS_MAX_DUR_SEC, cur + step))
+            if new_sec == cur: return
+            self._gbs_start_extend(gbs.cur_track, new_sec)
 
     def _nsf_start_extend(self, track_idx, new_sec):
         """NSFトラックの再生時間を変更する（バックグラウンド）"""
@@ -6124,6 +6271,61 @@ class MainWindow(QMainWindow):
                 self._nsf_loading = False
                 self._status_sig.emit(f"NSF duration change failed: {ex}")
         threading.Thread(target=do_extend, daemon=True).start()
+
+    def _gbs_start_extend(self, track_idx, new_sec):
+        """GBSトラックの再生時間を変更する（バックグラウンド）"""
+        if self._gbs_loading: return
+        cur_sec = self.engine.current_sec()
+        if new_sec < cur_sec:
+            self._st("Cannot shorten below current position")
+            return
+        self._gbs_loading = True
+        def do_extend():
+            try:
+                dur, natural_end = self.engine.gbs_extend_track(track_idx, new_sec, self._st)
+                wf = self.engine.get_waveform(700)
+                self._gbs_extend_done_sig.emit(dur, natural_end, wf)
+            except Exception as ex:
+                self._gbs_loading = False
+                self._status_sig.emit(f"GBS duration change failed: {ex}")
+        threading.Thread(target=do_extend, daemon=True).start()
+
+    @pyqtSlot(float, bool, object)
+    def _on_gbs_extend_done(self, dur, natural_end, wf):
+        """GBS延長完了後のUI更新"""
+        self._gbs_loading = False
+        self._total = dur
+        self._waveform.set_waveform(wf)
+        self._waveform.set_total(dur)
+        self._waveform.update(); self._sync_wf_scroll()
+        self._dur_lbl.setText(self._fmt(dur))
+        if natural_end:
+            self._nsf_set_dur_editable(False)
+        gbs = self.engine._gbs
+        if gbs:
+            td = gbs.track_data.get(gbs.cur_track)
+            if td:
+                self._gbs_panel.update_channel_states(gbs.ch_active, td['ch_used'])
+        cur_sec = self.engine.current_sec()
+        if cur_sec > dur:
+            self.engine.seek(0.0)
+            self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(0.0))
+            self._waveform.set_position(0)
+        clipped = False
+        for n in list(self.engine.markers.keys()):
+            if self.engine.markers[n] > dur:
+                del self.engine.markers[n]; clipped = True
+        if clipped:
+            self._rebuild_markers(); self._update_wf_ab()
+            if self.engine.ab_active and (MARKER_A not in self.engine.markers
+                                          or MARKER_B not in self.engine.markers):
+                self.engine.ab_active = False
+                self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), FG))
+            if self.engine.ear_active and (MARKER_A not in self.engine.markers
+                                           or MARKER_B not in self.engine.markers):
+                self.engine.ear_active = False
+                self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG)); self._stop_ear_blink()
+        self._st(f"GBS: duration set to {self._fmt(dur)}")
 
     @pyqtSlot(float, bool, object)
     def _on_nsf_extend_done(self, dur, natural_end, wf):
