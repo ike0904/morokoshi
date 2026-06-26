@@ -3095,6 +3095,7 @@ class NsfPanel(QWidget):
             if top: top.setFocus()
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
+        ed.show()
 
     # ── 楽曲番号ドラッグ ───────────────────────
     def _track_press(self, e):
@@ -3347,6 +3348,7 @@ class SpcPanel(QWidget):
             if top: top.setFocus()
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
+        ed.show()
 
     def _track_press(self, e):
         if self._track_editor is not None: return
