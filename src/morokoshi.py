@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.5"
+APP_VERSION = "v1.5.6"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy
 import threading, base64, io
 from fractions import Fraction
@@ -792,6 +792,13 @@ SPC_SILENCE_DUR_SEC = 5.0
 SPC_MAX_DUR_SEC     = 600.0
 SPC_SILENCE_THRESH  = 32.0 / 32768.0
 
+# GBS (Game Boy Sound System) 対応
+GBS_SR              = 44100
+GBS_CH_COUNT        = 4
+GBS_DEFAULT_DUR_SEC = 60.0
+GBS_SILENCE_THRESH  = 32.0 / 32768.0
+GBS_CH_NAMES        = ['1', '2', '3', '4']
+
 def _spc_get_meta(gme_lib, spc_raw):
     """libgmeでSPCのメタデータ(タイトル・長さ)を取得する"""
     _buf = _ct.create_string_buffer(spc_raw, len(spc_raw))
@@ -908,6 +915,128 @@ def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=
     return arr_f, natural_end, actual_dur_sec
 
 
+def detect_zip_type(zip_path):
+    """zip内の拡張子でチップチューン形式を判別する。戻り値: 'gbs'|'spc'|'nsf'|None"""
+    import zipfile
+    with zipfile.ZipFile(zip_path) as z:
+        exts = set(n.rsplit('.', 1)[-1].lower() for n in z.namelist() if '.' in n)
+    if 'gbs' in exts:  return 'gbs'
+    if 'spc' in exts:  return 'spc'
+    if 'nsf' in exts or 'nsfe' in exts: return 'nsf'
+    return None
+
+
+def _gbs_m3u_fields(payload):
+    """バックスラッシュエスケープを考慮してm3uペイロードをカンマ分割する"""
+    fields = []; current = []; i = 0
+    while i < len(payload):
+        if payload[i] == '\\' and i + 1 < len(payload) and payload[i+1] == ',':
+            current.append(','); i += 2
+        elif payload[i] == ',':
+            fields.append(''.join(current)); current = []; i += 1
+        else:
+            current.append(payload[i]); i += 1
+    fields.append(''.join(current))
+    return fields
+
+
+def parse_gbs_m3u(content: str):
+    """GBS m3u 1行を解析してメタデータdictを返す。不正な場合はNone"""
+    line = content.strip()
+    if '::GBS,' not in line:
+        return None
+    payload = line.split('::GBS,', 1)[1]
+    fields = _gbs_m3u_fields(payload)
+    if len(fields) < 3:
+        return None
+    try:
+        track_idx = int(fields[0])
+    except ValueError:
+        return None
+    meta_parts = fields[1].split(' - ')
+    title    = meta_parts[0].strip() if meta_parts else f"Track {int(fields[0])+1}"
+    composer = meta_parts[1].strip() if len(meta_parts) > 1 else ''
+    game     = meta_parts[2].strip() if len(meta_parts) > 2 else ''
+    try:
+        m, s = fields[2].strip().split(':')
+        duration_sec = int(m) * 60 + int(s)
+    except Exception:
+        duration_sec = int(GBS_DEFAULT_DUR_SEC)
+    loop_count = 1
+    if len(fields) > 4 and fields[4].strip():
+        try: loop_count = int(fields[4].strip())
+        except ValueError: pass
+    return {'track_idx': track_idx, 'title': title, 'composer': composer,
+            'game': game, 'duration_sec': duration_sec, 'loop_count': loop_count}
+
+
+def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
+    """GBSの各chが音を出すか判定（mute-after方式）。戻り値: list[bool]"""
+    ch_used = []; CHUNK = 735; target_s = int(detect_sec * GBS_SR)
+    for ch in range(GBS_CH_COUNT):
+        if scb: scb(f"GBS: detecting ch {ch+1}/{GBS_CH_COUNT}...")
+        _buf = _ct.create_string_buffer(gbs_raw, len(gbs_raw))
+        emu = _ct.c_void_p()
+        err = gme_lib.gme_open_data(_buf, len(gbs_raw), _ct.byref(emu), GBS_SR)
+        if err is not None:
+            ch_used.append(False); continue
+        err2 = gme_lib.gme_start_track(emu, track_idx)
+        if err2 is not None:
+            gme_lib.gme_delete(emu); ch_used.append(False); continue
+        for i in range(GBS_CH_COUNT):
+            gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
+        buf16 = (_ct.c_int16 * (CHUNK * 2))()
+        samples = []; rendered = 0
+        while rendered < target_s:
+            if gme_lib.gme_play(emu, CHUNK * 2, buf16) is not None: break
+            mono = np.frombuffer(bytes(buf16), dtype=np.int16)[::2].copy()
+            need = target_s - rendered
+            if len(mono) > need: mono = mono[:need]
+            samples.append(mono); rendered += len(mono)
+        gme_lib.gme_delete(emu)
+        if samples:
+            arr_f = np.concatenate(samples).astype(np.float32) / 32768.0
+            used = float(np.max(np.abs(arr_f))) > GBS_SILENCE_THRESH
+        else:
+            used = False
+        _log(f"GBS ch{ch}: used={used}")
+        ch_used.append(used)
+    return ch_used
+
+
+def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, scb=None):
+    """指定マスクでGBSを1パスレンダリング。戻り値: (float32 mono array, actual_dur_sec)"""
+    if dur_sec is None: dur_sec = GBS_DEFAULT_DUR_SEC
+    CHUNK = 735; target_s = int(dur_sec * GBS_SR)
+    _buf = _ct.create_string_buffer(gbs_raw, len(gbs_raw))
+    emu = _ct.c_void_p()
+    err = gme_lib.gme_open_data(_buf, len(gbs_raw), _ct.byref(emu), GBS_SR)
+    if err is not None:
+        return np.zeros(target_s, dtype=np.float32), dur_sec
+    err2 = gme_lib.gme_start_track(emu, track_idx)
+    if err2 is not None:
+        gme_lib.gme_delete(emu)
+        return np.zeros(target_s, dtype=np.float32), dur_sec
+    for i in range(GBS_CH_COUNT):
+        gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
+    buf16 = (_ct.c_int16 * (CHUNK * 2))()
+    samples = []; rendered = 0
+    while rendered < target_s:
+        if gme_lib.gme_play(emu, CHUNK * 2, buf16) is not None: break
+        mono = np.frombuffer(bytes(buf16), dtype=np.int16)[::2].copy()
+        need = target_s - rendered
+        if len(mono) > need: mono = mono[:need]
+        samples.append(mono); rendered += len(mono)
+    gme_lib.gme_delete(emu)
+    if rendered < target_s:
+        samples.append(np.zeros(target_s - rendered, dtype=np.int16))
+    arr = (np.concatenate(samples)[:target_s] if samples else np.zeros(target_s, dtype=np.int16))
+    arr_f = arr.astype(np.float32) / 32768.0
+    actual_dur_sec = len(arr_f) / GBS_SR
+    _log(f"GBS render: mask={ch_mask:#b} dur={actual_dur_sec:.1f}s")
+    return arr_f, actual_dur_sec
+
+
 class SpcState:
     """SPCファイル（またはZIP内SPC）の状態とデコード済みデータを保持する"""
     def __init__(self):
@@ -958,6 +1087,23 @@ class NsfState:
         self.track_data    = {}
 
 
+class GbsState:
+    """GBSファイルの状態とデコード済みデータを保持する"""
+    def __init__(self):
+        self.path        = ""
+        self.game        = ""
+        self.track_count = 0
+        self.track_metas = []  # [{title, composer, game, duration_sec, loop_count}]
+        self.cur_track   = 0
+        self.ch_count    = GBS_CH_COUNT
+        self.ch_names    = list(GBS_CH_NAMES)
+        self.ch_active   = [True] * GBS_CH_COUNT
+        self.sr          = GBS_SR
+        self._gbs_raw    = None  # GBSファイルのバイト列
+        # track_data: {track_idx: {'wav', 'ch_used', 'ch_mask', 'decoded_sec'}}
+        self.track_data  = {}
+
+
 # ════════════════════════════════════════
 # AudioEngine
 # ════════════════════════════════════════
@@ -988,6 +1134,7 @@ class AudioEngine:
         self._feeder_eof=False
         self._nsf=None   # NsfState or None
         self._spc=None   # SpcState or None
+        self._gbs=None   # GbsState or None
         self.volume=1.0; self.speed=1.0; self.semitones=0; self.fine_semi=0.0
         self.ab_active=False; self.ear_active=False; self.markers={}
         self._stream=None; self._lock=threading.Lock()
@@ -1013,16 +1160,24 @@ class AudioEngine:
     def load(self, path, scb=None):
         lower = path.lower()
         if lower.endswith('.nsf'):
-            self._spc = None
+            self._spc = None; self._gbs = None
             return self._load_nsf(path, scb)
         if lower.endswith('.spc'):
-            self._nsf = None
+            self._nsf = None; self._gbs = None
             return self._load_spc(path, scb)
+        if lower.endswith('.gbs'):
+            self._nsf = None; self._spc = None
+            return self._load_gbs_zip(path, scb)
         if lower.endswith('.zip'):
-            self._nsf = None
+            ztype = detect_zip_type(path)
+            if ztype == 'gbs':
+                self._nsf = None; self._spc = None
+                return self._load_gbs_zip(path, scb)
+            self._nsf = None; self._gbs = None
             return self._load_spc_zip(path, scb)
         self._nsf = None
         self._spc = None
+        self._gbs = None
         wav, fh = get_wav_cache(path)
         if not wav:
             if scb: scb("Converting...")
@@ -1488,6 +1643,103 @@ class AudioEngine:
         if scb: scb("Done")
         return dur
 
+    def _load_gbs_zip(self, path, scb=None):
+        """ZIPまたは単独GBSファイルを読み込む"""
+        import zipfile
+        gme = _gme_load()
+        if gme is None:
+            raise RuntimeError("libgme.dll not found")
+        is_zip = zipfile.is_zipfile(path)
+        if is_zip:
+            if scb: scb("Loading GBS ZIP...")
+            with zipfile.ZipFile(path, 'r') as zf:
+                gbs_names = sorted(n for n in zf.namelist() if n.lower().endswith('.gbs'))
+                if not gbs_names:
+                    raise RuntimeError("GBSファイルがZIP内に見つかりません")
+                gbs_raw = zf.read(gbs_names[0])
+                m3u_names = sorted(n for n in zf.namelist() if n.lower().endswith('.m3u'))
+                track_metas_raw = []
+                for m3u in m3u_names:
+                    content = zf.read(m3u).decode('utf-8', errors='replace').strip()
+                    meta = parse_gbs_m3u(content)
+                    if meta:
+                        track_metas_raw.append(meta)
+        else:
+            if scb: scb("Loading GBS...")
+            with open(path, 'rb') as f:
+                gbs_raw = f.read()
+            track_metas_raw = []
+
+        # libgmeでトラック数・ゲーム名取得
+        _buf = _ct.create_string_buffer(gbs_raw, len(gbs_raw))
+        emu = _ct.c_void_p()
+        err = gme.gme_open_data(_buf, len(gbs_raw), _ct.byref(emu), GBS_SR)
+        if err is not None:
+            raise RuntimeError(f"GBS load error: {err.decode(errors='replace')}")
+        try:
+            track_count = gme.gme_track_count(emu)
+            game_title = ''
+            info_p = _ct.c_void_p()
+            if gme.gme_track_info(emu, _ct.byref(info_p), 0) is None:
+                try:
+                    info = _ct.cast(info_p, _ct.POINTER(_GmeInfo)).contents
+                    game_title = (info.game or b'').decode(errors='replace').strip()
+                finally:
+                    gme.gme_free_info(info_p)
+        finally:
+            gme.gme_delete(emu)
+
+        # m3uのメタデータをtrack_idxで整理（m3uが無ければフォールバック）
+        meta_by_idx = {m['track_idx']: m for m in track_metas_raw}
+        track_metas = []
+        for i in range(track_count):
+            m = meta_by_idx.get(i)
+            if m:
+                if not game_title and m.get('game'):
+                    game_title = m['game']
+                track_metas.append(m)
+            else:
+                track_metas.append({
+                    'track_idx': i, 'title': f"Track {i+1}",
+                    'composer': '', 'game': game_title,
+                    'duration_sec': GBS_DEFAULT_DUR_SEC, 'loop_count': 1,
+                })
+
+        # トラック0をデコード
+        if scb: scb("GBS: ch detection...")
+        ch_used = _gbs_detect_ch_used(gme, gbs_raw, 0, scb=scb)
+        ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT) if ch_used[i])
+        if ch_mask == 0:
+            ch_used = [True] * GBS_CH_COUNT
+            ch_mask = (1 << GBS_CH_COUNT) - 1
+        dur_sec = track_metas[0]['duration_sec'] if track_metas else GBS_DEFAULT_DUR_SEC
+        if scb: scb("GBS: rendering track 1...")
+        wav, actual_dur = _gbs_render(gme, gbs_raw, 0, ch_mask, dur_sec, scb)
+
+        gbs = GbsState()
+        gbs.path = path; gbs.game = game_title
+        gbs.track_count = track_count; gbs.track_metas = track_metas
+        gbs.cur_track = 0; gbs.ch_active = list(ch_used)
+        gbs._gbs_raw = gbs_raw
+        gbs.track_data[0] = {
+            'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+        }
+        with self._lock:
+            self._gbs = gbs
+        dur = self._gbs_mix_apply()
+        fh = _fhash(path)
+        with self._lock:
+            self._file_hash = fh
+            self.speed = 1.0; self.semitones = 0; self.fine_semi = 0.0
+            self.position = 0; self._src_pos = 0
+            self.markers = {}; self.ab_active = False; self.ear_active = False
+            self._mem = ConvCache()
+            self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
+            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        threading.Thread(target=purge_old_cache, daemon=True).start()
+        if scb: scb("Done")
+        return dur
+
     # ── SPC固有 ───────────────────────────────────────────────
 
     def _spc_mix_apply(self, cur_sec=None):
@@ -1554,6 +1806,70 @@ class AudioEngine:
         with self._rt_lock:
             data_len = len(self.data) if self.data is not None else 0
             restore_s = max(0, min(int(restore_pos * spc.sr), data_len - 1))
+            self._src_pos     = restore_s
+            self._played_orig = restore_s
+        return dur
+
+    # ── GBS固有 ───────────────────────────────────────────────
+
+    def _gbs_mix_apply(self, cur_sec=None):
+        return self._mix_apply(self._gbs, cur_sec)
+
+    def _gbs_toggle_channel(self, ch_idx, solo=False, reset=False):
+        return self._toggle_channel(self._gbs, ch_idx, solo, reset)
+
+    def _gbs_apply_new_wav(self, wav, ch_mask):
+        self._apply_new_wav(self._gbs, wav, ch_mask)
+
+    def gbs_set_track(self, track_idx, scb=None):
+        """GBSトラックを切り替える。戻り値: 長さ(sec)"""
+        gbs = self._gbs
+        if gbs is None or track_idx < 0 or track_idx >= gbs.track_count: return 0.0
+
+        self._save_track_session(gbs)
+
+        gbs.cur_track = track_idx
+        if track_idx not in gbs.track_data:
+            gme = _gme_load()
+            if gme is None: return 0.0
+            if scb: scb(f"GBS: detecting channels (track {track_idx+1})...")
+            ch_used = _gbs_detect_ch_used(gme, gbs._gbs_raw, track_idx, scb=scb)
+            ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT) if ch_used[i])
+            if ch_mask == 0:
+                ch_used = [True] * GBS_CH_COUNT
+                ch_mask = (1 << GBS_CH_COUNT) - 1
+            meta_t = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
+            dur_sec = meta_t.get('duration_sec', GBS_DEFAULT_DUR_SEC)
+            if scb: scb(f"GBS: rendering track {track_idx+1}...")
+            wav, actual_dur = _gbs_render(gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, scb)
+            gbs.track_data[track_idx] = {
+                'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+            }
+            self._inject_pending_session(gbs, track_idx)
+
+        td = gbs.track_data[track_idx]
+        restore_pos = self._restore_track_session(gbs, track_idx)
+
+        target_ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT)
+                             if i < len(gbs.ch_active) and gbs.ch_active[i] and
+                             i < len(td['ch_used']) and td['ch_used'][i])
+        if target_ch_mask != td.get('ch_mask', -1):
+            gme2 = _gme_load()
+            if gme2:
+                if scb: scb(f"GBS: re-rendering with session channels...")
+                meta_t2 = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
+                new_wav, new_dur = _gbs_render(
+                    gme2, gbs._gbs_raw, track_idx, target_ch_mask,
+                    meta_t2.get('duration_sec', GBS_DEFAULT_DUR_SEC), scb)
+                td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
+                td['decoded_sec'] = new_dur
+
+        self.stop()
+        self._mem = ConvCache()
+        dur = self._gbs_mix_apply(cur_sec=restore_pos)
+        with self._rt_lock:
+            data_len = len(self.data) if self.data is not None else 0
+            restore_s = max(0, min(int(restore_pos * gbs.sr), data_len - 1))
             self._src_pos     = restore_s
             self._played_orig = restore_s
         return dur
@@ -3339,6 +3655,8 @@ class MainWindow(QMainWindow):
     _nsf_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
     _spc_track_done_sig = pyqtSignal(float, object)        # dur, waveform
     _spc_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
+    _gbs_track_done_sig = pyqtSignal(float, object)        # dur, waveform
+    _gbs_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
 
     def __init__(self):
         super().__init__()
@@ -3376,6 +3694,12 @@ class MainWindow(QMainWindow):
         self._spc_wf_views = {}
         self._spc_track_done_sig.connect(self._on_spc_track_done)
         self._spc_ch_render_done_sig.connect(self._on_spc_ch_render_done)
+        # GBS 関連
+        self._gbs_loading = False
+        self._gbs_ch_rendering = False
+        self._gbs_wf_views = {}
+        self._gbs_track_done_sig.connect(self._on_gbs_track_done)
+        self._gbs_ch_render_done_sig.connect(self._on_gbs_ch_render_done)
         self._tick_sig.connect(self._on_tick)
         self._status_sig.connect(lambda m: self._msg.setText(m))
         self._tempo_busy_sig.connect(self._set_tempo_inputs_enabled)
@@ -3659,6 +3983,12 @@ class MainWindow(QMainWindow):
         self._spc_panel.track_changed.connect(self._spc_set_track)
         self._spc_panel.channel_toggled.connect(self._spc_on_ch_toggle)
         self._mode_stack.addWidget(self._spc_panel)  # index 2
+
+        # ページ3: GBSパネル（NsfPanelを流用）
+        self._gbs_panel = NsfPanel(scale=self._scale)
+        self._gbs_panel.track_changed.connect(self._gbs_set_track)
+        self._gbs_panel.channel_toggled.connect(self._gbs_on_ch_toggle)
+        self._mode_stack.addWidget(self._gbs_panel)  # index 3
 
         root.addWidget(self._mode_stack)
 
@@ -4738,6 +5068,13 @@ class MainWindow(QMainWindow):
             spc_tracks = self._collect_track_sessions(spc)
             if spc_tracks:
                 state["spc_tracks"] = spc_tracks
+        if self.engine._gbs is not None:
+            gbs = self.engine._gbs
+            state["gbs_track"] = gbs.cur_track
+            state["gbs_ch_active"] = list(gbs.ch_active)
+            gbs_tracks = self._collect_track_sessions(gbs)
+            if gbs_tracks:
+                state["gbs_tracks"] = gbs_tracks
         return state
 
     def _apply_state(self, state):
@@ -4813,10 +5150,14 @@ class MainWindow(QMainWindow):
     def _do_reset(self):
         if self.engine.data is None: return
         self.engine.stop()  # 再生中にリセットされた場合もフィーダーを確実に停止する
-        # NSFモード: 全トラックの保存済みセッションをクリア（位置情報が残らないように）
+        # NSF/GBSモード: 全トラックの保存済みセッションをクリア（位置情報が残らないように）
         _nsf_r = self.engine._nsf
         if _nsf_r is not None:
             for _td in _nsf_r.track_data.values():
+                _td.pop('session', None)
+        _gbs_r = self.engine._gbs
+        if _gbs_r is not None:
+            for _td in _gbs_r.track_data.values():
                 _td.pop('session', None)
         self.engine.speed=1.0; self.engine.semitones=0; self.engine.fine_semi=0.0
         self.engine.markers={}; self.engine.ab_active=False; self.engine.ear_active=False
@@ -5045,19 +5386,24 @@ class MainWindow(QMainWindow):
         if self.engine.ear_active:
             self._ear_btn.setIcon(_get_icon("ear",self.S(28),"#FFD700"))
             self._start_ear_blink()
-        # NSF/SPCモード復元
+        # NSF/SPC/GBSモード復元
         is_nsf = self.engine._nsf is not None
         is_spc = self.engine._spc is not None
+        is_gbs = self.engine._gbs is not None
         if is_nsf:
             self._mode_stack.setCurrentIndex(1)
         elif is_spc:
             self._mode_stack.setCurrentIndex(2)
+        elif is_gbs:
+            self._mode_stack.setCurrentIndex(3)
         else:
             self._mode_stack.setCurrentIndex(0)
         if is_nsf:
             self._spec_timer.stop(); self._nsf_update_panel()
         elif is_spc:
             self._spec_timer.stop(); self._spc_update_panel()
+        elif is_gbs:
+            self._spec_timer.stop(); self._gbs_update_panel()
         else:
             self._spec_timer.start(40)
         self._upd_play(self.engine.playing and not self.engine.paused)
@@ -5078,7 +5424,7 @@ class MainWindow(QMainWindow):
         if not os.path.isdir(start_dir):
             start_dir = os.environ.get("USERPROFILE") or os.path.expanduser("~")
         path,_=QFileDialog.getOpenFileName(self,"Open Media File",start_dir,
-            "Media (*.mp3 *.mp4 *.wav *.flac *.aac *.ogg *.m4a *.wma *.opus *.webm *.avi *.mkv *.mov *.nsf *.spc *.zip);;NSF (*.nsf);;SPC (*.spc *.zip);;All (*.*)")
+            "Media (*.mp3 *.mp4 *.wav *.flac *.aac *.ogg *.m4a *.wma *.opus *.webm *.avi *.mkv *.mov *.nsf *.spc *.gbs *.zip);;NSF (*.nsf);;SPC (*.spc *.zip);;GBS (*.gbs *.zip);;All (*.*)")
         if path:
             folder = os.path.dirname(os.path.abspath(path))
             self._last_folder = folder
@@ -5135,13 +5481,16 @@ class MainWindow(QMainWindow):
         self._sync_wf_scroll()
         self._dur_lbl.setText(self._fmt(tot))
         self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(0.0))
-        # NSF / SPC モード切り替え
+        # NSF / SPC / GBS モード切り替え
         is_nsf = self.engine._nsf is not None
         is_spc = self.engine._spc is not None
+        is_gbs = self.engine._gbs is not None
         if is_nsf:
             self._mode_stack.setCurrentIndex(1)
         elif is_spc:
             self._mode_stack.setCurrentIndex(2)
+        elif is_gbs:
+            self._mode_stack.setCurrentIndex(3)
         else:
             self._mode_stack.setCurrentIndex(0)
         if is_nsf:
@@ -5153,6 +5502,10 @@ class MainWindow(QMainWindow):
         elif is_spc:
             self._spec_timer.stop()
             self._spc_update_panel()
+            self._nsf_set_dur_editable(False)
+        elif is_gbs:
+            self._spec_timer.stop()
+            self._gbs_update_panel()
             self._nsf_set_dur_editable(False)
         else:
             self._spec_timer.start(40)
@@ -5228,6 +5581,36 @@ class MainWindow(QMainWindow):
                         if new_mask != td0.get('ch_mask', -1):
                             self._spc_start_ch_render(new_mask, 0, td0.get('decoded_sec', SPC_DEFAULT_DUR_SEC))
                 self._spc_update_panel()
+        # GBS セッション復元
+        if is_gbs and session:
+            gbs = self.engine._gbs
+            saved_track = session.get("gbs_track", 0)
+            raw_tracks = session.get('gbs_tracks', {})
+            if not raw_tracks and session.get('gbs_ch_active') is not None:
+                raw_tracks = {str(saved_track): {
+                    'ch_active':  session.get('gbs_ch_active'),
+                    'position':   float(session.get('position', 0.0)),
+                    'markers':    {int(k): float(v) for k, v in session.get('markers', {}).items()},
+                    'ab_active':  bool(session.get('ab_active', False)),
+                    'ear_active': bool(session.get('ear_active', False)),
+                }}
+            gbs._pending_track_sessions = {int(k): v for k, v in raw_tracks.items()}
+            if isinstance(saved_track, int) and 0 < saved_track < gbs.track_count:
+                self._gbs_set_track(saved_track)
+            else:
+                ts0 = gbs._pending_track_sessions.pop(0, None)
+                if ts0:
+                    ch_ac = ts0.get('ch_active')
+                    td0 = gbs.track_data.get(0)
+                    if td0 and ch_ac and len(ch_ac) == gbs.ch_count:
+                        gbs.ch_active = [bool(x) for x in ch_ac]
+                        gbs.track_data[0]['session'] = ts0
+                        new_mask = sum((1 << i) for i in range(gbs.ch_count)
+                                       if i < len(gbs.ch_active) and gbs.ch_active[i]
+                                       and i < len(td0['ch_used']) and td0['ch_used'][i])
+                        if new_mask != td0.get('ch_mask', -1):
+                            self._gbs_start_ch_render(new_mask, 0, td0.get('decoded_sec', GBS_DEFAULT_DUR_SEC))
+                self._gbs_update_panel()
 
     # ──────────────────────────────────────
     # SPC 専用メソッド
@@ -5350,6 +5733,133 @@ class MainWindow(QMainWindow):
         self.engine._spc_apply_new_wav(wav, ch_mask)
         wf = self.engine.get_waveform(700)
         self._waveform.set_waveform(wf)
+
+    # ──────────────────────────────────────
+    # GBS 専用メソッド
+    # ──────────────────────────────────────
+    def _gbs_update_panel(self):
+        """GBSパネルの表示を現在の状態に合わせて更新する"""
+        gbs = self.engine._gbs
+        if gbs is None: return
+        td = gbs.track_data.get(gbs.cur_track)
+        if td is None: return
+        meta = gbs.track_metas[gbs.cur_track] if gbs.cur_track < len(gbs.track_metas) else {}
+        parts = [p for p in [meta.get('title', ''), meta.get('composer', '')] if p]
+        title = " / ".join(parts) if parts else gbs.game
+        self._gbs_panel.set_info(gbs.track_count, gbs.cur_track, title)
+        self._gbs_panel.set_channels(gbs.ch_count, gbs.ch_names, gbs.ch_active, td['ch_used'])
+
+    def _gbs_set_track(self, track_idx_0based):
+        """GBSトラックを切り替える（バックグラウンドスレッド）"""
+        if self._gbs_loading: return
+        gbs = self.engine._gbs
+        if gbs is None: return
+        self._gbs_wf_views[gbs.cur_track] = (
+            self._waveform._view_lo, self._waveform._view_hi)
+        self._gbs_loading = True
+        self._gbs_panel.update_track_num(track_idx_0based)
+        self._gbs_panel.set_loading(True)
+        self._st(f"GBS: Loading track {track_idx_0based+1}...")
+        def do_set():
+            try:
+                dur = self.engine.gbs_set_track(track_idx_0based, self._st)
+                wf = self.engine.get_waveform(700)
+                self._gbs_track_done_sig.emit(dur, wf)
+            except Exception as ex:
+                self._gbs_loading = False
+                self._status_sig.emit(f"GBS track change failed: {ex}")
+        threading.Thread(target=do_set, daemon=True).start()
+
+    @pyqtSlot(float, object)
+    def _on_gbs_track_done(self, dur, wf):
+        """GBSトラック切替完了後のUI更新"""
+        self._gbs_loading = False
+        self._gbs_panel.set_loading(False)
+        self._total = dur
+        self._waveform.set_waveform(wf)
+        self._waveform.set_total(dur)
+        gbs = self.engine._gbs
+        saved_zoom = self._gbs_wf_views.get(gbs.cur_track) if gbs else None
+        if saved_zoom and 0.0 <= saved_zoom[0] < saved_zoom[1] <= 1.0:
+            self._waveform._view_lo, self._waveform._view_hi = saved_zoom
+            self._waveform.update()
+        else:
+            self._waveform.reset_view()
+        pos = self.engine.current_sec()
+        self._waveform.set_position(pos / dur if dur > 0 else 0)
+        self._sync_wf_scroll()
+        self._dur_lbl.setText(self._fmt(dur))
+        self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(pos))
+        self._rebuild_markers(); self._update_wf_ab()
+        if self.engine.ab_active:
+            self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), "#FFD700"))
+        else:
+            self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), FG))
+        if self.engine.ear_active:
+            self._ear_btn.setIcon(_get_icon("ear", self.S(28), "#FFD700"))
+            self._start_ear_blink()
+        else:
+            self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG))
+            self._stop_ear_blink()
+        self._gbs_update_panel()
+        self._st(f"GBS: Track {gbs.cur_track+1 if gbs else 1}")
+
+    def _gbs_on_ch_toggle(self, ch_idx, solo, reset):
+        """GBSチャンネルON/OFFボタン押下"""
+        if self._gbs_loading or self._gbs_ch_rendering: return
+        new_ch_mask = self.engine._gbs_toggle_channel(ch_idx, solo=solo, reset=reset)
+        gbs = self.engine._gbs
+        if gbs is None: return
+        td = gbs.track_data.get(gbs.cur_track)
+        if td is None: return
+        self._gbs_panel.update_channel_states(gbs.ch_active, td['ch_used'])
+        if new_ch_mask == td.get('ch_mask'):
+            wf = self.engine.get_waveform(700)
+            self._waveform.set_waveform(wf); return
+        self._gbs_start_ch_render(new_ch_mask, gbs.cur_track, td.get('decoded_sec', GBS_DEFAULT_DUR_SEC))
+
+    def _gbs_start_ch_render(self, ch_mask, track_idx, decoded_sec):
+        """GBS ch切替バックグラウンドレンダリングを開始する"""
+        self._gbs_ch_rendering = True
+        gbs = self.engine._gbs
+        gbs_raw = gbs._gbs_raw if gbs else None
+        if gbs_raw is None:
+            self._gbs_ch_rendering = False; return
+        def do_render():
+            try:
+                gme = _gme_load()
+                if gme is None:
+                    self._gbs_ch_rendering = False; return
+                wav, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec)
+                self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx)
+            except Exception as ex:
+                self._gbs_ch_rendering = False
+                self._status_sig.emit(f"GBS ch render failed: {ex}")
+        threading.Thread(target=do_render, daemon=True).start()
+
+    @pyqtSlot(object, int, int)
+    def _on_gbs_ch_render_done(self, wav, ch_mask, track_idx):
+        """GBS ch切替レンダリング完了後のUI更新"""
+        self._gbs_ch_rendering = False
+        gbs = self.engine._gbs
+        if gbs is None or gbs.cur_track != track_idx: return
+        self.engine._gbs_apply_new_wav(wav, ch_mask)
+        wf = self.engine.get_waveform(700)
+        self._waveform.set_waveform(wf)
+
+    def _gbs_toggle_ch_by_key(self, ch_idx):
+        """キーボードショートカットによるGBSチャンネルソロ"""
+        if self._gbs_loading or self._gbs_ch_rendering: return
+        gbs = self.engine._gbs
+        if gbs is None or ch_idx >= gbs.ch_count: return
+        new_ch_mask = self.engine._gbs_toggle_channel(ch_idx, solo=True)
+        td = gbs.track_data.get(gbs.cur_track)
+        if td is None: return
+        self._gbs_panel.update_channel_states(gbs.ch_active, td['ch_used'])
+        if new_ch_mask == td.get('ch_mask'):
+            wf = self.engine.get_waveform(700)
+            self._waveform.set_waveform(wf); return
+        self._gbs_start_ch_render(new_ch_mask, gbs.cur_track, td.get('decoded_sec', GBS_DEFAULT_DUR_SEC))
 
     # ──────────────────────────────────────
     # NSF 専用メソッド
@@ -5951,6 +6461,23 @@ class MainWindow(QMainWindow):
                     _t = min(spc_s.track_count - 1, spc_s.cur_track + 10)
                     if _t != spc_s.cur_track: self._spc_set_track(_t)
                     return True
+            # GBSモード: Shift+←/→ で曲切り替え, Shift+[,][.] で10曲ずつ
+            gbs_s = self.engine._gbs
+            if gbs_s is not None:
+                if key==K.Key_Left:
+                    if gbs_s.cur_track > 0: self._gbs_set_track(gbs_s.cur_track - 1)
+                    return True
+                if key==K.Key_Right:
+                    if gbs_s.cur_track < gbs_s.track_count - 1: self._gbs_set_track(gbs_s.cur_track + 1)
+                    return True
+                if key in (K.Key_Comma, K.Key_Less):
+                    _t = max(0, gbs_s.cur_track - 10)
+                    if _t != gbs_s.cur_track: self._gbs_set_track(_t)
+                    return True
+                if key in (K.Key_Period, K.Key_Greater):
+                    _t = min(gbs_s.track_count - 1, gbs_s.cur_track + 10)
+                    if _t != gbs_s.cur_track: self._gbs_set_track(_t)
+                    return True
             return False
 
         # NSFモード: メインキーボード最上段(1～\)でチャンネルソロ/全ON
@@ -5977,6 +6504,13 @@ class MainWindow(QMainWindow):
                 ch = _SPC_KEY_MAP[key]
                 self._spc_on_ch_toggle(ch, solo=True, reset=False)
                 return True
+        # GBSモード: 1-4 キーでチャンネルソロ
+        _gbs_now = self.engine._gbs
+        if _gbs_now is not None and not bool(e.modifiers()&Qt.KeyboardModifier.KeypadModifier):
+            _GBS_KEY_MAP = {K.Key_1:0, K.Key_2:1, K.Key_3:2, K.Key_4:3}
+            if key in _GBS_KEY_MAP:
+                self._gbs_toggle_ch_by_key(_GBS_KEY_MAP[key])
+                return True
 
         # NSFモード: [,] → 前の曲, [.] → 次の曲
         _nsf_nav=self.engine._nsf
@@ -5995,6 +6529,15 @@ class MainWindow(QMainWindow):
                 return True
             if key==K.Key_Period:
                 if _spc_nav.cur_track < _spc_nav.track_count - 1: self._spc_set_track(_spc_nav.cur_track + 1)
+                return True
+        # GBSモード: [,] → 前の曲, [.] → 次の曲
+        _gbs_nav = self.engine._gbs
+        if _gbs_nav is not None:
+            if key==K.Key_Comma:
+                if _gbs_nav.cur_track > 0: self._gbs_set_track(_gbs_nav.cur_track - 1)
+                return True
+            if key==K.Key_Period:
+                if _gbs_nav.cur_track < _gbs_nav.track_count - 1: self._gbs_set_track(_gbs_nav.cur_track + 1)
                 return True
         # 修飾なし
         if key==K.Key_Space: self._pp(); return True
