@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.20"
+APP_VERSION = "v1.5.21"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3986,8 +3986,8 @@ class TimeLabel(QLabel):
         if s>=60: m+=1; s-=60
         return f"{m:02d}:{s:02d}.{d:1d}"
 
-    def begin_edit(self):
-        """ダブルクリックで編集用QLineEditを表示"""
+    def begin_edit(self, preview_cb=None):
+        """ダブルクリックで編集用QLineEditを表示。preview_cb(sec)->sec はドラッグ/ホイール中のリアルタイム更新用"""
         # シングルタップのSet遅延タイマーが動いていればキャンセル
         if getattr(self, "_tap_timer", None):
             self._tap_timer.stop()
@@ -4025,6 +4025,7 @@ class TimeLabel(QLabel):
             step=1.0 if shift else 0.1
             steps=int(dy/12.0)
             new_sec=max(0.0, round((_base_sec[0]+steps*step)/0.1)*0.1)
+            if preview_cb is not None: new_sec=preview_cb(new_sec)
             ed.setText(TimeLabel.format_time(new_sec)); ed.selectAll()
             ev.accept()
         def on_wheel(ev):
@@ -4035,6 +4036,7 @@ class TimeLabel(QLabel):
             step=1.0 if shift else 0.1
             delta=step if ev.angleDelta().y()>0 else -step
             new_sec=max(0.0, round((sec+delta)/0.1)*0.1)
+            if preview_cb is not None: new_sec=preview_cb(new_sec)
             ed.setText(TimeLabel.format_time(new_sec)); ed.selectAll()
             ev.accept()
         ed.mousePressEvent=ed_press; ed.mouseMoveEvent=ed_move; ed.wheelEvent=on_wheel
@@ -4088,6 +4090,20 @@ class DragLabel(QLabel):
             new_v=max(self.lo,min(self.hi, round((self._base+steps*st)/st)*st))
         if new_v!=self._val: self._val=new_v; self.value_changed.emit(new_v)
     def mouseReleaseEvent(self,e): pass
+    def wheelEvent(self, e):
+        if self._editor is not None: return
+        hide_tt()
+        shift=bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        if self.values:
+            cur_idx=min(range(len(self.values)), key=lambda i: abs(self.values[i]-self._val))
+            new_idx=max(0, min(len(self.values)-1, cur_idx+(1 if e.angleDelta().y()>0 else -1)))
+            new_v=self.values[new_idx]
+        else:
+            st=self.big_step if shift else self.step
+            delta=st if e.angleDelta().y()>0 else -st
+            new_v=max(self.lo, min(self.hi, round((self._val+delta)/self.step)*self.step))
+        if new_v!=self._val: self._val=new_v; self.value_changed.emit(new_v)
+        e.accept()
     def mouseDoubleClickEvent(self,e):
         from PyQt6.QtWidgets import QLineEdit
         if getattr(self,"_editor",None) is not None: return
@@ -4879,9 +4895,11 @@ class MainWindow(QMainWindow):
         tl.mousePressEvent   = lambda e,t=tl: self._mk_press(e,t)
         tl.mouseMoveEvent    = lambda e,t=tl: self._mk_move(e,t)
         tl.mouseReleaseEvent = lambda e,t=tl: self._mk_release(e,t)
+        tl.wheelEvent        = lambda e,t=tl: self._mk_wheel(e,t)
         def _mk_leave(e, t=tl): t.clear_highlight(); t.setText(self._fmt(self.engine.markers.get(t._n)))
         tl.leaveEvent = _mk_leave
-        # ダブルクリックで直接入力 → マーカー時間に反映
+        # ダブルクリックで直接入力 → マーカー時間に反映（ドラッグ中はプレビューコールバックでabdiff連動）
+        tl.mouseDoubleClickEvent = lambda e,t=tl,nn=n: t.begin_edit(preview_cb=lambda sec: self._mk_editor_preview(nn, sec))
         tl.edit_committed.connect(lambda sec, nn=n: self._set_marker_time(nn, sec))
         tl.edit_invalid.connect(lambda: self._st("Invalid time"))
         _lab2 = "A" if n==MARKER_A else "B"
@@ -5065,6 +5083,56 @@ class MainWindow(QMainWindow):
             # ドラッグ確定 → A>Bなら入れ替え
             self._normalize_ab()
             self._update_wf_ab()
+
+    def _mk_wheel(self, e, tl):
+        """マーカーTimeLabel上のホイール操作（ホバーモード）"""
+        if self.engine.markers.get(tl._n) is None: return
+        hide_tt()
+        shift=bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        step=1.0 if shift else 0.1
+        delta=step if e.angleDelta().y()>0 else -step
+        cur=self.engine.markers.get(tl._n, 0.0)
+        new_sec=max(0.0, round((cur+delta)/0.1)*0.1)
+        new_sec=self._mk_editor_preview(tl._n, new_sec)
+        tl.setText(self._fmt(new_sec))
+        e.accept()
+
+    def _mk_editor_preview(self, n, new_sec):
+        """エディタドラッグ/ホイール中のリアルタイムプレビュー。クランプ後の値を返す"""
+        if self.engine.data is None: return new_sec
+        looping_now=self.engine.playing and (self.engine.ab_active or self.engine.ear_active)
+        # Ear Mode: 差分を保ったまま両マーカーを連動
+        if self.engine.ear_active and MARKER_A in self.engine.markers and MARKER_B in self.engine.markers:
+            other=MARKER_B if n==MARKER_A else MARKER_A
+            cur_n=self.engine.markers.get(n, new_sec)
+            other_v=self.engine.markers[other]
+            delta=new_sec-cur_n
+            if looping_now:
+                lo=min(cur_n,other_v); hi=max(cur_n,other_v)
+                cur_pos=self.engine.current_sec()
+                if lo+delta>cur_pos: delta=cur_pos-lo
+                elif hi+delta<cur_pos: delta=cur_pos-hi
+            final_n=cur_n+delta; final_other=other_v+delta
+            if final_n<0 or final_other<0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
+                return self.engine.markers.get(n, new_sec)
+            self.engine.markers[n]=final_n; self.engine.markers[other]=final_other
+            self._refresh_marker(other)
+            self._update_wf_ab()
+            return final_n
+        # 通常: 相手マーカーを追い越さない
+        other=MARKER_B if n==MARKER_A else MARKER_A
+        ov=self.engine.markers.get(other)
+        if ov is not None:
+            if n==MARKER_A: new_sec=min(new_sec, ov-0.1)
+            else:           new_sec=max(new_sec, ov+0.1)
+            new_sec=max(0.0, new_sec)
+        if looping_now:
+            cur_pos=self.engine.current_sec()
+            if n==MARKER_A: new_sec=min(new_sec, cur_pos)
+            else:           new_sec=max(new_sec, cur_pos)
+        self.engine.markers[n]=new_sec
+        if n in (MARKER_A, MARKER_B): self._update_wf_ab()
+        return new_sec
 
     def _tap_set_marker(self, n):
         # マーカーをSetし、時間テキストボックスを一瞬黄色にする
