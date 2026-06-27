@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.16"
+APP_VERSION = "v1.5.17"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -60,6 +60,14 @@ RED_HL  = "#CC3333"   # ハイライト赤
 
 MARKER_A = 10  # A-point key in engine.markers (AB repeat / Ear mode)
 MARKER_B = 11  # B-point key in engine.markers (AB repeat / Ear mode)
+
+SPEED_VALUES = [0.2, 0.25, 0.33, 0.5, 1.0, 1.5, 2.0]
+
+def _fmt_speed(v):
+    for sv in SPEED_VALUES:
+        if abs(v - sv) < 0.005:
+            return f"×{sv}"
+    return f"×{v:.2f}"
 
 
 # ── キャッシュ
@@ -2374,14 +2382,14 @@ class AudioEngine:
         if was and resume: self.play()
 
     def set_speed(self, v, scb=None):
-        self.speed = round(max(0.5,min(2.0, round(v/0.1)*0.1)),1)
+        self.speed = min(SPEED_VALUES, key=lambda x: abs(x - v))
         self._rt_reset_from_current()
-        if scb: scb(f"Speed×{self.speed:.1f} Key{self.semitones:+d}")
+        if scb: scb(f"Speed{_fmt_speed(self.speed)} Key{self.semitones:+d}")
 
     def set_semitones(self, v, scb=None):
         self.semitones = max(-24,min(24,int(v)))
         self._rt_reset_from_current()
-        if scb: scb(f"Speed×{self.speed:.1f} Key{self.semitones:+d}")
+        if scb: scb(f"Speed{_fmt_speed(self.speed)} Key{self.semitones:+d}")
 
     def set_fine_semi(self, v, scb=None):
         self.fine_semi = round(max(-1.0,min(1.0, float(v))),2)
@@ -3083,6 +3091,8 @@ class NsfPanel(QWidget):
         super().__init__(parent)
         self._scale=scale; self._total=1; self._cur=0; self._ch_btns=[]
         self._drag_y0=0; self._drag_base=0; self._dragging=False
+        self._track_titles=[]
+        self._track_tt_text="Track number\nDrag up/down or Wheel to change\n2-Click: Edit"
         self._wheel_timer=QTimer(self); self._wheel_timer.setSingleShot(True)
         self._wheel_timer.timeout.connect(self._emit_track_changed)
         self._build()
@@ -3112,7 +3122,6 @@ class NsfPanel(QWidget):
         self._track_edit.setFixedWidth(self.S(36)); self._track_edit.setFixedHeight(self.S(22))
         self._track_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._track_edit.setCursor(Qt.CursorShape.SizeVerCursor)
-        _attach_tt(self._track_edit, "Track number\nDrag up/down or Wheel to change\n2-Click: Edit")
         self._track_edit.setStyleSheet(
             f"QLabel{{color:{FG};background:{BG3};border:1px solid {BORDER};padding:0 2px;}}"
             f"QLabel:hover{{border:1px solid {FG2};}}")
@@ -3121,6 +3130,7 @@ class NsfPanel(QWidget):
         self._track_edit.wheelEvent=self._track_wheel
         self._track_edit.mousePressEvent=self._track_press
         self._track_edit.leaveEvent=self._track_leave
+        self._track_edit.enterEvent=lambda e, s=self: show_tt(s._track_tt_text, s._track_edit)
         self._track_edit.mouseMoveEvent=self._track_move
         self._track_edit.mouseReleaseEvent=self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3192,6 +3202,8 @@ class NsfPanel(QWidget):
         if v != self._cur:
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
+            self._update_track_tooltip()
+            show_tt(self._track_tt_text, self._track_edit)
             self._wheel_timer.start(300)
 
     def _track_release(self, e):
@@ -3214,6 +3226,8 @@ class NsfPanel(QWidget):
         if v != self._cur:
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
+            self._update_track_tooltip()
+            show_tt(self._track_tt_text, self._track_edit)
             self._wheel_timer.start(300)
 
     def _emit_track_changed(self):
@@ -3247,6 +3261,22 @@ class NsfPanel(QWidget):
         self._track_edit.setText(f"{self._cur+1:03d}")
         self._title.setText(title)
         self._update_nav_btns()
+        self._update_track_tooltip()
+
+    def set_track_titles(self, titles):
+        self._track_titles = list(titles)
+        self._update_track_tooltip()
+
+    def _update_track_tooltip(self):
+        if not self._track_titles:
+            self._track_tt_text = "Track number\nDrag up/down or Wheel to change\n2-Click: Edit"
+            return
+        lines = []
+        for i in range(max(0, self._cur - 4), min(self._total, self._cur + 5)):
+            marker = "→  " if i == self._cur else "   "
+            name = self._track_titles[i] if i < len(self._track_titles) else ""
+            lines.append(f"{marker}{i+1:03d}: {name}")
+        self._track_tt_text = "\n".join(lines)
 
     def set_channels(self, count, names, active, used, expansion_chips=None):
         for b in self._ch_btns:
@@ -3952,11 +3982,12 @@ class TimeLabel(QLabel):
 class DragLabel(QLabel):
     value_changed = pyqtSignal(float)
     value_edited_invalid = pyqtSignal()
-    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, parent=None):
+    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, values=None, parent=None):
         super().__init__(text, parent)
         self.step=step; self.lo=lo; self.hi=hi
         self.big_step=big_step if big_step is not None else step
         self.default_value=default
+        self.values=values  # 固定値リスト。設定時はlo/hi/step/big_stepを無視
         self._val=0.0; self._y0=0; self._base=0.0; self._editor=None
         self.setCursor(Qt.CursorShape.SizeVerCursor)
         self.setStyleSheet(f"QLabel{{color:{FG}; background:{BG3}; border:1px solid {BORDER}; padding:2px 8px;}}"
@@ -3978,9 +4009,14 @@ class DragLabel(QLabel):
         dy=self._y0-e.position().y()
         if abs(dy)<4: return
         steps=int(dy//12)
-        shift=bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        st = self.big_step if shift else self.step
-        new_v=max(self.lo,min(self.hi, round((self._base+steps*st)/st)*st))
+        if self.values:
+            cur_idx=min(range(len(self.values)), key=lambda i: abs(self.values[i]-self._base))
+            new_idx=max(0, min(len(self.values)-1, cur_idx+steps))
+            new_v=self.values[new_idx]
+        else:
+            shift=bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            st = self.big_step if shift else self.step
+            new_v=max(self.lo,min(self.hi, round((self._base+steps*st)/st)*st))
         if new_v!=self._val: self._val=new_v; self.value_changed.emit(new_v)
     def mouseReleaseEvent(self,e): pass
     def mouseDoubleClickEvent(self,e):
@@ -4002,7 +4038,10 @@ class DragLabel(QLabel):
                 v=float(txt)
             except:
                 self.value_edited_invalid.emit(); return
-            v=max(self.lo,min(self.hi, round(v/self.step)*self.step))
+            if self.values:
+                v=min(self.values, key=lambda x: abs(x-v))
+            else:
+                v=max(self.lo,min(self.hi, round(v/self.step)*self.step))
             self._val=v; self.value_changed.emit(v)
         def on_wheel(ev):
             # 編集中(ダブルクリック後)のホイールで値を増減。不正な値の時は何もせずエラー表示
@@ -4011,14 +4050,20 @@ class DragLabel(QLabel):
                 v=float(txt)
             except:
                 self.value_edited_invalid.emit(); ev.ignore(); return
-            shift=bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            st=self.big_step if shift else self.step
-            delta=st if ev.angleDelta().y()>0 else -st
-            new_v=max(self.lo, min(self.hi, round((v+delta)/self.step)*self.step))
-            if float(self.step).is_integer():
-                ed.setText(str(int(round(new_v))))
+            if self.values:
+                idx=min(range(len(self.values)), key=lambda i: abs(self.values[i]-v))
+                new_idx=max(0, min(len(self.values)-1, idx+(1 if ev.angleDelta().y()>0 else -1)))
+                new_v=self.values[new_idx]
+                ed.setText(str(new_v))
             else:
-                ed.setText(f"{new_v:.1f}")
+                shift=bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                st=self.big_step if shift else self.step
+                delta=st if ev.angleDelta().y()>0 else -st
+                new_v=max(self.lo, min(self.hi, round((v+delta)/self.step)*self.step))
+                if float(self.step).is_integer():
+                    ed.setText(str(int(round(new_v))))
+                else:
+                    ed.setText(f"{new_v:.1f}")
             ev.accept()
         ed.wheelEvent=on_wheel
         ed.returnPressed.connect(commit)
@@ -4349,11 +4394,11 @@ class MainWindow(QMainWindow):
         mid_vlo.addWidget(mk_row("Bar   ", self._bar_edit))
         mid_vlo.addWidget(DividerRow(BORDER, self.S(5)))
 
-        self._spd_lbl=DragLabel("x1.0", step=0.1, lo=0.5, hi=2.0, default=1.0, big_step=0.5)
+        self._spd_lbl=DragLabel("×1.0", default=1.0, values=SPEED_VALUES)
         self._spd_lbl.set_value(1.0); self._spd_lbl.setFixedWidth(VAL_W); self._spd_lbl.setFixedHeight(self.S(22))
         self._spd_lbl.value_changed.connect(self._on_spd)
         self._spd_lbl.value_edited_invalid.connect(lambda: self._st("Invalid number"))
-        self._attach_tip(self._spd_lbl, "Speed\n2-Click:Edit\nDrag:+/-0.1\nShift+Drag:+/-0.5\nR-Click:Reset")
+        self._attach_tip(self._spd_lbl, "Speed\n2-Click:Edit\nDrag/Wheel:step\nR-Click:Reset")
         mid_vlo.addWidget(mk_row("Speed ", self._spd_lbl))
         cols_lo.addWidget(mid_stack)
 
@@ -5420,7 +5465,7 @@ class MainWindow(QMainWindow):
     def _on_spd(self, v):
         self.engine.set_speed(v, self._st)
         self._spd_lbl.set_value(self.engine.speed)
-        self._spd_lbl.setText(f"×{self.engine.speed:.1f}")
+        self._spd_lbl.setText(_fmt_speed(self.engine.speed))
 
     def _key_text(self, v):
         """Keyの表示文字列。0のときは「±0」、それ以外は符号付き整数。"""
@@ -5565,7 +5610,7 @@ class MainWindow(QMainWindow):
         if self.engine.fine_semi!=_fine:
             self.engine.set_fine_semi(_fine, self._st)
         self._spd_lbl.set_value(self.engine.speed)
-        self._spd_lbl.setText(f"×{self.engine.speed:.1f}")
+        self._spd_lbl.setText(_fmt_speed(self.engine.speed))
         self._key_lbl.set_value(self.engine.semitones)
         self._key_lbl.setText(self._key_text(self.engine.semitones))
         self._fine_lbl.set_value(self.engine.fine_semi)
@@ -5835,7 +5880,7 @@ class MainWindow(QMainWindow):
         self._beat_edit.setText(str(self._beat))
         self._bar_edit.setText(f"{self._bar:.1f}")
         self._spd_lbl.set_value(self.engine.speed)
-        self._spd_lbl.setText(f"×{self.engine.speed:.1f}")
+        self._spd_lbl.setText(_fmt_speed(self.engine.speed))
         self._key_lbl.set_value(self.engine.semitones)
         self._key_lbl.setText(self._key_text(self.engine.semitones))
         self._fine_lbl.set_value(self.engine.fine_semi)
@@ -6251,6 +6296,10 @@ class MainWindow(QMainWindow):
         title = " / ".join(parts) if parts else gbs.game
         self._gbs_panel.set_info(gbs.track_count, gbs.cur_track, title)
         self._gbs_panel.set_channels(gbs.ch_count, gbs.ch_names, gbs.ch_active, td['ch_used'])
+        if gbs.track_metas:
+            tt_names = [m.get('title', '') or f"Track {i+1}"
+                        for i, m in enumerate(gbs.track_metas)]
+            self._gbs_panel.set_track_titles(tt_names)
 
     def _gbs_set_track(self, track_idx_0based):
         """GBSトラックを切り替える（バックグラウンドスレッド）"""
