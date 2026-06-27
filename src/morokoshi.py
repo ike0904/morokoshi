@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.17"
+APP_VERSION = "v1.5.18"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3130,7 +3130,8 @@ class NsfPanel(QWidget):
         self._track_edit.wheelEvent=self._track_wheel
         self._track_edit.mousePressEvent=self._track_press
         self._track_edit.leaveEvent=self._track_leave
-        self._track_edit.enterEvent=lambda e, s=self: show_tt(s._track_tt_text, s._track_edit)
+        self._track_edit.enterEvent=lambda e, s=self: show_tt(
+            "Track number\nDrag up/down or Wheel to change\n2-Click: Edit", s._track_edit)
         self._track_edit.mouseMoveEvent=self._track_move
         self._track_edit.mouseReleaseEvent=self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3386,7 +3387,8 @@ class SpcPanel(QWidget):
         self._track_edit.wheelEvent = self._track_wheel
         self._track_edit.mousePressEvent = self._track_press
         self._track_edit.leaveEvent = self._track_leave
-        self._track_edit.enterEvent = lambda e, s=self: show_tt(s._track_tt_text, s._track_edit)
+        self._track_edit.enterEvent = lambda e, s=self: show_tt(
+            "Track number\nDrag up/down or Wheel to change\n2-Click: Edit", s._track_edit)
         self._track_edit.mouseMoveEvent = self._track_move
         self._track_edit.mouseReleaseEvent = self._track_release
         r1lo.addWidget(self._track_edit)
