@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.18"
+APP_VERSION = "v1.5.19"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3082,6 +3082,46 @@ class _NsfMarquee(QWidget):
             self._timer.stop(); self._offset=0
 
 
+def _setup_track_editor(ed, panel):
+    """トラック番号エディタQLineEditにドラッグ/ホイール操作を追加（NsfPanel/SpcPanel共通）"""
+    from PyQt6.QtWidgets import QLineEdit as _QLE
+    _dy0 = [0]; _base = [panel._cur]
+    def ed_press(ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            _dy0[0] = ev.position().y(); _base[0] = panel._cur
+        _QLE.mousePressEvent(ed, ev)
+    def ed_move(ev):
+        if not (ev.buttons() & Qt.MouseButton.LeftButton): return
+        dy = _dy0[0] - ev.position().y()
+        if abs(dy) < 4:
+            _QLE.mouseMoveEvent(ed, ev); return
+        shift = bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        steps = int(dy / 10) * (10 if shift else 1)
+        v = max(0, min(panel._total - 1, _base[0] + steps))
+        if v != panel._cur:
+            panel._cur = v
+            ed.setText(f"{v+1:03d}"); ed.selectAll()
+            panel._update_track_tooltip()
+            show_tt(panel._track_tt_text, panel._track_edit)
+            panel._wheel_timer.start(300)
+        ev.accept()
+    def ed_wheel(ev):
+        shift = bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        step = 10 if shift else 1
+        v = panel._cur + (step if ev.angleDelta().y() > 0 else -step)
+        v = max(0, min(panel._total - 1, v))
+        if v != panel._cur:
+            panel._cur = v
+            ed.setText(f"{v+1:03d}"); ed.selectAll()
+            panel._update_track_tooltip()
+            show_tt(panel._track_tt_text, panel._track_edit)
+            panel._wheel_timer.start(300)
+        ev.accept()
+    ed.mousePressEvent = ed_press
+    ed.mouseMoveEvent = ed_move
+    ed.wheelEvent = ed_wheel
+
+
 class NsfPanel(QWidget):
     """NSFモード専用表示パネル（スペアナエリアの代わりに配置）"""
     track_changed    = pyqtSignal(int)        # 0-based track index
@@ -3183,6 +3223,7 @@ class NsfPanel(QWidget):
             if top: top.setFocus()
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
+        _setup_track_editor(ed, self)
         ed.show()
 
     # ── 楽曲番号ドラッグ ───────────────────────
@@ -3190,6 +3231,8 @@ class NsfPanel(QWidget):
         if self._track_editor is not None: return
         if e.button()==Qt.MouseButton.LeftButton:
             self._drag_y0=e.position().y(); self._drag_base=self._cur; self._dragging=False
+            self._update_track_tooltip()
+            show_tt(self._track_tt_text, self._track_edit)
 
     def _track_move(self, e):
         if self._track_editor is not None: return
@@ -3457,12 +3500,15 @@ class SpcPanel(QWidget):
             if top: top.setFocus()
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
+        _setup_track_editor(ed, self)
         ed.show()
 
     def _track_press(self, e):
         if self._track_editor is not None: return
         if e.button() == Qt.MouseButton.LeftButton:
             self._drag_y0 = e.position().y(); self._drag_base = self._cur; self._dragging = False
+            self._update_track_tooltip()
+            show_tt(self._track_tt_text, self._track_edit)
 
     def _track_move(self, e):
         if self._track_editor is not None: return
@@ -4032,6 +4078,11 @@ class DragLabel(QLabel):
         ed.setGeometry(0,0,self.width(),self.height())
         ed.setFocus(); ed.selectAll()
         self._editor=ed
+        def _fmt(v):
+            if self.values: return str(v)
+            if float(self.step).is_integer(): return str(int(round(v)))
+            dp=max(0, -int(math.floor(math.log10(self.step))))
+            return f"{v:.{dp}f}"
         def commit():
             if self._editor is None: return
             txt=self._editor.text().strip()
@@ -4045,28 +4096,47 @@ class DragLabel(QLabel):
             else:
                 v=max(self.lo,min(self.hi, round(v/self.step)*self.step))
             self._val=v; self.value_changed.emit(v)
+        _dy0=[0]; _base=[self._val]
+        def ed_press(ev):
+            if ev.button()==Qt.MouseButton.LeftButton:
+                _dy0[0]=ev.position().y()
+                try: _base[0]=float(ed.text().strip())
+                except: _base[0]=self._val
+            QLineEdit.mousePressEvent(ed, ev)
+        def ed_move(ev):
+            if not (ev.buttons() & Qt.MouseButton.LeftButton): return
+            dy=_dy0[0]-ev.position().y()
+            if abs(dy)<4:
+                QLineEdit.mouseMoveEvent(ed, ev); return
+            steps=int(dy/12)
+            base=_base[0]
+            shift=bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if self.values:
+                cur_idx=min(range(len(self.values)), key=lambda i: abs(self.values[i]-base))
+                new_idx=max(0, min(len(self.values)-1, cur_idx+steps))
+                new_v=self.values[new_idx]
+            else:
+                st=self.big_step if shift else self.step
+                new_v=max(self.lo, min(self.hi, round((base+steps*st)/self.step)*self.step))
+            ed.setText(_fmt(new_v)); ed.selectAll()
+            ev.accept()
         def on_wheel(ev):
-            # 編集中(ダブルクリック後)のホイールで値を増減。不正な値の時は何もせずエラー表示
             txt=ed.text().strip()
-            try:
-                v=float(txt)
-            except:
-                self.value_edited_invalid.emit(); ev.ignore(); return
+            try: v=float(txt)
+            except: self.value_edited_invalid.emit(); ev.ignore(); return
             if self.values:
                 idx=min(range(len(self.values)), key=lambda i: abs(self.values[i]-v))
                 new_idx=max(0, min(len(self.values)-1, idx+(1 if ev.angleDelta().y()>0 else -1)))
                 new_v=self.values[new_idx]
-                ed.setText(str(new_v))
             else:
                 shift=bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
                 st=self.big_step if shift else self.step
                 delta=st if ev.angleDelta().y()>0 else -st
                 new_v=max(self.lo, min(self.hi, round((v+delta)/self.step)*self.step))
-                if float(self.step).is_integer():
-                    ed.setText(str(int(round(new_v))))
-                else:
-                    ed.setText(f"{new_v:.1f}")
+            ed.setText(_fmt(new_v)); ed.selectAll()
             ev.accept()
+        ed.mousePressEvent=ed_press
+        ed.mouseMoveEvent=ed_move
         ed.wheelEvent=on_wheel
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
