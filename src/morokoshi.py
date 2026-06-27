@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.19"
+APP_VERSION = "v1.5.20"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3082,44 +3082,53 @@ class _NsfMarquee(QWidget):
             self._timer.stop(); self._offset=0
 
 
-def _setup_track_editor(ed, panel):
-    """トラック番号エディタQLineEditにドラッグ/ホイール操作を追加（NsfPanel/SpcPanel共通）"""
-    from PyQt6.QtWidgets import QLineEdit as _QLE
-    _dy0 = [0]; _base = [panel._cur]
-    def ed_press(ev):
+class _TrackQLE(QLineEdit):
+    """トラック番号編集用QLineEdit（NsfPanel/SpcPanel共通）。ドラッグ/ホイールでトラック変更。"""
+    def __init__(self, parent_label, panel):
+        super().__init__(parent_label)
+        self._panel = panel
+        self._dy0 = 0.0; self._base = panel._cur; self._dragged = False
+
+    def mousePressEvent(self, ev):
         if ev.button() == Qt.MouseButton.LeftButton:
-            _dy0[0] = ev.position().y(); _base[0] = panel._cur
-        _QLE.mousePressEvent(ed, ev)
-    def ed_move(ev):
-        if not (ev.buttons() & Qt.MouseButton.LeftButton): return
-        dy = _dy0[0] - ev.position().y()
+            self._dy0 = ev.position().y(); self._base = self._panel._cur; self._dragged = False
+        super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        if not (ev.buttons() & Qt.MouseButton.LeftButton):
+            super().mouseMoveEvent(ev); return
+        dy = self._dy0 - ev.position().y()
         if abs(dy) < 4:
-            _QLE.mouseMoveEvent(ed, ev); return
+            super().mouseMoveEvent(ev); return
+        self._dragged = True
         shift = bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         steps = int(dy / 10) * (10 if shift else 1)
-        v = max(0, min(panel._total - 1, _base[0] + steps))
-        if v != panel._cur:
-            panel._cur = v
-            ed.setText(f"{v+1:03d}"); ed.selectAll()
-            panel._update_track_tooltip()
-            show_tt(panel._track_tt_text, panel._track_edit)
-            panel._wheel_timer.start(300)
+        v = max(0, min(self._panel._total - 1, self._base + steps))
+        if v != self._panel._cur:
+            self._panel._cur = v
+            self.setText(f"{v+1:03d}"); self.selectAll()
+            self._panel._update_track_tooltip()
+            show_tt(self._panel._track_tt_text, self._panel._track_edit)
         ev.accept()
-    def ed_wheel(ev):
+
+    def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton and self._dragged:
+            self._dragged = False
+            self._panel.track_changed.emit(self._panel._cur)
+        super().mouseReleaseEvent(ev)
+
+    def wheelEvent(self, ev):
         shift = bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         step = 10 if shift else 1
-        v = panel._cur + (step if ev.angleDelta().y() > 0 else -step)
-        v = max(0, min(panel._total - 1, v))
-        if v != panel._cur:
-            panel._cur = v
-            ed.setText(f"{v+1:03d}"); ed.selectAll()
-            panel._update_track_tooltip()
-            show_tt(panel._track_tt_text, panel._track_edit)
-            panel._wheel_timer.start(300)
+        v = self._panel._cur + (step if ev.angleDelta().y() > 0 else -step)
+        v = max(0, min(self._panel._total - 1, v))
+        if v != self._panel._cur:
+            self._panel._cur = v
+            self.setText(f"{v+1:03d}"); self.selectAll()
+            self._panel._update_track_tooltip()
+            show_tt(self._panel._track_tt_text, self._panel._track_edit)
+            self._panel._wheel_timer.start(300)
         ev.accept()
-    ed.mousePressEvent = ed_press
-    ed.mouseMoveEvent = ed_move
-    ed.wheelEvent = ed_wheel
 
 
 class NsfPanel(QWidget):
@@ -3189,7 +3198,7 @@ class NsfPanel(QWidget):
         r1lo.addWidget(self._total_lbl)
         _sp=QLabel(" "); _sp.setFixedWidth(self.S(4)); _sp.setStyleSheet(f"background:{BG};"); r1lo.addWidget(_sp)
         self._title=_NsfMarquee(); self._title.setStyleSheet(f"background:{BG};")
-        _attach_tt(self._title, "NSF title")
+        _attach_tt(self._title, "Game title")
         r1lo.addWidget(self._title, 1); lo.addWidget(r1)
         # 下行: チャンネルボタン
         self._ch_row=QWidget(); self._ch_row.setFixedHeight(self.S(24))
@@ -3200,14 +3209,12 @@ class NsfPanel(QWidget):
 
     def _start_edit(self):
         if self._track_editor is not None: return
-        from PyQt6.QtWidgets import QLineEdit as _QLE
-        ed = _QLE(self._track_edit)
+        ed = _TrackQLE(self._track_edit, self)
         ed.setText(f"{self._cur+1:03d}")
         ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
         ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         ed.setGeometry(0, 0, self._track_edit.width(), self._track_edit.height())
-        ed.setFocus(); ed.selectAll()
         self._track_editor = ed
         def commit():
             if self._track_editor is None: return
@@ -3223,8 +3230,7 @@ class NsfPanel(QWidget):
             if top: top.setFocus()
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
-        _setup_track_editor(ed, self)
-        ed.show()
+        ed.show(); ed.setFocus(); ed.selectAll()
 
     # ── 楽曲番号ドラッグ ───────────────────────
     def _track_press(self, e):
@@ -3248,10 +3254,12 @@ class NsfPanel(QWidget):
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
             show_tt(self._track_tt_text, self._track_edit)
-            self._wheel_timer.start(300)
 
     def _track_release(self, e):
         if self._track_editor is not None: return
+        if self._dragging:
+            self._dragging = False
+            self.track_changed.emit(self._cur)
         top = self.window()
         if top: top.setFocus()
 
@@ -3367,7 +3375,8 @@ class NsfPanel(QWidget):
         """楽曲読み込み中はナビゲーションUIを無効化してグレーアウト"""
         self._track_prev_btn.setEnabled(not loading and self._cur > 0)
         self._track_next_btn.setEnabled(not loading and self._cur < self._total - 1)
-        self._track_edit.setEnabled(not loading)
+        if self._track_editor is None:  # エディタ開中は無効化しない（エディタが閉じてしまうため）
+            self._track_edit.setEnabled(not loading)
         for btn in self._ch_btns:
             btn.setEnabled(not loading)
 
@@ -3477,14 +3486,12 @@ class SpcPanel(QWidget):
     # ── トラックナビゲーション ──────────────────────
     def _start_edit(self):
         if self._track_editor is not None: return
-        from PyQt6.QtWidgets import QLineEdit as _QLE
-        ed = _QLE(self._track_edit)
+        ed = _TrackQLE(self._track_edit, self)
         ed.setText(f"{self._cur+1:03d}")
         ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
         ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         ed.setGeometry(0, 0, self._track_edit.width(), self._track_edit.height())
-        ed.setFocus(); ed.selectAll()
         self._track_editor = ed
         def commit():
             if self._track_editor is None: return
@@ -3500,8 +3507,7 @@ class SpcPanel(QWidget):
             if top: top.setFocus()
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
-        _setup_track_editor(ed, self)
-        ed.show()
+        ed.show(); ed.setFocus(); ed.selectAll()
 
     def _track_press(self, e):
         if self._track_editor is not None: return
@@ -3524,10 +3530,12 @@ class SpcPanel(QWidget):
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
             show_tt(self._track_tt_text, self._track_edit)
-            self._wheel_timer.start(300)
 
     def _track_release(self, e):
         if self._track_editor is not None: return
+        if self._dragging:
+            self._dragging = False
+            self.track_changed.emit(self._cur)
         top = self.window()
         if top: top.setFocus()
 
@@ -3616,7 +3624,8 @@ class SpcPanel(QWidget):
     def set_loading(self, loading):
         self._track_prev_btn.setEnabled(not loading and self._cur > 0)
         self._track_next_btn.setEnabled(not loading and self._cur < self._total - 1)
-        self._track_edit.setEnabled(not loading)
+        if self._track_editor is None:  # エディタ開中は無効化しない（エディタが閉じてしまうため）
+            self._track_edit.setEnabled(not loading)
         for btn in self._ch_btns:
             btn.setEnabled(not loading)
 
@@ -3991,7 +4000,6 @@ class TimeLabel(QLabel):
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
         ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         ed.setGeometry(0,0,self.width(),self.height())
-        ed.setFocus(); ed.selectAll()
         self._editor=ed
         def commit():
             if self._editor is None: return
@@ -4002,11 +4010,24 @@ class TimeLabel(QLabel):
                 self.edit_committed.emit(float(sec))
             elif txt.strip()!="":
                 self.edit_invalid.emit()
-        def cancel():
-            if self._editor is None: return
-            self._editor.deleteLater(); self._editor=None
+        _dy0=[0]; _base_sec=[0.0]
+        def ed_press(ev):
+            if ev.button()==Qt.MouseButton.LeftButton:
+                _dy0[0]=ev.position().y()
+                sec=TimeLabel.parse_time(ed.text())
+                _base_sec[0]=sec if sec is not None else 0.0
+            QLineEdit.mousePressEvent(ed, ev)
+        def ed_move(ev):
+            if not (ev.buttons() & Qt.MouseButton.LeftButton): return
+            dy=_dy0[0]-ev.position().y()
+            if abs(dy)<4: QLineEdit.mouseMoveEvent(ed, ev); return
+            shift=bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            step=1.0 if shift else 0.1
+            steps=int(dy/12.0)
+            new_sec=max(0.0, round((_base_sec[0]+steps*step)/0.1)*0.1)
+            ed.setText(TimeLabel.format_time(new_sec)); ed.selectAll()
+            ev.accept()
         def on_wheel(ev):
-            # 編集中(ダブルクリック後)のホイールで値を増減。不正な値の時は何もせずエラー表示
             sec=TimeLabel.parse_time(ed.text())
             if sec is None:
                 self.edit_invalid.emit(); ev.ignore(); return
@@ -4014,12 +4035,12 @@ class TimeLabel(QLabel):
             step=1.0 if shift else 0.1
             delta=step if ev.angleDelta().y()>0 else -step
             new_sec=max(0.0, round((sec+delta)/0.1)*0.1)
-            ed.setText(TimeLabel.format_time(new_sec))
+            ed.setText(TimeLabel.format_time(new_sec)); ed.selectAll()
             ev.accept()
-        ed.wheelEvent=on_wheel
+        ed.mousePressEvent=ed_press; ed.mouseMoveEvent=ed_move; ed.wheelEvent=on_wheel
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
-        ed.show()
+        ed.show(); ed.setFocus(); ed.selectAll()
 
     def mouseDoubleClickEvent(self, e):
         self.begin_edit()
@@ -5416,7 +5437,6 @@ class MainWindow(QMainWindow):
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
         ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         ed.setGeometry(0,0,self._abdiff_lbl.width(),self._abdiff_lbl.height())
-        ed.setFocus(); ed.selectAll()
         self._abdiff_lbl._editor=ed
         def commit():
             if self._abdiff_lbl._editor is None: return
@@ -5427,9 +5447,27 @@ class MainWindow(QMainWindow):
             except: self._st("Invalid number"); self._update_abdiff(); return
             if new_dur<=0: self._st("Duration must be positive"); self._update_abdiff(); return
             self._apply_abdiff_duration(new_dur)
+        _dy0=[0]; _base=[dur]
+        def ed_press(ev):
+            if ev.button()==Qt.MouseButton.LeftButton:
+                _dy0[0]=ev.position().y()
+                try: _base[0]=float(ed.text().strip())
+                except: _base[0]=dur
+            QLineEdit.mousePressEvent(ed, ev)
+        def ed_move(ev):
+            if not (ev.buttons() & Qt.MouseButton.LeftButton): return
+            dy=_dy0[0]-ev.position().y()
+            if abs(dy)<4: QLineEdit.mouseMoveEvent(ed, ev); return
+            shift=bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            dstep=1.0 if shift else 0.1
+            steps=int(dy/12.0)
+            new_dur=max(0.1, round((_base[0]+steps*dstep)*10)/10)
+            ed.setText(f"{new_dur:.1f}"); ed.selectAll()
+            ev.accept()
+        ed.mousePressEvent=ed_press; ed.mouseMoveEvent=ed_move
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
-        ed.show()
+        ed.show(); ed.setFocus(); ed.selectAll()
 
     def _apply_abdiff_duration(self, new_dur, revert_on_error=True):
         """A<->B 差分を new_dur 秒に変更。A固定・B移動。"""
@@ -5488,13 +5526,13 @@ class MainWindow(QMainWindow):
     def _rewff_dblclick(self, e):
         if getattr(self._rewff_lbl,"_editor",None) is not None: return
         from PyQt6.QtWidgets import QLineEdit
+        cur_sec=self._rewff_sec()
         ed=QLineEdit(self._rewff_lbl)
-        ed.setText(f"{self._rewff_sec():.1f}")
+        ed.setText(f"{cur_sec:.1f}")
         ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
         ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         ed.setGeometry(0,0,self._rewff_lbl.width(),self._rewff_lbl.height())
-        ed.setFocus(); ed.selectAll()
         self._rewff_lbl._editor=ed
         def commit():
             if self._rewff_lbl._editor is None: return
@@ -5504,9 +5542,27 @@ class MainWindow(QMainWindow):
             except: self._st("Invalid number"); return
             if new_sec<=0: self._st("Value must be positive"); return
             self._apply_rewff_sec(new_sec)
+        _dy0=[0]; _base=[cur_sec]
+        def ed_press(ev):
+            if ev.button()==Qt.MouseButton.LeftButton:
+                _dy0[0]=ev.position().y()
+                try: _base[0]=float(ed.text().strip())
+                except: _base[0]=cur_sec
+            QLineEdit.mousePressEvent(ed, ev)
+        def ed_move(ev):
+            if not (ev.buttons() & Qt.MouseButton.LeftButton): return
+            dy=_dy0[0]-ev.position().y()
+            if abs(dy)<4: QLineEdit.mouseMoveEvent(ed, ev); return
+            shift=bool(ev.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            dstep=1.0 if shift else 0.1
+            steps=int(dy/12.0)
+            new_sec=max(0.01, round((_base[0]+steps*dstep)*10)/10)
+            ed.setText(f"{new_sec:.1f}"); ed.selectAll()
+            ev.accept()
+        ed.mousePressEvent=ed_press; ed.mouseMoveEvent=ed_move
         ed.returnPressed.connect(commit)
         ed.editingFinished.connect(commit)
-        ed.show()
+        ed.show(); ed.setFocus(); ed.selectAll()
 
     def _apply_rewff_sec(self, new_sec, revert_on_error=True):
         """Rew/FFをnew_sec秒にするためTempoを逆算して更新。"""
