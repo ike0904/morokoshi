@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.21"
+APP_VERSION = "v1.5.22"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4051,15 +4051,20 @@ class TimeLabel(QLabel):
 # ドラッグラベル（速度・キー・音量）
 # ════════════════════════════════════════
 class DragLabel(QLabel):
-    value_changed = pyqtSignal(float)
+    value_changed = pyqtSignal(float)   # 確定値: リリース / タイマー / commit
+    value_preview = pyqtSignal(float)   # 即時表示用: ドラッグ中・ホイール各ステップ
     value_edited_invalid = pyqtSignal()
-    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, values=None, parent=None):
+    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, values=None, lazy=False, parent=None):
         super().__init__(text, parent)
         self.step=step; self.lo=lo; self.hi=hi
         self.big_step=big_step if big_step is not None else step
         self.default_value=default
         self.values=values  # 固定値リスト。設定時はlo/hi/step/big_stepを無視
         self._val=0.0; self._y0=0; self._base=0.0; self._editor=None
+        self._lazy=lazy; self._pre_drag_val=0.0
+        if lazy:
+            self._lazy_timer=QTimer(); self._lazy_timer.setSingleShot(True)
+            self._lazy_timer.timeout.connect(lambda: self.value_changed.emit(self._val))
         self.setCursor(Qt.CursorShape.SizeVerCursor)
         self.setStyleSheet(f"QLabel{{color:{FG}; background:{BG3}; border:1px solid {BORDER}; padding:2px 8px;}}"
                            f"QLabel:hover{{border:1px solid {FG2};}}")
@@ -4074,7 +4079,7 @@ class DragLabel(QLabel):
             self.value_changed.emit(self._val)
             return
         if e.button()==Qt.MouseButton.LeftButton:
-            self._y0=e.position().y(); self._base=self._val
+            self._y0=e.position().y(); self._base=self._val; self._pre_drag_val=self._val
     def mouseMoveEvent(self,e):
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
         dy=self._y0-e.position().y()
@@ -4088,8 +4093,14 @@ class DragLabel(QLabel):
             shift=bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             st = self.big_step if shift else self.step
             new_v=max(self.lo,min(self.hi, round((self._base+steps*st)/st)*st))
-        if new_v!=self._val: self._val=new_v; self.value_changed.emit(new_v)
-    def mouseReleaseEvent(self,e): pass
+        if new_v!=self._val:
+            self._val=new_v
+            if self._lazy: self.value_preview.emit(new_v)
+            else: self.value_changed.emit(new_v)
+    def mouseReleaseEvent(self,e):
+        if self._lazy and e.button()==Qt.MouseButton.LeftButton:
+            if self._val != self._pre_drag_val:
+                self.value_changed.emit(self._val)
     def wheelEvent(self, e):
         if self._editor is not None: return
         hide_tt()
@@ -4102,7 +4113,13 @@ class DragLabel(QLabel):
             st=self.big_step if shift else self.step
             delta=st if e.angleDelta().y()>0 else -st
             new_v=max(self.lo, min(self.hi, round((self._val+delta)/self.step)*self.step))
-        if new_v!=self._val: self._val=new_v; self.value_changed.emit(new_v)
+        if new_v!=self._val:
+            self._val=new_v
+            if self._lazy:
+                self.value_preview.emit(new_v)
+                self._lazy_timer.start(300)
+            else:
+                self.value_changed.emit(new_v)
         e.accept()
     def mouseDoubleClickEvent(self,e):
         from PyQt6.QtWidgets import QLineEdit
@@ -4479,18 +4496,20 @@ class MainWindow(QMainWindow):
         self._rebuild_markers()
         left_vlo.addWidget(DividerRow(BORDER, self.S(5)))
 
-        self._key_lbl=DragLabel("±0", step=1, lo=-24, hi=24, default=0.0, big_step=12)
+        self._key_lbl=DragLabel("±0", step=1, lo=-24, hi=24, default=0.0, big_step=12, lazy=True)
         self._key_lbl.set_value(0); self._key_lbl.setFixedWidth(VAL_W); self._key_lbl.setFixedHeight(self.S(22))
         self._key_lbl.value_changed.connect(self._on_key)
+        self._key_lbl.value_preview.connect(lambda v: self._key_lbl.setText(self._key_text(v)))
         self._key_lbl.value_edited_invalid.connect(lambda: self._st("Invalid number"))
-        self._attach_tip(self._key_lbl, "Key\n2-Click:Edit\nDrag:+/-1\nShift+Drag:+/-12\nR-Click:Reset")
+        self._attach_tip(self._key_lbl, "Key\n2-Click:Edit\nDrag/Wheel:+/-1\nShift+Drag:+/-12\nR-Click:Reset")
         left_vlo.addWidget(mk_row("Key   ", self._key_lbl))
 
-        self._fine_lbl=DragLabel("±0.00", step=0.01, lo=-1.0, hi=1.0, default=0.0, big_step=0.1)
+        self._fine_lbl=DragLabel("±0.00", step=0.01, lo=-1.0, hi=1.0, default=0.0, big_step=0.1, lazy=True)
         self._fine_lbl.set_value(0.0); self._fine_lbl.setFixedWidth(VAL_W); self._fine_lbl.setFixedHeight(self.S(22))
         self._fine_lbl.value_changed.connect(self._on_fine)
+        self._fine_lbl.value_preview.connect(lambda v: self._fine_lbl.setText(self._fine_text(v)))
         self._fine_lbl.value_edited_invalid.connect(lambda: self._st("Invalid number"))
-        self._attach_tip(self._fine_lbl, "Fine\n2-Click:Edit\nDrag:+/-0.01\nShift+Drag:+/-0.1\nR-Click:Reset")
+        self._attach_tip(self._fine_lbl, "Fine\n2-Click:Edit\nDrag/Wheel:+/-0.01\nShift+Drag:+/-0.1\nR-Click:Reset")
         left_vlo.addWidget(mk_row("Fine  ", self._fine_lbl))
         cols_lo.addWidget(left_stack)
 
@@ -4503,9 +4522,10 @@ class MainWindow(QMainWindow):
         mid_vlo.addWidget(mk_row("Bar   ", self._bar_edit))
         mid_vlo.addWidget(DividerRow(BORDER, self.S(5)))
 
-        self._spd_lbl=DragLabel("×1.0", default=1.0, values=SPEED_VALUES)
+        self._spd_lbl=DragLabel("×1.0", default=1.0, values=SPEED_VALUES, lazy=True)
         self._spd_lbl.set_value(1.0); self._spd_lbl.setFixedWidth(VAL_W); self._spd_lbl.setFixedHeight(self.S(22))
         self._spd_lbl.value_changed.connect(self._on_spd)
+        self._spd_lbl.value_preview.connect(lambda v: self._spd_lbl.setText(_fmt_speed(v)))
         self._spd_lbl.value_edited_invalid.connect(lambda: self._st("Invalid number"))
         self._attach_tip(self._spd_lbl, "Speed\n2-Click:Edit\nDrag/Wheel:step\nR-Click:Reset")
         mid_vlo.addWidget(mk_row("Speed ", self._spd_lbl))
@@ -5227,9 +5247,7 @@ class MainWindow(QMainWindow):
         self._update_rewff()
 
     def _edit_wheel(self, e, ed):
-        # 2-Clickで編集モードに入っている間だけホイールで増減を許可（通常表示中は無効）
-        if ed.isReadOnly():
-            e.ignore(); return
+        if ed.isReadOnly(): hide_tt()  # ホバーホイール時はツールチップを非表示
         txt=ed.text().strip()
         try:
             v=float(txt)
@@ -5887,6 +5905,13 @@ class MainWindow(QMainWindow):
         self._ab_btn.setIcon(_get_icon("ab_repeat",self.S(28),FG))
         self._ear_btn.setIcon(_get_icon("ear",self.S(28),FG))
         self._stop_ear_blink()
+        # ゲームモード: チャンネルON/OFFもリセット
+        if self.engine._nsf is not None:
+            self._nsf_on_ch_toggle(0, solo=False, reset=True)
+        elif self.engine._spc is not None:
+            self._spc_on_ch_toggle(0, solo=False, reset=True)
+        elif self.engine._gbs is not None:
+            self._gbs_on_ch_toggle(0, solo=False, reset=True)
         self._st("Reset [R]")
 
     def _do_cache_clear(self):
