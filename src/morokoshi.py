@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.15"
+APP_VERSION = "v1.5.16"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -687,6 +687,7 @@ def _nsf_detect_ch_used(gme_lib, nsf_raw, track_idx, ch_count, detect_sec=3.0, s
         # mute-after: start_track後にミュート設定
         for i in range(ch_count):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
+        gme_lib.gme_clear_blip_buffer(emu)
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         # 先頭SKIP_FRAMESはINIT汚染のため読み飛ばす
         for _ in range(SKIP_FRAMES):
@@ -870,6 +871,7 @@ def _spc_detect_ch_used(gme_lib, spc_raw, detect_sec=3.0, scb=None):
             gme_lib.gme_delete(emu); ch_used.append(False); continue
         for i in range(SPC_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
+        gme_lib.gme_clear_blip_buffer(emu)
         target_s = int(detect_sec * SPC_SR)
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         samples = []; rendered = 0
@@ -1065,6 +1067,7 @@ def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
             gme_lib.gme_delete(emu); ch_used.append(False); continue
         for i in range(GBS_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
+        gme_lib.gme_clear_blip_buffer(emu)
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         samples = []; rendered = 0
         while rendered < target_s:
@@ -1523,12 +1526,17 @@ class AudioEngine:
         if old_track in _pend_old:
             state.track_data[old_track]['session'] = _pend_old.pop(old_track)
         else:
+            _td = state.track_data[old_track]
+            _ch_used = _td.get('ch_used', [])
+            _override = [i for i, act in enumerate(state.ch_active)
+                         if act and i < len(_ch_used) and not _ch_used[i]]
             state.track_data[old_track]['session'] = {
                 'position':  self.current_sec(),
                 'markers':   dict(self.markers),
                 'ch_active': list(state.ch_active),
                 'ab_active': self.ab_active,
                 'ear_active': self.ear_active,
+                'ch_used_override': _override,
             }
 
     def _restore_track_session(self, state, track_idx):
@@ -1537,6 +1545,8 @@ class AudioEngine:
         session = td.get('session')
         if session:
             state.ch_active  = list(session.get('ch_active', td['ch_used']))
+            for _i in session.get('ch_used_override', []):
+                if _i < len(td['ch_used']): td['ch_used'][_i] = True
             self.markers     = {int(k): float(v) for k, v in session.get('markers', {}).items()}
             self.ab_active   = bool(session.get('ab_active', False))
             self.ear_active  = bool(session.get('ear_active', False))
@@ -1667,6 +1677,34 @@ class AudioEngine:
         td['decoded_sec'] = new_actual_dur
         td['view_sec']    = new_view_sec
         td['natural_end'] = new_natural_end
+
+        # 延長後に未使用chを再検出（延長部分で登場するchを自動ON）
+        _unused = [i for i in range(nsf.ch_count) if not td['ch_used'][i]]
+        if _unused:
+            gme2 = _gme_load()
+            if gme2 is not None:
+                if scb: scb("NSF: checking unused channels in extended range...")
+                _det_sec = min(new_actual_dur, 60.0)
+                _found_all = _nsf_detect_ch_used(gme2, nsf._nsf_raw, track_idx,
+                                                 nsf.ch_count, detect_sec=_det_sec)
+                _newly = [i for i in _unused if _found_all[i]]
+                if _newly:
+                    for i in _newly:
+                        td['ch_used'][i] = True
+                        nsf.ch_active[i] = True
+                    new_ch_mask = sum((1 << i) for i in range(nsf.ch_count)
+                                      if i < len(nsf.ch_active) and nsf.ch_active[i]
+                                      and td['ch_used'][i])
+                    td['ch_mask'] = new_ch_mask
+                    gme3 = _gme_load()
+                    if gme3 and scb: scb("NSF: re-rendering with newly found channels...")
+                    if gme3:
+                        _w2, _ne2, _d2 = _nsf_render(gme3, nsf._nsf_raw, track_idx,
+                                                      new_ch_mask, nsf.ch_count, new_view_sec, scb)
+                        td['wav'] = _w2; td['decoded_sec'] = _d2
+                        td['view_sec'] = new_view_sec; td['natural_end'] = _ne2
+                        new_natural_end = _ne2
+
         self._mem = ConvCache()
         dur = self._nsf_mix_apply()
         return dur, new_natural_end
@@ -2253,6 +2291,34 @@ class AudioEngine:
         td['decoded_sec'] = new_dur
         td['view_sec']    = new_dur
         td['natural_end'] = new_nat
+
+        # 延長後に未使用chを再検出（延長部分で登場するchを自動ON）
+        _unused = [i for i in range(GBS_CH_COUNT) if not td['ch_used'][i]]
+        if _unused:
+            gme2 = _gme_load()
+            if gme2 is not None:
+                if scb: scb("GBS: checking unused channels in extended range...")
+                _det_sec = min(new_dur, 60.0)
+                _found_all = _gbs_detect_ch_used(gme2, gbs._gbs_raw, track_idx, detect_sec=_det_sec)
+                _newly = [i for i in _unused if _found_all[i]]
+                if _newly:
+                    for i in _newly:
+                        td['ch_used'][i] = True
+                        gbs.ch_active[i] = True
+                    new_ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT)
+                                      if i < len(gbs.ch_active) and gbs.ch_active[i]
+                                      and td['ch_used'][i])
+                    td['ch_mask'] = new_ch_mask
+                    gme3 = _gme_load()
+                    if gme3 and scb: scb("GBS: re-rendering with newly found channels...")
+                    if gme3:
+                        _w2, _d2, _ne2 = _gbs_render(gme3, gbs._gbs_raw, track_idx,
+                                                      new_ch_mask, new_view_sec, single_loop,
+                                                      detect_silence=True, scb=scb)
+                        td['wav'] = _w2; td['decoded_sec'] = _d2
+                        td['view_sec'] = _d2; td['natural_end'] = _ne2
+                        new_nat = _ne2
+
         self._mem = ConvCache()
         dur = self._gbs_mix_apply()
         return dur, new_nat
@@ -2941,7 +3007,7 @@ class NsfChButton(QPushButton):
     def _refresh_style(self):
         fs=max(6, int(round(10*self._scale)))
         if not self._used:
-            st=(f"QPushButton{{color:{FG2}; background:{BG}; border:1px solid {BORDER};"
+            st=(f"QPushButton{{color:#000000; background:{BG}; border:1px solid {BORDER};"
                 f"border-radius:2px; font-size:{fs}px; padding:0;}}")
             self.setCursor(Qt.CursorShape.ArrowCursor)
         elif self._on:
@@ -2951,7 +3017,7 @@ class NsfChButton(QPushButton):
                 f"QPushButton:pressed{{background:{BG2};}}")
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         else:
-            st=(f"QPushButton{{color:{FG2}; background:{BG2}; border:1px solid {BORDER};"
+            st=(f"QPushButton{{color:{FG}; background:{BG2}; border:1px solid {BORDER};"
                 f"border-radius:2px; font-size:{fs}px; padding:0;}}"
                 f"QPushButton:hover{{border:1px solid {FG2};}}"
                 f"QPushButton:pressed{{color:#FFD700;}}")
