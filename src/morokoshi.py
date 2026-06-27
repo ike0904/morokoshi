@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.14"
+APP_VERSION = "v1.5.15"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1502,13 +1502,17 @@ class AudioEngine:
             self._rt_gen += 1
             self._src_pos = new_pos
             self._played_orig = new_pos
-            _fo_len = min(len(self._out_buf), 2048)
-            if _fo_len > 0:
-                _fo = np.linspace(1.0, 0.0, _fo_len, dtype=np.float32)[:, np.newaxis]
-                self._out_buf[:_fo_len] *= _fo
-                self._out_buf = self._out_buf[:_fo_len].copy()
-            else:
+            if self.paused:
+                # paused中のch切替: 古い先読みバッファが再開時に一瞬流出するのを防ぐ
                 self._out_buf = np.zeros((0, 2), dtype=np.float32)
+            else:
+                _fo_len = min(len(self._out_buf), 2048)
+                if _fo_len > 0:
+                    _fo = np.linspace(1.0, 0.0, _fo_len, dtype=np.float32)[:, np.newaxis]
+                    self._out_buf[:_fo_len] *= _fo
+                    self._out_buf = self._out_buf[:_fo_len].copy()
+                else:
+                    self._out_buf = np.zeros((0, 2), dtype=np.float32)
             self._feeder_eof = False
 
     def _save_track_session(self, state):
