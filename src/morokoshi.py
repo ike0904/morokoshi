@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.22"
+APP_VERSION = "v1.5.24"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1545,6 +1545,9 @@ class AudioEngine:
                 'ab_active': self.ab_active,
                 'ear_active': self.ear_active,
                 'ch_used_override': _override,
+                'speed':     self.speed,
+                'semitones': self.semitones,
+                'fine_semi': self.fine_semi,
             }
 
     def _restore_track_session(self, state, track_idx):
@@ -1558,6 +1561,9 @@ class AudioEngine:
             self.markers     = {int(k): float(v) for k, v in session.get('markers', {}).items()}
             self.ab_active   = bool(session.get('ab_active', False))
             self.ear_active  = bool(session.get('ear_active', False))
+            self.speed       = float(session.get('speed', self.speed))
+            self.semitones   = int(session.get('semitones', self.semitones))
+            self.fine_semi   = float(session.get('fine_semi', self.fine_semi))
             return float(session.get('position', 0.0))
         else:
             state.ch_active  = list(td['ch_used'])
@@ -1615,8 +1621,8 @@ class AudioEngine:
                 'decoded_sec': actual_dur, 'view_sec': actual_dur,
                 'natural_end': natural_end, 'initial_sec': actual_dur,
             }
-            self._inject_pending_session(nsf, track_idx)
 
+        self._inject_pending_session(nsf, track_idx)
         td = nsf.track_data[track_idx]
         restore_pos = self._restore_track_session(nsf, track_idx)
 
@@ -2151,8 +2157,8 @@ class AudioEngine:
             spc.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
             }
-            self._inject_pending_session(spc, track_idx)
 
+        self._inject_pending_session(spc, track_idx)
         td = spc.track_data[track_idx]
         restore_pos = self._restore_track_session(spc, track_idx)
 
@@ -2227,8 +2233,8 @@ class AudioEngine:
                 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
                 'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
             }
-            self._inject_pending_session(gbs, track_idx)
 
+        self._inject_pending_session(gbs, track_idx)
         td = gbs.track_data[track_idx]
         restore_pos = self._restore_track_session(gbs, track_idx)
 
@@ -2836,6 +2842,7 @@ class WaveformWidget(QWidget):
         if e.button()==Qt.MouseButton.LeftButton:
             self._dragging=True
             self._press_x=e.position().x()
+            self._press_y=e.position().y()
             self._press_view=(self._view_lo, self._view_hi)
             self._drag_mode=None  # まだクリックかドラッグか不明
             # ダブルクリック確定後に残ったフラグが次のクリック列に持ち込まれないよう、念のためここでクリア
@@ -2867,17 +2874,38 @@ class WaveformWidget(QWidget):
     def mouseMoveEvent(self,e):
         if not self._dragging: return
         dx=e.position().x()-self._press_x
-        if self._drag_mode is None and abs(dx)>5:
-            # 優先順位: 現在位置線・マーカー線の直上 > AB黄色帯 > 通常ドラッグ
-            if self._grab_target=="pos":
-                self._drag_mode="pos_move"
-            elif self._grab_target=="a":
-                self._drag_mode="marker_a_move"
-            elif self._grab_target=="b":
-                self._drag_mode="marker_b_move"
+        dy=e.position().y()-getattr(self,'_press_y',e.position().y())
+        if self._drag_mode is None:
+            if self._grab_target in ("pos","a","b"):
+                # マーカー/位置線上: 最初に検知した方向がロック
+                if abs(dx)>5 or abs(dy)>5:
+                    if abs(dy)>abs(dx):
+                        self._drag_mode="zoom_drag"
+                    elif self._grab_target=="pos":
+                        self._drag_mode="pos_move"
+                    elif self._grab_target=="a":
+                        self._drag_mode="marker_a_move"
+                    else:
+                        self._drag_mode="marker_b_move"
             else:
-                self._drag_mode="ab_move" if self._press_on_ab else "drag"
-        if self._drag_mode=="ab_move":
+                # フリーエリア: 上下はズーム、左右はAB帯移動のみ有効
+                if abs(dy)>5 and (not self._press_on_ab or abs(dy)>=abs(dx)):
+                    self._drag_mode="zoom_drag"
+                elif abs(dx)>5 and self._press_on_ab:
+                    self._drag_mode="ab_move"
+        if self._drag_mode=="zoom_drag":
+            vlo,vhi=self._press_view
+            span_base=max(0.001,vhi-vlo)
+            factor=0.85**(-dy/8.0)  # 上ドラッグ(dy<0)でズームイン
+            new_span=max(0.005,min(1.0,span_base*factor))
+            frac=(self._press_r-vlo)/span_base
+            lo=self._press_r-frac*new_span; hi=lo+new_span
+            if lo<0: lo=0; hi=new_span
+            if hi>1: hi=1; lo=1-new_span
+            self._view_lo=max(0.0,lo); self._view_hi=min(1.0,hi)
+            self._last_manual=time.time()
+            self.update(); self.view_changed.emit()
+        elif self._drag_mode=="ab_move":
             # 現在のマウス比率とpress時比率の差分だけABを移動
             cur_r=self._x2r(e.position().x(), max(1,self.width()))
             delta=cur_r-self._press_r
@@ -2894,7 +2922,6 @@ class WaveformWidget(QWidget):
         elif self._drag_mode=="marker_b_move":
             r=max(0.0,min(1.0,self._x2r(e.position().x(), max(1,self.width()))))
             self.marker_drag.emit(MARKER_B, r)
-        # 通常ドラッグ(scroll)は廃止
 
     def mouseReleaseEvent(self,e):
         if self._dragging and self._drag_mode is None:
@@ -4556,9 +4583,9 @@ class MainWindow(QMainWindow):
             [self._wrap_small_btn(self._btn_marker_a),
              ("ear","Ear Mode [↑]","_ear_btn",self._ear_mode),
              self._wrap_small_btn(self._btn_marker_b)],
-            [("rew","Rew [←]","_rew_btn",self._rew),
+            [("rew","Rew [←]\nShift: Prev track (Game mode)","_rew_btn",self._rew),
              ("ab_repeat","AB Repeat [↓]","_ab_btn",self._ab_toggle),
-             ("ff","FF [→]","_ff_btn",self._ff)],
+             ("ff","FF [→]\nShift: Next track (Game mode)","_ff_btn",self._ff)],
         ]
         for _row in icon_grid:
             _rw=QWidget(); _rw.setStyleSheet(f"background:{BG};")
@@ -4655,7 +4682,7 @@ class MainWindow(QMainWindow):
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick:Seek\nDrag position line:Move playhead\nDrag A/B line:Move that marker\nDouble-click:Set marker\nDouble-click on A/B:Reset it\nWheel:Zoom\nShift+Wheel:Scroll\nDrag A-B:Move both")
+        self._attach_tip(self._waveform, "Waveform\nClick:Seek\nDrag position line:Move playhead\nDrag A/B line:Move that marker\nDouble-click:Set marker\nDouble-click on A/B:Reset it\nDrag up/down:Zoom\nWheel:Zoom\nShift+Wheel:Scroll\nDrag A-B:Move both")
         wf_lo.addWidget(self._waveform)
         from PyQt6.QtWidgets import QScrollBar
         self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
@@ -4896,7 +4923,7 @@ class MainWindow(QMainWindow):
         # ここでは行には追加しない。ボタン自体はアイコン列用に別途生成して保持する）
         _lab=label.strip()
         if _lab in ("A","B"):
-            btn=TipButton(tip=f"Go to marker {_lab} [{_lab}]")
+            btn=TipButton(tip=f"Go to marker {_lab} [{_lab}]\nShift+{_lab}: Set")
             btn.setText(_lab)
             btn.setFixedSize(self.S(22), self.S(22))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4923,7 +4950,7 @@ class MainWindow(QMainWindow):
         tl.edit_committed.connect(lambda sec, nn=n: self._set_marker_time(nn, sec))
         tl.edit_invalid.connect(lambda: self._st("Invalid time"))
         _lab2 = "A" if n==MARKER_A else "B"
-        self._attach_tip(tl, f"Marker {_lab2}\n1-Click:Set [Shift+{_lab2}]\n2-Click:Edit\nDrag:+/-0.1s\nShift+Drag:+/-1.0s\nR-Click:Clear")
+        self._attach_tip(tl, f"Marker {_lab2}\n1-Click:Set\n2-Click:Edit\nDrag:+/-0.1s\nShift+Drag:+/-1.0s\nR-Click:Clear")
         # 行の外枠・ラベル配置は、他の行(Tempo/Beat/Bar等)と完全に同じ共通ルーチンで作る。
         # これにより、行の高さ・マージンの食い違いによるズレが構造上発生しない。
         outer = self._mk_row_fn(label, tl)
@@ -5760,6 +5787,9 @@ class MainWindow(QMainWindow):
                     'ch_active': list(console_state.ch_active),
                     'ab_active': self.engine.ab_active,
                     'ear_active': self.engine.ear_active,
+                    'speed':     self.engine.speed,
+                    'semitones': self.engine.semitones,
+                    'fine_semi': self.engine.fine_semi,
                 }
             elif 'session' in td:
                 tracks[str(tidx)] = dict(td['session'])
@@ -6457,6 +6487,12 @@ class MainWindow(QMainWindow):
         else:
             self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG))
             self._stop_ear_blink()
+        self._spd_lbl.set_value(self.engine.speed)
+        self._spd_lbl.setText(_fmt_speed(self.engine.speed))
+        self._key_lbl.set_value(self.engine.semitones)
+        self._key_lbl.setText(self._key_text(self.engine.semitones))
+        self._fine_lbl.set_value(self.engine.fine_semi)
+        self._fine_lbl.setText(self._fine_text(self.engine.fine_semi))
         self._spc_update_panel()
         self._st(f"SPC: Track {spc.cur_track+1 if spc else 1}")
 
@@ -6574,6 +6610,12 @@ class MainWindow(QMainWindow):
         else:
             self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG))
             self._stop_ear_blink()
+        self._spd_lbl.set_value(self.engine.speed)
+        self._spd_lbl.setText(_fmt_speed(self.engine.speed))
+        self._key_lbl.set_value(self.engine.semitones)
+        self._key_lbl.setText(self._key_text(self.engine.semitones))
+        self._fine_lbl.set_value(self.engine.fine_semi)
+        self._fine_lbl.setText(self._fine_text(self.engine.fine_semi))
         self._gbs_update_panel()
         if gbs:
             self._nsf_set_dur_editable(True)
@@ -6716,6 +6758,12 @@ class MainWindow(QMainWindow):
             self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG))
             self._stop_ear_blink()
         self._upd_play(False)
+        self._spd_lbl.set_value(self.engine.speed)
+        self._spd_lbl.setText(_fmt_speed(self.engine.speed))
+        self._key_lbl.set_value(self.engine.semitones)
+        self._key_lbl.setText(self._key_text(self.engine.semitones))
+        self._fine_lbl.set_value(self.engine.fine_semi)
+        self._fine_lbl.setText(self._fine_text(self.engine.fine_semi))
         self._nsf_update_panel()
         nsf=self.engine._nsf
         if nsf:
