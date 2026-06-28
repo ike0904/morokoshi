@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.26"
+APP_VERSION = "v1.6.0"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3037,7 +3037,7 @@ class NsfChButton(QPushButton):
         self.setFixedSize(sz, sz)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self, f"Channel ON/OFF [{label}]\nShift: Solo\nR-Click: Reset")
+        _attach_tt(self, f"Channel on/off [{label}]\nShift: Solo\nR-Click: Reset")
         # Suppress tooltip when channel is grayed-out (not used)
         _orig_enter = self.enterEvent
         _orig_leave = self.leaveEvent
@@ -3204,7 +3204,7 @@ class NsfPanel(QWidget):
         self._track_prev_btn.setFixedSize(self.S(11), self.S(22))
         self._track_prev_btn.setStyleSheet(_nav_style)
         self._track_prev_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self._track_prev_btn, "Previous track\nKey: [,] or Shift+[←]\nShift+[,]: ×10")
+        _attach_tt(self._track_prev_btn, "Prev track [,]\nShift: ×10")
         self._track_prev_btn.clicked.connect(self._on_prev_track)
         r1lo.addWidget(self._track_prev_btn)
         self._track_edit=QLabel("001")
@@ -3228,7 +3228,7 @@ class NsfPanel(QWidget):
         self._track_next_btn.setFixedSize(self.S(11), self.S(22))
         self._track_next_btn.setStyleSheet(_nav_style)
         self._track_next_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self._track_next_btn, "Next track\nKey: [.] or Shift+[→]\nShift+[.]: ×10")
+        _attach_tt(self._track_next_btn, "Next track [.]\nShift: ×10")
         self._track_next_btn.clicked.connect(self._on_next_track)
         r1lo.addWidget(self._track_next_btn)
         self._total_lbl=QLabel("/001"); self._total_lbl.setFixedWidth(self.S(46))
@@ -3781,7 +3781,7 @@ class SpectrumLabelsWidget(QWidget):
 # グライコ表示領域(スペアナと同じ範囲)にマウスオーバーした時だけ表示する）
 # ════════════════════════════════════════
 class FilterOverlayWidget(QWidget):
-    GENERAL_TIP = ("Spectrum Analyzer\n"
+    GENERAL_TIP = ("Spectrum analyzer\n"
                    "Filter (HPF/LPF, -24dB/Oct)\n"
                    "Drag←→:Select pass band\n"
                    "R-Click:Reset (no filter)")
@@ -4590,14 +4590,14 @@ class MainWindow(QMainWindow):
              ("help","Help [H]","_help_btn",self._show_help),
              ("zoom","Zoom [Z]","_zoom_btn",self._toggle_zoom)],
             [("open","Open[O]\nShift: Folder","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
-             ("tempo_search","Tempo Detection [T]","_tempo_btn",self._tempo_detect),
+             ("tempo_search","Tempo detection [T]","_tempo_btn",self._tempo_detect),
              ("reset","Reset[R]\nShift: Clear Cache","_reset_btn",
               lambda: self._do_cache_clear() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._do_reset())],
             [self._wrap_small_btn(self._btn_marker_a),
-             ("ear","Ear Mode [↑]","_ear_btn",self._ear_mode),
+             ("ear","Ear mode [↑]","_ear_btn",self._ear_mode),
              self._wrap_small_btn(self._btn_marker_b)],
             [("rew","Rew[←]\nShift: Prev track (Game mode)","_rew_btn",self._rew),
-             ("ab_repeat","AB Repeat [↓]","_ab_btn",self._ab_toggle),
+             ("ab_repeat","AB repeat [↓]","_ab_btn",self._ab_toggle),
              ("ff","FF[→]\nShift: Next track (Game mode)","_ff_btn",self._ff)],
         ]
         for _row in icon_grid:
@@ -4695,7 +4695,7 @@ class MainWindow(QMainWindow):
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→ (outside A-B): Scroll\nDrag←→ pos/A/B line: Move it\nDrag←→ A-B: Move both\nDouble-click: Set marker\nDouble-click on A/B: Reset")
+        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→ (outside A-B): Scroll\nDrag←→ (inside A-B): Move A&B\nDrag←→ pos/A/B line: Move it\n2-click: Set marker\n2-click on A/B: Reset")
         wf_lo.addWidget(self._waveform)
         from PyQt6.QtWidgets import QScrollBar
         self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
@@ -4728,7 +4728,7 @@ class MainWindow(QMainWindow):
         self._pos_lbl.edit_committed.connect(self._set_current_time)
         self._pos_lbl.edit_invalid.connect(lambda: self._st("Invalid time"))
         self._pos_lbl.leaveEvent        = self._pos_leave
-        self._attach_tip(self._pos_lbl, "Current Time\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset")
+        self._attach_tip(self._pos_lbl, "Current time\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset")
         self._dur_lbl=QLabel("00:00.0"); self._dur_lbl.setFixedSize(self.S(64),self.S(22))
         self._dur_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dur_lbl.setStyleSheet(f"color:{FG2};")
@@ -4738,7 +4738,7 @@ class MainWindow(QMainWindow):
         self._dur_lbl.wheelEvent        = self._dur_lbl_wheel
         self._dur_lbl.enterEvent        = self._dur_lbl_enter
         self._dur_lbl.leaveEvent        = self._dur_lbl_leave
-        self._attach_tip(self._dur_lbl, "Total time (NSF/GBS)\nDrag↑↓/Wheel: step\nR-Click: Reset to detected time")
+        self._attach_tip(self._dur_lbl, "Total time\n(NSF/GBS)\nDrag↑↓/Wheel: step\nR-Click: Reset to detected time")
         self._vol_slider=QSlider(Qt.Orientation.Horizontal)
         self._vol_slider.setRange(0,200); self._vol_slider.setValue(100)
         self._vol_slider.setFixedWidth(self.S(80))
@@ -4937,7 +4937,7 @@ class MainWindow(QMainWindow):
         # ここでは行には追加しない。ボタン自体はアイコン列用に別途生成して保持する）
         _lab=label.strip()
         if _lab in ("A","B"):
-            btn=TipButton(tip=f"Go to marker {_lab} [{_lab}]\nShift: Set")
+            btn=TipButton(tip=f"Go to marker {_lab} [{_lab}]\nShift: Set marker")
             btn.setText(_lab)
             btn.setFixedSize(self.S(22), self.S(22))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4964,7 +4964,7 @@ class MainWindow(QMainWindow):
         tl.edit_committed.connect(lambda sec, nn=n: self._set_marker_time(nn, sec))
         tl.edit_invalid.connect(lambda: self._st("Invalid time"))
         _lab2 = "A" if n==MARKER_A else "B"
-        self._attach_tip(tl, f"Marker {_lab2}\n1-Click: Set\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Clear")
+        self._attach_tip(tl, f"Marker {_lab2}\nClick: Set\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Clear")
         # 行の外枠・ラベル配置は、他の行(Tempo/Beat/Bar等)と完全に同じ共通ルーチンで作る。
         # これにより、行の高さ・マージンの食い違いによるズレが構造上発生しない。
         outer = self._mk_row_fn(label, tl)
@@ -5973,7 +5973,7 @@ class MainWindow(QMainWindow):
     def _do_cache_clear(self):
         """キャッシュクリア＆アプリ再起動（Shift+R / Shift+Reset All / テンキーENTER+9）"""
         from PyQt6.QtWidgets import QMessageBox
-        ret = QMessageBox.question(self, "Clear Cache",
+        ret = QMessageBox.question(self, "Clear cache",
             "This will discard the current track, delete the cache folder, and restart the app.\nAre you sure?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
