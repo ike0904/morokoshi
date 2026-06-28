@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.5.25"
+APP_VERSION = "v1.5.26"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3037,7 +3037,7 @@ class NsfChButton(QPushButton):
         self.setFixedSize(sz, sz)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self, f"Channel ON/OFF [{label}]\nShift:Solo\nR-Click:Reset")
+        _attach_tt(self, f"Channel ON/OFF [{label}]\nShift: Solo\nR-Click: Reset")
         # Suppress tooltip when channel is grayed-out (not used)
         _orig_enter = self.enterEvent
         _orig_leave = self.leaveEvent
@@ -3181,7 +3181,7 @@ class NsfPanel(QWidget):
         self._scale=scale; self._total=1; self._cur=0; self._ch_btns=[]
         self._drag_y0=0; self._drag_base=0; self._dragging=False
         self._track_titles=[]
-        self._track_tt_text="Track number\nDrag↑↓/Wheel:change\n2-Click:Edit"
+        self._track_tt_text="Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit"
         self._wheel_timer=QTimer(self); self._wheel_timer.setSingleShot(True)
         self._wheel_timer.timeout.connect(self._emit_track_changed)
         self._build()
@@ -3204,7 +3204,7 @@ class NsfPanel(QWidget):
         self._track_prev_btn.setFixedSize(self.S(11), self.S(22))
         self._track_prev_btn.setStyleSheet(_nav_style)
         self._track_prev_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self._track_prev_btn, "Previous track\nKey:[,] or Shift+[←]\nShift+[,]:×10")
+        _attach_tt(self._track_prev_btn, "Previous track\nKey: [,] or Shift+[←]\nShift+[,]: ×10")
         self._track_prev_btn.clicked.connect(self._on_prev_track)
         r1lo.addWidget(self._track_prev_btn)
         self._track_edit=QLabel("001")
@@ -3220,7 +3220,7 @@ class NsfPanel(QWidget):
         self._track_edit.mousePressEvent=self._track_press
         self._track_edit.leaveEvent=self._track_leave
         self._track_edit.enterEvent=lambda e, s=self: show_tt(
-            "Track number\nDrag↑↓/Wheel:change\n2-Click:Edit", s._track_edit)
+            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_edit)
         self._track_edit.mouseMoveEvent=self._track_move
         self._track_edit.mouseReleaseEvent=self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3228,7 +3228,7 @@ class NsfPanel(QWidget):
         self._track_next_btn.setFixedSize(self.S(11), self.S(22))
         self._track_next_btn.setStyleSheet(_nav_style)
         self._track_next_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self._track_next_btn, "Next track\nKey:[.] or Shift+[→]\nShift+[.]:×10")
+        _attach_tt(self._track_next_btn, "Next track\nKey: [.] or Shift+[→]\nShift+[.]: ×10")
         self._track_next_btn.clicked.connect(self._on_next_track)
         r1lo.addWidget(self._track_next_btn)
         self._total_lbl=QLabel("/001"); self._total_lbl.setFixedWidth(self.S(46))
@@ -3361,7 +3361,7 @@ class NsfPanel(QWidget):
 
     def _update_track_tooltip(self):
         if not self._track_titles:
-            self._track_tt_text = "Track number\nDrag↑↓/Wheel:change\n2-Click:Edit"
+            self._track_tt_text = "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit"
             return
         lines = []
         for i in range(max(0, self._cur - 4), min(self._total, self._cur + 5)):
@@ -3437,7 +3437,7 @@ class SpcPanel(QWidget):
         self._total = 1; self._cur = 0
         self._drag_y0 = 0; self._drag_base = 0; self._dragging = False
         self._spc_titles = []
-        self._track_tt_text = "Track number\nDrag↑↓/Wheel:change\n2-Click:Edit"
+        self._track_tt_text = "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit"
         self._wheel_timer = QTimer(self)
         self._wheel_timer.setSingleShot(True)
         self._wheel_timer.timeout.connect(self._emit_track_changed)
@@ -3464,7 +3464,7 @@ class SpcPanel(QWidget):
         self._track_prev_btn.setFixedSize(self.S(11), self.S(22))
         self._track_prev_btn.setStyleSheet(_nav_style)
         self._track_prev_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self._track_prev_btn, "Previous track\nKey:[,] or Shift+[←]")
+        _attach_tt(self._track_prev_btn, "Previous track\nKey: [,] or Shift+[←]")
         self._track_prev_btn.clicked.connect(self._on_prev_track)
         r1lo.addWidget(self._track_prev_btn)
         self._track_edit = QLabel("001")
@@ -3480,7 +3480,7 @@ class SpcPanel(QWidget):
         self._track_edit.mousePressEvent = self._track_press
         self._track_edit.leaveEvent = self._track_leave
         self._track_edit.enterEvent = lambda e, s=self: show_tt(
-            "Track number\nDrag↑↓/Wheel:change\n2-Click:Edit", s._track_edit)
+            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_edit)
         self._track_edit.mouseMoveEvent = self._track_move
         self._track_edit.mouseReleaseEvent = self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3488,7 +3488,7 @@ class SpcPanel(QWidget):
         self._track_next_btn.setFixedSize(self.S(11), self.S(22))
         self._track_next_btn.setStyleSheet(_nav_style)
         self._track_next_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        _attach_tt(self._track_next_btn, "Next track\nKey:[.] or Shift+[→]")
+        _attach_tt(self._track_next_btn, "Next track\nKey: [.] or Shift+[→]")
         self._track_next_btn.clicked.connect(self._on_next_track)
         r1lo.addWidget(self._track_next_btn)
         self._total_lbl = QLabel("/001")
@@ -3675,7 +3675,7 @@ class SpcPanel(QWidget):
 
     def _update_track_tooltip(self):
         if not self._spc_titles:
-            self._track_tt_text = "Track number\nDrag↑↓/Wheel:change\n2-Click:Edit"
+            self._track_tt_text = "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit"
             return
         lines = []
         for i in range(max(0, self._cur - 4), min(self._total, self._cur + 5)):
@@ -4444,7 +4444,7 @@ class MainWindow(QMainWindow):
         self._rewff_lbl.mouseReleaseEvent    = lambda e: None
         self._rewff_lbl.mouseDoubleClickEvent= lambda e: self._rewff_dblclick(e)
         self._rewff_lbl.wheelEvent           = lambda e: self._rewff_wheel(e)
-        self._attach_tip(self._rewff_lbl, "Rew/FF step\n2-Click:Edit(sec)\nDrag↑↓:+/-0.1s\nShift+Drag↑↓:+/-1.0s\nR-Click:Reset Tempo/Beat/Bar\n→Tempo is recalculated")
+        self._attach_tip(self._rewff_lbl, "Rew/FF step\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset Tempo/Beat/Bar\n→Tempo is recalculated")
 
         # A<->B 差分表示（編集不可、Rew/FFと同様の表示）
         self._abdiff_lbl=QLineEdit("--:--.-")
@@ -4462,7 +4462,7 @@ class MainWindow(QMainWindow):
         self._abdiff_lbl.mouseReleaseEvent    = lambda e: None
         self._abdiff_lbl.mouseDoubleClickEvent= lambda e: self._abdiff_dblclick(e)
         self._abdiff_lbl.wheelEvent           = lambda e: self._abdiff_wheel(e)
-        self._attach_tip(self._abdiff_lbl, "A<->B duration\n2-Click:Edit(sec)\nDrag↑↓:+/-0.1s\nShift+Drag↑↓:+/-1.0s\nR-Click:Reset A & B\nB marker moves, A stays fixed")
+        self._attach_tip(self._abdiff_lbl, "A<->B duration\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset A & B\nB marker moves, A stays fixed")
 
         for attr, default, dstep, dmin, dmax, tipname, tipshift in [
             ("_tempo_edit","120.0", 0.1, 30.0, 300.0, "Tempo", "Shift+Drag↑↓:+/-1.0"),
@@ -4482,9 +4482,9 @@ class MainWindow(QMainWindow):
             edit.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)  # 右クリックメニュー無効
             edit.setReadOnly(True)  # 通常は編集不可。2-Clickで編集開始
             if tipname=="Beat":
-                _tt=f"{tipname}\n2-Click:Edit\nDrag↑↓:+/-1\nR-Click:Reset"
+                _tt=f"{tipname}\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nR-Click: Reset"
             else:
-                _tt=f"{tipname}\n2-Click:Edit\nDrag↑↓:+/-0.1\n{tipshift}\nR-Click:Reset"
+                _tt=f"{tipname}\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1\nShift+Drag↑↓/Wheel: +/-1.0\nR-Click: Reset"
             self._attach_tip(edit, _tt)
             edit.mousePressEvent   = lambda e,ed=edit: self._edit_press(e,ed)
             edit.mouseMoveEvent    = lambda e,ed=edit: self._edit_move(e,ed)
@@ -4541,7 +4541,7 @@ class MainWindow(QMainWindow):
         self._key_lbl.value_changed.connect(self._on_key)
         self._key_lbl.value_preview.connect(lambda v: self._key_lbl.setText(self._key_text(v)))
         self._key_lbl.value_edited_invalid.connect(lambda: self._st("Invalid number"))
-        self._attach_tip(self._key_lbl, "Key\n2-Click:Edit\nDrag↑↓/Wheel:+/-1\nShift+Drag↑↓:+/-12\nR-Click:Reset")
+        self._attach_tip(self._key_lbl, "Key\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nShift+Drag↑↓/Wheel: +/-12\nR-Click: Reset")
         left_vlo.addWidget(mk_row("Key   ", self._key_lbl))
 
         self._fine_lbl=DragLabel("±0.00", step=0.01, lo=-1.0, hi=1.0, default=0.0, big_step=0.1, lazy=True)
@@ -4549,7 +4549,7 @@ class MainWindow(QMainWindow):
         self._fine_lbl.value_changed.connect(self._on_fine)
         self._fine_lbl.value_preview.connect(lambda v: self._fine_lbl.setText(self._fine_text(v)))
         self._fine_lbl.value_edited_invalid.connect(lambda: self._st("Invalid number"))
-        self._attach_tip(self._fine_lbl, "Fine\n2-Click:Edit\nDrag↑↓/Wheel:+/-0.01\nShift+Drag↑↓:+/-0.1\nR-Click:Reset")
+        self._attach_tip(self._fine_lbl, "Fine\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.01\nShift+Drag↑↓/Wheel: +/-0.1\nR-Click: Reset")
         left_vlo.addWidget(mk_row("Fine  ", self._fine_lbl))
         cols_lo.addWidget(left_stack)
 
@@ -4567,7 +4567,7 @@ class MainWindow(QMainWindow):
         self._spd_lbl.value_changed.connect(self._on_spd)
         self._spd_lbl.value_preview.connect(lambda v: self._spd_lbl.setText(_fmt_speed(v)))
         self._spd_lbl.value_edited_invalid.connect(lambda: self._st("Invalid number"))
-        self._attach_tip(self._spd_lbl, "Speed\n2-Click:Edit\nDrag↑↓/Wheel:step\nR-Click:Reset")
+        self._attach_tip(self._spd_lbl, "Speed\n2-Click: Edit\nDrag↑↓/Wheel: step\nR-Click: Reset")
         mid_vlo.addWidget(mk_row("Speed ", self._spd_lbl))
         cols_lo.addWidget(mid_stack)
 
@@ -4695,7 +4695,7 @@ class MainWindow(QMainWindow):
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick:Seek\nDrag↑↓:Zoom\nWheel:Zoom\nShift+Wheel:Scroll\nDrag←→ (outside A-B):Scroll\nDrag←→ pos/A/B line:Move it\nDrag←→ A-B:Move both\nDouble-click:Set marker\nDouble-click on A/B:Reset")
+        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→ (outside A-B): Scroll\nDrag←→ pos/A/B line: Move it\nDrag←→ A-B: Move both\nDouble-click: Set marker\nDouble-click on A/B: Reset")
         wf_lo.addWidget(self._waveform)
         from PyQt6.QtWidgets import QScrollBar
         self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
@@ -4707,7 +4707,7 @@ class MainWindow(QMainWindow):
             f"QScrollBar::handle:horizontal:hover{{background:{FG2};}}"
             f"QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{{width:0px;}}")
         self._wf_scroll.valueChanged.connect(self._on_wf_scroll)
-        self._attach_tip(self._wf_scroll, "Drag←→:Scroll")
+        self._attach_tip(self._wf_scroll, "Drag←→: Scroll")
         self._waveform.view_changed.connect(self._sync_wf_scroll)
         self._waveform.ab_drag.connect(self._on_ab_drag)
         self._waveform.double_clicked.connect(self._on_wf_double_click)
@@ -4724,10 +4724,11 @@ class MainWindow(QMainWindow):
         self._pos_lbl.mousePressEvent   = self._pos_press
         self._pos_lbl.mouseMoveEvent    = self._pos_move
         self._pos_lbl.mouseReleaseEvent = self._pos_release
+        self._pos_lbl.wheelEvent        = self._pos_wheel
         self._pos_lbl.edit_committed.connect(self._set_current_time)
         self._pos_lbl.edit_invalid.connect(lambda: self._st("Invalid time"))
         self._pos_lbl.leaveEvent        = self._pos_leave
-        self._attach_tip(self._pos_lbl, "Current Time\n2-Click:Edit\nDrag↑↓:+/-0.1s\nShift+Drag↑↓:+/-1.0s\nR-Click:Reset")
+        self._attach_tip(self._pos_lbl, "Current Time\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset")
         self._dur_lbl=QLabel("00:00.0"); self._dur_lbl.setFixedSize(self.S(64),self.S(22))
         self._dur_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dur_lbl.setStyleSheet(f"color:{FG2};")
@@ -4737,7 +4738,7 @@ class MainWindow(QMainWindow):
         self._dur_lbl.wheelEvent        = self._dur_lbl_wheel
         self._dur_lbl.enterEvent        = self._dur_lbl_enter
         self._dur_lbl.leaveEvent        = self._dur_lbl_leave
-        self._attach_tip(self._dur_lbl, "Total time\n(NSF/GBS: Wheel↑/↓ or Drag↑↓ to step\nR-Click: Reset to detected time)")
+        self._attach_tip(self._dur_lbl, "Total time (NSF/GBS)\nDrag↑↓/Wheel: step\nR-Click: Reset to detected time")
         self._vol_slider=QSlider(Qt.Orientation.Horizontal)
         self._vol_slider.setRange(0,200); self._vol_slider.setValue(100)
         self._vol_slider.setFixedWidth(self.S(80))
@@ -4757,8 +4758,8 @@ class MainWindow(QMainWindow):
             QSlider.mousePressEvent(self._vol_slider, e)
         self._vol_slider.mousePressEvent = _vol_slider_press
         self._vol_pct.mousePressEvent = _vol_reset
-        self._attach_tip(self._vol_slider, "Volume\nDrag←→:change\nR-Click:100%")
-        self._attach_tip(self._vol_pct, "Volume\nR-Click:100%")
+        self._attach_tip(self._vol_slider, "Volume\nDrag←→: change\nR-Click: 100%")
+        self._attach_tip(self._vol_pct, "Volume\nR-Click: 100%")
         def _mk_lbl_wrap(lbl, w):
             pad=self.S(4); ctr=QWidget(); ctr.setFixedWidth(w); ctr.setStyleSheet(f"background:{BG};")
             lo2=QVBoxLayout(ctr); lo2.setContentsMargins(0,pad,0,0); lo2.setSpacing(0)
@@ -4766,7 +4767,7 @@ class MainWindow(QMainWindow):
             return ctr
         time_lo.addWidget(_mk_lbl_wrap(self._pos_lbl, self.S(64)))
         time_lo.addStretch()
-        self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space] / Shift: Reset",
+        self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Reset",
             lambda: self._seek_to_start() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._pp(),
             flash=False)
         time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignTop)
@@ -4936,7 +4937,7 @@ class MainWindow(QMainWindow):
         # ここでは行には追加しない。ボタン自体はアイコン列用に別途生成して保持する）
         _lab=label.strip()
         if _lab in ("A","B"):
-            btn=TipButton(tip=f"Go to marker {_lab}[{_lab}]\nShift+{_lab}: Set")
+            btn=TipButton(tip=f"Go to marker {_lab} [{_lab}]\nShift: Set")
             btn.setText(_lab)
             btn.setFixedSize(self.S(22), self.S(22))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4963,7 +4964,7 @@ class MainWindow(QMainWindow):
         tl.edit_committed.connect(lambda sec, nn=n: self._set_marker_time(nn, sec))
         tl.edit_invalid.connect(lambda: self._st("Invalid time"))
         _lab2 = "A" if n==MARKER_A else "B"
-        self._attach_tip(tl, f"Marker {_lab2}\n1-Click:Set\n2-Click:Edit\nDrag↑↓:+/-0.1s\nShift+Drag↑↓:+/-1.0s\nR-Click:Clear")
+        self._attach_tip(tl, f"Marker {_lab2}\n1-Click: Set\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Clear")
         # 行の外枠・ラベル配置は、他の行(Tempo/Beat/Bar等)と完全に同じ共通ルーチンで作る。
         # これにより、行の高さ・マージンの食い違いによるズレが構造上発生しない。
         outer = self._mk_row_fn(label, tl)
@@ -5246,6 +5247,18 @@ class MainWindow(QMainWindow):
         self._waveform.set_position(new_sec/self._total if self._total else 0)
 
     def _pos_release(self, e): pass
+
+    def _pos_wheel(self, e):
+        if self.engine.data is None: return
+        hide_tt()
+        shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        step = 1.0 if shift else 0.1
+        delta = step if e.angleDelta().y() > 0 else -step
+        new_sec = max(0.0, min(self.engine.current_sec() + delta, self._total))
+        self.engine.seek(new_sec)
+        self._pos_lbl.setText(self._fmt(new_sec))
+        self._waveform.set_position(new_sec / self._total if self._total else 0)
+        e.accept()
 
     # ── Tempo/Bar/Beat 入力欄の上下ドラッグ
     def _edit_press(self, e, ed):
