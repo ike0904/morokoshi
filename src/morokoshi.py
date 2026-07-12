@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.6.0"
+APP_VERSION = "v1.6.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4441,10 +4441,10 @@ class MainWindow(QMainWindow):
         self._rewff_lbl.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self._rewff_lbl.mousePressEvent      = lambda e: self._rewff_press(e)
         self._rewff_lbl.mouseMoveEvent       = lambda e: self._rewff_move(e)
-        self._rewff_lbl.mouseReleaseEvent    = lambda e: None
+        self._rewff_lbl.mouseReleaseEvent    = lambda e: self._rewff_release(e)
         self._rewff_lbl.mouseDoubleClickEvent= lambda e: self._rewff_dblclick(e)
         self._rewff_lbl.wheelEvent           = lambda e: self._rewff_wheel(e)
-        self._attach_tip(self._rewff_lbl, "Rew/FF step\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset Tempo/Beat/Bar\n→Tempo is recalculated")
+        self._attach_tip(self._rewff_lbl, "Rew/FF step\n1-Click: Copy A<->B duration → recalc Tempo\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset Tempo/Beat/Bar\n→Tempo is recalculated")
 
         # A<->B 差分表示（編集不可、Rew/FFと同様の表示）
         self._abdiff_lbl=QLineEdit("--:--.-")
@@ -4483,6 +4483,8 @@ class MainWindow(QMainWindow):
             edit.setReadOnly(True)  # 通常は編集不可。2-Clickで編集開始
             if tipname=="Beat":
                 _tt=f"{tipname}\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nR-Click: Reset"
+            elif tipname=="Tempo":
+                _tt=f"{tipname}\n1-Click: Detect Tempo\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1\nShift+Drag↑↓/Wheel: +/-1.0\nR-Click: Reset"
             else:
                 _tt=f"{tipname}\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1\nShift+Drag↑↓/Wheel: +/-1.0\nR-Click: Reset"
             self._attach_tip(edit, _tt)
@@ -5321,6 +5323,9 @@ class MainWindow(QMainWindow):
     def _edit_release(self, e, ed):
         from PyQt6.QtWidgets import QLineEdit
         QLineEdit.mouseReleaseEvent(ed, e)
+        if e.button() == Qt.MouseButton.LeftButton and not ed._moved:
+            if ed is self._tempo_edit:
+                self._tempo_detect()
 
     def _pos_leave(self, e):
         self._pos_lbl.clear_highlight()
@@ -5661,6 +5666,18 @@ class MainWindow(QMainWindow):
         new_sec=max(0.01, round((cur_sec+delta)*10)/10)
         self._apply_rewff_sec(new_sec)
         e.accept()
+
+    def _rewff_release(self, e):
+        if e.button() != Qt.MouseButton.LeftButton: return
+        if self._rewff_lbl._moved: return
+        if getattr(self._rewff_lbl, '_editor', None) is not None: return
+        a = self.engine.markers.get(MARKER_A); b = self.engine.markers.get(MARKER_B)
+        if a is None or b is None:
+            self._st("Set A and B markers first"); return
+        new_sec = abs(b - a)
+        if new_sec <= 0:
+            self._st("A and B markers are at the same position"); return
+        self._apply_rewff_sec(new_sec)
 
     def _rewff_dblclick(self, e):
         if getattr(self._rewff_lbl,"_editor",None) is not None: return
@@ -7684,12 +7701,15 @@ def main():
     # ウィンドウ・タスクバーアイコン設定
     def _find_app_icon():
         if getattr(sys, 'frozen', False):
-            return QIcon(sys.executable)  # EXEに埋め込まれたアイコンを使用
-        base = os.path.dirname(os.path.abspath(__file__))
-        for p in [os.path.join(base,"morokoshi.ico"),
-                  os.path.join(base,"..","icon","morokoshi.ico"),
-                  os.path.join(base,"icon","morokoshi.ico")]:
+            base = os.path.dirname(os.path.abspath(sys.executable))
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        for p in [os.path.join(base, "morokoshi.ico"),
+                  os.path.join(base, "..", "icon", "morokoshi.ico"),
+                  os.path.join(base, "icon", "morokoshi.ico")]:
             if os.path.exists(p): return QIcon(p)
+        if getattr(sys, 'frozen', False):
+            return QIcon(sys.executable)
         return QIcon()
     _app_icon = _find_app_icon()
     if not _app_icon.isNull():
