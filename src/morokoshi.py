@@ -6102,15 +6102,15 @@ class MainWindow(QMainWindow):
     # Help / Zoom
     # ──────────────────────────────────────
     def _show_help(self):
-        # py(exe)と同じフォルダの morokoshi_readme.pdf をWindows既定アプリで開く
+        # py(exe)と同じフォルダの morokoshi_manual.pdf をWindows既定アプリで開く
         import os
         try:
             base=os.path.dirname(os.path.abspath(__file__))
         except Exception:
             base=os.getcwd()
-        pdf=os.path.join(base, "morokoshi_readme.pdf")
+        pdf=os.path.join(base, "morokoshi_manual.pdf")
         if not os.path.exists(pdf):
-            self._st("morokoshi_readme.pdf not found")
+            self._st("morokoshi_manual.pdf not found")
             return
         try:
             os.startfile(pdf)  # Windows既定アプリで開く

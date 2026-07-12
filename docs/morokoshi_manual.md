@@ -160,7 +160,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 
 | 項目 | 説明 |
 | :---------------------- | :-------------------------------------------------------- |
-| <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_readme.pdf` がある場合に開けます。 |
+| <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。 |
 | <img src="icons/zoom.png" width="20"> **Zoom** | 画面全体の表示倍率を2倍 ⇔ 1倍で切り替えます。文字やボタンが小さくて見づらいときに使います。 |
 | <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。 |
 | <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。 |
@@ -732,7 +732,7 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 
 | Item | Description |
 | :---------------------- | :-------------------------------------------------------- |
-| <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_readme.pdf` in the same folder as `morokoshi.exe`. |
+| <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`. |
 | <img src="icons/zoom.png" width="20"> **Zoom** | Toggles display scaling between 2× and 1×. Use when text and buttons are too small to read comfortably. |
 | <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. |
 | <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. |

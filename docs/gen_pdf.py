@@ -11,12 +11,12 @@ import time
 from pathlib import Path
 
 DOC_DIR   = Path(__file__).parent
-MD_FILE   = DOC_DIR / "morokoshi_readme.md"
-HTML_FILE = DOC_DIR / "morokoshi_readme.html"
-PDF_FILE  = DOC_DIR / "morokoshi_readme.pdf"
+MD_FILE   = DOC_DIR / "morokoshi_manual.md"
+HTML_FILE = DOC_DIR / "morokoshi_manual.html"
+PDF_FILE  = DOC_DIR / "morokoshi_manual.pdf"
 CSS_FILE  = DOC_DIR / "manual.css"
 
-TMP_PDF = Path(r"C:\Users\ike09\AppData\Local\Temp\morokoshi_readme.pdf")
+TMP_PDF = Path(r"C:\Users\ike09\AppData\Local\Temp\morokoshi_manual.pdf")
 
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
