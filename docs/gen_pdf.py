@@ -4,6 +4,7 @@
 使い方: python gen_pdf.py
 """
 
+import re
 import subprocess
 import shutil
 import sys
@@ -24,6 +25,44 @@ CHROME_PATHS = [
 ]
 
 
+EN_MARKER = "<!-- EN_START -->"
+
+
+def substitute_en_images(content: str) -> str:
+    """英語セクション内の画像を _en 版に差し替える（存在する場合のみ）。"""
+    if EN_MARKER not in content:
+        return content
+
+    ja_part, en_part = content.split(EN_MARKER, 1)
+
+    def resolve_en(src: str) -> str:
+        if src.startswith("http://") or src.startswith("https://"):
+            return src
+        p = (DOC_DIR / src).resolve()
+        en_p = p.parent / f"{p.stem}_en{p.suffix}"
+        if en_p.exists():
+            try:
+                return str(en_p.relative_to(DOC_DIR.resolve())).replace("\\", "/")
+            except ValueError:
+                pass
+        return src
+
+    # Markdown 画像: ![alt](src)
+    en_part = re.sub(
+        r"(!\[[^\]]*\]\()([^)]+)(\))",
+        lambda m: m.group(1) + resolve_en(m.group(2)) + m.group(3),
+        en_part,
+    )
+    # HTML img タグ: src="..."
+    en_part = re.sub(
+        r'(<img\b[^>]*?\bsrc=")([^"]+)(")',
+        lambda m: m.group(1) + resolve_en(m.group(2)) + m.group(3),
+        en_part,
+    )
+
+    return ja_part + en_part  # マーカー自体は除去
+
+
 def find_chrome() -> Path:
     for p in CHROME_PATHS:
         path = Path(p)
@@ -34,6 +73,8 @@ def find_chrome() -> Path:
 
 def step_md_to_html():
     print("[1/2] MD -> HTML 変換中 (pandoc)...")
+    content = MD_FILE.read_text(encoding="utf-8")
+    content = substitute_en_images(content)
     result = subprocess.run(
         [
             "pandoc", "-s",
@@ -42,8 +83,9 @@ def step_md_to_html():
             "--from=markdown+raw_html",
             "--metadata", "pagetitle=もろこしタイム ユーザーマニュアル",
             "-o", str(HTML_FILE),
-            str(MD_FILE),
+            "-",  # stdin から読み込む
         ],
+        input=content,
         capture_output=True,
         text=True,
         encoding="utf-8",
