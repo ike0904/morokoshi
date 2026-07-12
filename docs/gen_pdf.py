@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-もろこしタイム マニュアル MD -> HTML -> PDF 変換スクリプト
+マニュアル MD -> HTML -> PDF 変換スクリプト
 使い方: python gen_pdf.py
+
+同じフォルダにある *_manual.md を自動検出して処理します。
+該当ファイルが 0 個または 2 個以上の場合はエラーになります。
 """
 
 import re
@@ -11,19 +14,31 @@ import sys
 import time
 from pathlib import Path
 
-DOC_DIR   = Path(__file__).parent
-MD_FILE   = DOC_DIR / "morokoshi_manual.md"
-HTML_FILE = DOC_DIR / "morokoshi_manual.html"
-PDF_FILE  = DOC_DIR / "morokoshi_manual.pdf"
-CSS_FILE  = DOC_DIR / "manual.css"
+DOC_DIR = Path(__file__).parent
 
-TMP_PDF = Path(r"C:\Users\ike09\AppData\Local\Temp\morokoshi_manual.pdf")
+# *_manual.md を自動検出
+def _discover_md() -> Path:
+    candidates = list(DOC_DIR.glob("*_manual.md"))
+    if len(candidates) == 0:
+        print("ERROR: *_manual.md が見つかりません。")
+        sys.exit(1)
+    if len(candidates) > 1:
+        names = ", ".join(f.name for f in sorted(candidates))
+        print(f"ERROR: *_manual.md が複数見つかりました: {names}")
+        sys.exit(1)
+    return candidates[0]
+
+MD_FILE   = _discover_md()
+APP_NAME  = MD_FILE.stem.replace("_manual", "")
+HTML_FILE = DOC_DIR / f"{APP_NAME}_manual.html"
+PDF_FILE  = DOC_DIR / f"{APP_NAME}_manual.pdf"
+CSS_FILE  = DOC_DIR / "manual.css"
+TMP_PDF   = Path(r"C:\Users\ike09\AppData\Local\Temp") / f"{APP_NAME}_manual.pdf"
 
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
 ]
-
 
 EN_MARKER = "<!-- EN_START -->"
 
@@ -63,6 +78,15 @@ def substitute_en_images(content: str) -> str:
     return ja_part + en_part  # マーカー自体は除去
 
 
+def get_page_title(content: str) -> str:
+    """マークダウン内の最初の # 見出しをページタイトルとして返す。"""
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return f"{APP_NAME} manual"
+
+
 def find_chrome() -> Path:
     for p in CHROME_PATHS:
         path = Path(p)
@@ -75,13 +99,14 @@ def step_md_to_html():
     print("[1/2] MD -> HTML 変換中 (pandoc)...")
     content = MD_FILE.read_text(encoding="utf-8")
     content = substitute_en_images(content)
+    page_title = get_page_title(content)
     result = subprocess.run(
         [
             "pandoc", "-s",
             "--css", str(CSS_FILE),
             "--self-contained",
             "--from=markdown+raw_html",
-            "--metadata", "pagetitle=もろこしタイム ユーザーマニュアル",
+            "--metadata", f"pagetitle={page_title}",
             "-o", str(HTML_FILE),
             "-",  # stdin から読み込む
         ],
@@ -145,7 +170,7 @@ def cleanup():
 
 
 if __name__ == "__main__":
-    print(f"対象ファイル: {MD_FILE}")
+    print(f"対象ファイル: {MD_FILE.name}")
     step_md_to_html()
     step_html_to_pdf()
     cleanup()
