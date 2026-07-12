@@ -7364,7 +7364,7 @@ class MainWindow(QMainWindow):
                 # Shift changes e.key() for digit/symbol keys; use nativeVirtualKey for digits/OEM
                 _SH_VK = {49:0, 50:1, 51:2, 52:3, 53:4, 54:5, 55:6, 56:7, 57:8, 48:9, 189:10}
                 _SH_KEY = {
-                    K.Key_AsciiCircum:11, K.Key_AsciiTilde:11, K.Key_Equal:11,
+                    K.Key_AsciiCircum:11, K.Key_AsciiTilde:11, K.Key_Equal:11, K.Key_Plus:11,
                     K.Key_Backslash:12, K.Key_Bar:12,
                 }
                 _nsf_sh_ch = _SH_VK.get(vk, _SH_KEY.get(key))
