@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.6.1"
+APP_VERSION = "v1.6.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -225,42 +225,13 @@ def _sosfreqz(sos, worN, fs):
 
 
 def _estimate_bpm(mono, sr):
-    """numpy自己相関法によるBPM推定。
+    """librosa ビートトラッキングによるBPM推定。
     mono: 1次元float32配列, sr: サンプルレート
     戻り値: BPM(float) または None"""
-    # オンセット強度エンベロープを作成（短時間エネルギー差分）
-    hop = int(sr * 0.01)          # 10ms hop
-    frame_len = int(sr * 0.04)    # 40ms frame
-    n_frames = (len(mono) - frame_len) // hop
-    if n_frames < 20:
-        return None
-    energy = np.array([
-        np.sum(mono[i*hop:i*hop+frame_len]**2)
-        for i in range(n_frames)
-    ], dtype=np.float64)
-    # 差分でオンセット強度に
-    onset = np.maximum(np.diff(energy, prepend=energy[0]), 0)
-    onset -= onset.mean()
-
-    # 自己相関でBPMを探索（40〜240 BPM）
-    fps = sr / hop                # フレームレート
-    lag_min = int(fps * 60.0 / 240.0)
-    lag_max = int(fps * 60.0 / 40.0)
-    lag_max = min(lag_max, len(onset) - 1)
-    if lag_min >= lag_max:
-        return None
-
-    # 正規化自己相関
-    norm = np.dot(onset, onset)
-    if norm == 0:
-        return None
-    corr = np.array([
-        np.dot(onset[:len(onset)-lag], onset[lag:]) / norm
-        for lag in range(lag_min, lag_max+1)
-    ])
-    best_lag = np.argmax(corr) + lag_min
-    bpm = fps * 60.0 / best_lag
-    return round(float(bpm), 3) if 20 < bpm < 300 else None
+    import librosa
+    tempo, _ = librosa.beat.beat_track(y=mono.astype(np.float32), sr=sr)
+    bpm = float(np.asarray(tempo).flat[0])
+    return bpm if 20.0 < bpm < 300.0 else None
 
 
 def load_global_settings():
@@ -4484,7 +4455,7 @@ class MainWindow(QMainWindow):
             if tipname=="Beat":
                 _tt=f"{tipname}\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nR-Click: Reset"
             elif tipname=="Tempo":
-                _tt=f"{tipname}\n1-Click: Detect Tempo\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1\nShift+Drag↑↓/Wheel: +/-1.0\nR-Click: Reset"
+                _tt=f"{tipname}\n1-Click: Tempo Detection\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1\nShift+Drag↑↓/Wheel: +/-1.0\nR-Click: Reset"
             else:
                 _tt=f"{tipname}\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1\nShift+Drag↑↓/Wheel: +/-1.0\nR-Click: Reset"
             self._attach_tip(edit, _tt)
