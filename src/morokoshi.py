@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.7.1"
+APP_VERSION = "v1.7.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4759,7 +4759,7 @@ class MainWindow(QMainWindow):
         self._dur_lbl.wheelEvent        = self._dur_lbl_wheel
         self._dur_lbl.enterEvent        = self._dur_lbl_enter
         self._dur_lbl.leaveEvent        = self._dur_lbl_leave
-        self._attach_tip(self._dur_lbl, "Total time\n(NSF/SPC/GBS)\nDrag↑↓/Wheel: change duration\nR-Click: Back to initial time")
+        self._attach_tip(self._dur_lbl, "Total time\n(NSF/GBS)\nDrag↑↓/Wheel: change duration\nR-Click: Back to initial time")
         self._vol_slider=QSlider(Qt.Orientation.Horizontal)
         self._vol_slider.setRange(0,200); self._vol_slider.setValue(100)
         self._vol_slider.setFixedWidth(self.S(80))
@@ -6363,8 +6363,7 @@ class MainWindow(QMainWindow):
         elif is_spc:
             self._spec_timer.stop()
             self._spc_update_panel()
-            _spc_td = (self.engine._spc.track_data.get(0) or {}) if self.engine._spc else {}
-            self._nsf_set_dur_editable(not _spc_td.get('natural_end', True))
+            self._nsf_set_dur_editable(False)
         elif is_gbs:
             self._spec_timer.stop()
             self._gbs_update_panel()
@@ -6558,8 +6557,7 @@ class MainWindow(QMainWindow):
         self._fine_lbl.setText(self._fine_text(self.engine.fine_semi))
         self._spc_update_panel()
         if spc:
-            _td = spc.track_data.get(spc.cur_track, {})
-            self._nsf_set_dur_editable(not _td.get('natural_end', True))
+            self._nsf_set_dur_editable(False)
         self._st(f"SPC: Track {spc.cur_track+1 if spc else 1}")
 
     def _spc_on_ch_toggle(self, ch_idx, solo, reset):
@@ -6603,10 +6601,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot(float, bool, object)
     def _on_spc_extend_done(self, dur, natural_end, wf):
         self._on_game_extend_done(dur, wf, '_spc_loading', self.engine._spc, self._spc_panel, 'SPC')
-        spc = self.engine._spc
-        if spc:
-            td = spc.track_data.get(spc.cur_track, {})
-            self._nsf_set_dur_editable(not td.get('natural_end', True))
+        self._nsf_set_dur_editable(False)
 
     @pyqtSlot(object, int, int)
     def _on_spc_ch_render_done(self, wav, ch_mask, track_idx):
@@ -6920,16 +6915,11 @@ class MainWindow(QMainWindow):
         if not self._nsf_dur_editable: return
         nsf = self.engine._nsf
         gbs = self.engine._gbs
-        spc = self.engine._spc
         if e.button() == Qt.MouseButton.RightButton:
             if nsf:
                 td = nsf.track_data.get(nsf.cur_track, {})
                 initial = td.get('initial_sec', NSF_DEFAULT_DUR_SEC)
                 self._nsf_start_extend(nsf.cur_track, initial)
-            elif spc:
-                td = spc.track_data.get(spc.cur_track, {})
-                initial = td.get('initial_sec', SPC_DEFAULT_DUR_SEC)
-                self._spc_start_extend(spc.cur_track, initial)
             elif gbs:
                 td = gbs.track_data.get(gbs.cur_track, {})
                 initial = td.get('initial_sec', GBS_DEFAULT_DUR_SEC)
@@ -6942,10 +6932,6 @@ class MainWindow(QMainWindow):
                 td = nsf.track_data.get(nsf.cur_track, {})
                 self._nsf_dur_drag_base = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
                 self._nsf_dur_drag_initial = td.get('initial_sec', NSF_DEFAULT_DUR_SEC)
-            elif spc:
-                td = spc.track_data.get(spc.cur_track, {})
-                self._nsf_dur_drag_base = td.get('view_sec', SPC_DEFAULT_DUR_SEC)
-                self._nsf_dur_drag_initial = td.get('initial_sec', SPC_DEFAULT_DUR_SEC)
             elif gbs:
                 td = gbs.track_data.get(gbs.cur_track, {})
                 self._nsf_dur_drag_base = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
@@ -6979,15 +6965,11 @@ class MainWindow(QMainWindow):
         self._nsf_dur_drag_y = None; self._nsf_dur_drag_base = None
         self._nsf_dur_drag_initial = None; self._nsf_dur_drag_steps = 0
         nsf = self.engine._nsf
-        spc = self.engine._spc
         gbs = self.engine._gbs
         if steps == 0:
             if nsf:
                 td = nsf.track_data.get(nsf.cur_track, {})
                 self._dur_lbl.setText(self._fmt(td.get('view_sec', NSF_DEFAULT_DUR_SEC)))
-            elif spc:
-                td = spc.track_data.get(spc.cur_track, {})
-                self._dur_lbl.setText(self._fmt(td.get('view_sec', SPC_DEFAULT_DUR_SEC)))
             elif gbs:
                 td = gbs.track_data.get(gbs.cur_track, {})
                 self._dur_lbl.setText(self._fmt(td.get('view_sec', GBS_DEFAULT_DUR_SEC)))
@@ -7000,9 +6982,6 @@ class MainWindow(QMainWindow):
         if nsf:
             if self._nsf_loading: return
             self._nsf_start_extend(nsf.cur_track, new_sec)
-        elif spc:
-            if self._spc_loading: return
-            self._spc_start_extend(spc.cur_track, new_sec)
         elif gbs:
             if self._gbs_loading: return
             self._gbs_start_extend(gbs.cur_track, new_sec)
@@ -7012,7 +6991,6 @@ class MainWindow(QMainWindow):
         delta = e.angleDelta().y()
         if delta == 0: return
         nsf = self.engine._nsf
-        spc = self.engine._spc
         gbs = self.engine._gbs
         if nsf:
             if self._nsf_loading: return
@@ -7022,14 +7000,6 @@ class MainWindow(QMainWindow):
             new_sec = self._dur_step_navigate(initial, cur, 1 if delta > 0 else -1)
             if new_sec == cur: return
             self._nsf_start_extend(nsf.cur_track, new_sec)
-        elif spc:
-            if self._spc_loading: return
-            td = spc.track_data.get(spc.cur_track, {})
-            cur = td.get('view_sec', SPC_DEFAULT_DUR_SEC)
-            initial = td.get('initial_sec', SPC_DEFAULT_DUR_SEC)
-            new_sec = self._dur_step_navigate(initial, cur, 1 if delta > 0 else -1)
-            if new_sec == cur: return
-            self._spc_start_extend(spc.cur_track, new_sec)
         elif gbs:
             if self._gbs_loading: return
             td = gbs.track_data.get(gbs.cur_track, {})
@@ -7718,6 +7688,11 @@ def app_stylesheet(scale=1.0):
 def main():
     print(f"Morokoshi Time {APP_VERSION}", flush=True)
     _log(f"=== Morokoshi Time {APP_VERSION} starting ===")
+    try:
+        import ctypes as _ct
+        _ct.windll.shell32.SetCurrentProcessExplicitAppUserModelID('morokoshi.time')
+    except Exception:
+        pass
     app=QApplication(sys.argv)
     app.setStyle("Fusion")
     _gs=load_global_settings()
@@ -7743,6 +7718,8 @@ def main():
         app.setWindowIcon(_app_icon)
 
     win=MainWindow()
+    if not _app_icon.isNull():
+        win.setWindowIcon(_app_icon)
     app.installEventFilter(win)
     win.show()
 
