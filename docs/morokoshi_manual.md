@@ -212,6 +212,8 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | **メッセージ**（最下部の左） | 操作の結果などが表示されます。 |
 | **音量スライダー・%**（最下部の右） | 音量調整（0～200%）。 |  
 
+> 💡 **ESCキー**を押すと、再生中の場合は一時停止します。停止中は何もしません。  
+
 ---
 
 <div style="page-break-before: always;"></div>
@@ -788,6 +790,8 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 | **Total Time** (bottom-right) | Total length of the file. For looping NSF/GBS tracks, **blinks red** — drag or scroll to extend (see Game Mode). |
 | **Message** (far-left bottom) | Displays operation results and status messages. |
 | **Volume slider / %** (far-right bottom) | Volume control (0–200%). |
+
+> 💡 Press **ESC** to pause playback if the audio is playing. Does nothing when stopped.
 
 ---
 

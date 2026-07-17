@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.7.0"
+APP_VERSION = "v1.7.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4701,7 +4701,7 @@ class MainWindow(QMainWindow):
         self._pos_lbl.edit_committed.connect(self._set_current_time)
         self._pos_lbl.edit_invalid.connect(lambda: self._st("Invalid time"))
         self._pos_lbl.leaveEvent        = self._pos_leave
-        self._attach_tip(self._pos_lbl, "Current time\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset")
+        self._attach_tip(self._pos_lbl, "Current time\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Back to Start\nESC: Stop")
         self._dur_lbl=QLabel("00:00.0"); self._dur_lbl.setFixedSize(self.S(64),self.S(22))
         self._dur_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dur_lbl.setStyleSheet(f"color:{FG2};")
@@ -4740,7 +4740,7 @@ class MainWindow(QMainWindow):
             return ctr
         time_lo.addWidget(_mk_lbl_wrap(self._pos_lbl, self.S(64)))
         time_lo.addStretch()
-        self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Reset",
+        self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Back to Start\nESC: Stop",
             lambda: self._seek_to_start() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._pp(),
             flash=False)
         time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignTop)
@@ -7010,7 +7010,7 @@ class MainWindow(QMainWindow):
             if self.engine.markers[n] > dur:
                 del self.engine.markers[n]; clipped = True
         if clipped:
-            self._rebuild_markers(); self._update_wf_ab()
+            self._rebuild_markers()
             if self.engine.ab_active and (MARKER_A not in self.engine.markers
                                           or MARKER_B not in self.engine.markers):
                 self.engine.ab_active = False
@@ -7019,6 +7019,7 @@ class MainWindow(QMainWindow):
                                            or MARKER_B not in self.engine.markers):
                 self.engine.ear_active = False
                 self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG)); self._stop_ear_blink()
+        self._update_wf_ab()  # 総時間変更後は常にマーカー位置を再計算
         self._st(f"GBS: duration set to {self._fmt(dur)}")
 
     @pyqtSlot(float, bool, object)
@@ -7047,13 +7048,14 @@ class MainWindow(QMainWindow):
             if self.engine.markers[n] > dur:
                 del self.engine.markers[n]; clipped = True
         if clipped:
-            self._rebuild_markers(); self._update_wf_ab()
+            self._rebuild_markers()
             if self.engine.ab_active and (MARKER_A not in self.engine.markers or MARKER_B not in self.engine.markers):
                 self.engine.ab_active = False
                 self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), FG))
             if self.engine.ear_active and (MARKER_A not in self.engine.markers or MARKER_B not in self.engine.markers):
                 self.engine.ear_active = False
                 self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG)); self._stop_ear_blink()
+        self._update_wf_ab()  # 総時間変更後は常にマーカー位置を再計算
         self._st(f"NSF: duration set to {self._fmt(dur)}")
 
     def _nsf_on_ch_toggle(self, ch_idx, solo, reset):
@@ -7518,6 +7520,11 @@ class MainWindow(QMainWindow):
                 if _b is not None: self._flash_off(_b)
             return True
         if vk==90: self._toggle_zoom(); return True  # Z → Zoom
+        if key==K.Key_Escape:  # ESC → 再生中のみ停止
+            if self.engine.playing and not self.engine.paused:
+                self.engine.pause_toggle()
+                self._upd_play(False)
+            return True
         if vk==65: self._goto_marker(10); return True  # A → A へ移動(Go To)
         if vk==66: self._goto_marker(11); return True  # B → B へ移動(Go To)
         # テンキー裏ショートカット（アイコン配置と同じ並び）
