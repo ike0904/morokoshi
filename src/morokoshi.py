@@ -4749,7 +4749,7 @@ class MainWindow(QMainWindow):
         self._pos_lbl.edit_committed.connect(self._set_current_time)
         self._pos_lbl.edit_invalid.connect(lambda: self._st("Invalid time"))
         self._pos_lbl.leaveEvent        = self._pos_leave
-        self._attach_tip(self._pos_lbl, "Current time\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Back to Start\nESC: Stop")
+        self._attach_tip(self._pos_lbl, "Current time\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Back to Start")
         self._dur_lbl=QLabel("00:00.0"); self._dur_lbl.setFixedSize(self.S(64),self.S(22))
         self._dur_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dur_lbl.setStyleSheet(f"color:{FG2};")
@@ -4788,7 +4788,7 @@ class MainWindow(QMainWindow):
             return ctr
         time_lo.addWidget(_mk_lbl_wrap(self._pos_lbl, self.S(64)))
         time_lo.addStretch()
-        self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Back to Start\nESC: Stop",
+        self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Back to Start",
             lambda: self._seek_to_start() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._pp(),
             flash=False)
         time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignTop)
