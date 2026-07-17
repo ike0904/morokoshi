@@ -6949,95 +6949,46 @@ class MainWindow(QMainWindow):
             if new_sec == cur: return
             self._gbs_start_extend(gbs.cur_track, new_sec)
 
-    def _nsf_start_extend(self, track_idx, new_sec):
-        """NSFトラックの再生時間を変更する（バックグラウンド）"""
-        if self._nsf_loading: return
-        # Prevent shortening below current playback position
+    def _game_start_extend(self, new_sec, loading_attr, engine_fn, done_sig, label):
+        """NSF/GBS共通: トラック再生時間変更（バックグラウンド）"""
+        if getattr(self, loading_attr): return
         cur_sec = self.engine.current_sec()
         if new_sec < cur_sec:
             self._st("Cannot shorten below current position")
             return
-        self._nsf_loading = True
+        setattr(self, loading_attr, True)
         def do_extend():
             try:
-                dur, natural_end = self.engine.nsf_extend_track(track_idx, new_sec, self._st)
+                dur, natural_end = engine_fn(new_sec, self._st)
                 wf = self.engine.get_waveform(700)
-                self._nsf_extend_done_sig.emit(dur, natural_end, wf)
+                done_sig.emit(dur, natural_end, wf)
             except Exception as ex:
-                self._nsf_loading = False
-                self._status_sig.emit(f"NSF duration change failed: {ex}")
+                setattr(self, loading_attr, False)
+                self._status_sig.emit(f"{label} duration change failed: {ex}")
         threading.Thread(target=do_extend, daemon=True).start()
+
+    def _nsf_start_extend(self, track_idx, new_sec):
+        self._game_start_extend(new_sec, '_nsf_loading',
+            lambda s, st: self.engine.nsf_extend_track(track_idx, s, st),
+            self._nsf_extend_done_sig, "NSF")
 
     def _gbs_start_extend(self, track_idx, new_sec):
-        """GBSトラックの再生時間を変更する（バックグラウンド）"""
-        if self._gbs_loading: return
-        cur_sec = self.engine.current_sec()
-        if new_sec < cur_sec:
-            self._st("Cannot shorten below current position")
-            return
-        self._gbs_loading = True
-        def do_extend():
-            try:
-                dur, natural_end = self.engine.gbs_extend_track(track_idx, new_sec, self._st)
-                wf = self.engine.get_waveform(700)
-                self._gbs_extend_done_sig.emit(dur, natural_end, wf)
-            except Exception as ex:
-                self._gbs_loading = False
-                self._status_sig.emit(f"GBS duration change failed: {ex}")
-        threading.Thread(target=do_extend, daemon=True).start()
+        self._game_start_extend(new_sec, '_gbs_loading',
+            lambda s, st: self.engine.gbs_extend_track(track_idx, s, st),
+            self._gbs_extend_done_sig, "GBS")
 
-    @pyqtSlot(float, bool, object)
-    def _on_gbs_extend_done(self, dur, natural_end, wf):
-        """GBS延長完了後のUI更新"""
-        self._gbs_loading = False
+    def _on_game_extend_done(self, dur, wf, loading_attr, game_obj, panel, label):
+        """NSF/GBS共通: 延長完了後のUI更新"""
+        setattr(self, loading_attr, False)
         self._total = dur
         self._waveform.set_waveform(wf)
         self._waveform.set_total(dur)
         self._waveform.update(); self._sync_wf_scroll()
         self._dur_lbl.setText(self._fmt(dur))
-        gbs = self.engine._gbs
-        if gbs:
-            td = gbs.track_data.get(gbs.cur_track)
+        if game_obj:
+            td = game_obj.track_data.get(game_obj.cur_track)
             if td:
-                self._gbs_panel.update_channel_states(gbs.ch_active, td['ch_used'])
-        cur_sec = self.engine.current_sec()
-        if cur_sec > dur:
-            self.engine.seek(0.0)
-            self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(0.0))
-            self._waveform.set_position(0)
-        clipped = False
-        for n in list(self.engine.markers.keys()):
-            if self.engine.markers[n] > dur:
-                del self.engine.markers[n]; clipped = True
-        if clipped:
-            self._rebuild_markers()
-            if self.engine.ab_active and (MARKER_A not in self.engine.markers
-                                          or MARKER_B not in self.engine.markers):
-                self.engine.ab_active = False
-                self._ab_btn.setIcon(_get_icon("ab_repeat", self.S(28), FG))
-            if self.engine.ear_active and (MARKER_A not in self.engine.markers
-                                           or MARKER_B not in self.engine.markers):
-                self.engine.ear_active = False
-                self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG)); self._stop_ear_blink()
-        self._update_wf_ab()  # 総時間変更後は常にマーカー位置を再計算
-        self._st(f"GBS: duration set to {self._fmt(dur)}")
-
-    @pyqtSlot(float, bool, object)
-    def _on_nsf_extend_done(self, dur, natural_end, wf):
-        """NSF延長完了後のUI更新"""
-        self._nsf_loading = False
-        self._total = dur
-        self._waveform.set_waveform(wf)
-        self._waveform.set_total(dur)
-        # 延長後はズームを保持（reset_view()しない）
-        self._waveform.update(); self._sync_wf_scroll()
-        self._dur_lbl.setText(self._fmt(dur))
-        nsf = self.engine._nsf
-        if nsf:
-            td = nsf.track_data.get(nsf.cur_track)
-            if td:
-                self._nsf_panel.update_channel_states(nsf.ch_active, td['ch_used'])
-        # 短縮した場合、現在位置・マーカーが範囲外になることがある → リセット
+                panel.update_channel_states(game_obj.ch_active, td['ch_used'])
         cur_sec = self.engine.current_sec()
         if cur_sec > dur:
             self.engine.seek(0.0)
@@ -7055,8 +7006,16 @@ class MainWindow(QMainWindow):
             if self.engine.ear_active and (MARKER_A not in self.engine.markers or MARKER_B not in self.engine.markers):
                 self.engine.ear_active = False
                 self._ear_btn.setIcon(_get_icon("ear", self.S(28), FG)); self._stop_ear_blink()
-        self._update_wf_ab()  # 総時間変更後は常にマーカー位置を再計算
-        self._st(f"NSF: duration set to {self._fmt(dur)}")
+        self._update_wf_ab()
+        self._st(f"{label}: duration set to {self._fmt(dur)}")
+
+    @pyqtSlot(float, bool, object)
+    def _on_gbs_extend_done(self, dur, natural_end, wf):
+        self._on_game_extend_done(dur, wf, '_gbs_loading', self.engine._gbs, self._gbs_panel, 'GBS')
+
+    @pyqtSlot(float, bool, object)
+    def _on_nsf_extend_done(self, dur, natural_end, wf):
+        self._on_game_extend_done(dur, wf, '_nsf_loading', self.engine._nsf, self._nsf_panel, 'NSF')
 
     def _nsf_on_ch_toggle(self, ch_idx, solo, reset):
         """チャンネルON/OFFボタン押下"""
