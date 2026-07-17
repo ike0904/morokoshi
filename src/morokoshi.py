@@ -1724,6 +1724,7 @@ class AudioEngine:
         spc._spc_raws = {0: spc_raw}
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
         }
         with self._lock:
             self._spc = spc
@@ -1787,6 +1788,7 @@ class AudioEngine:
         spc._spc_raws = {i: raw for i, raw in enumerate(spc_raws_list)}
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
         }
         with self._lock:
             self._spc = spc
@@ -1867,6 +1869,7 @@ class AudioEngine:
         spc._spc_raws = {i: raw for i, raw in enumerate(spc_raws_list)}
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
         }
         with self._lock:
             self._spc = spc
@@ -2127,6 +2130,7 @@ class AudioEngine:
                 gme, spc_raw, ch_mask, dur_sec, scb, play_len_ms=meta_t.get('play_len_ms', 0))
             spc.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
+                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
             }
 
         self._inject_pending_session(spc, track_idx)
@@ -2159,6 +2163,48 @@ class AudioEngine:
             self._src_pos     = restore_s
             self._played_orig = restore_s
         return dur
+
+    def spc_extend_track(self, track_idx, new_view_sec, scb=None):
+        """SPCトラックの再生時間を変更する。戻り値: (dur, natural_end)"""
+        spc = self._spc
+        if spc is None or track_idx not in spc.track_data: return 0.0, True
+        td = spc.track_data[track_idx]
+        decoded_sec = td.get('decoded_sec', 0.0)
+        natural_end = td.get('natural_end', True)
+        new_view_sec = max(SPC_MIN_DURATION, min(new_view_sec, SPC_MAX_DUR_SEC))
+
+        if new_view_sec <= decoded_sec:
+            td['view_sec'] = new_view_sec
+            dur = self._spc_mix_apply()
+            with self._rt_lock:
+                new_len = len(self.data) if self.data is not None else 1
+                spd = self.speed if self.speed > 0 else 1.0
+                buf_keep = max(0, int((new_len - self._played_orig) / spd))
+                if len(self._out_buf) > buf_keep:
+                    self._out_buf = self._out_buf[:buf_keep]
+                self._src_pos = min(self._src_pos, new_len)
+                self._rt_gen += 1
+                self._feeder_eof = False
+            return dur, natural_end
+
+        spc_raw = spc._spc_raws.get(track_idx)
+        if spc_raw is None: return self._spc_mix_apply(), False
+        gme = _gme_load()
+        if gme is None: return self._spc_mix_apply(), False
+
+        ch_mask = td.get('ch_mask', (1 << SPC_CH_COUNT) - 1)
+        if scb: scb(f"SPC: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
+        new_wav, new_natural_end, new_actual_dur = _spc_render(
+            gme, spc_raw, ch_mask, new_view_sec, scb, trim_silence=True, play_len_ms=0)
+
+        td['wav'] = new_wav
+        td['decoded_sec'] = new_actual_dur
+        td['view_sec'] = new_view_sec
+        td['natural_end'] = new_natural_end
+
+        self._mem = ConvCache()
+        dur = self._spc_mix_apply()
+        return dur, new_natural_end
 
     # ── GBS固有 ───────────────────────────────────────────────
 
@@ -4297,6 +4343,7 @@ class MainWindow(QMainWindow):
     _nsf_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
     _nsf_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
     _spc_track_done_sig = pyqtSignal(float, object)        # dur, waveform
+    _spc_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
     _spc_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
     _gbs_track_done_sig = pyqtSignal(float, object)        # dur, waveform
     _gbs_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
@@ -4339,6 +4386,7 @@ class MainWindow(QMainWindow):
         self._spc_ch_rendering = False
         self._spc_wf_views = {}
         self._spc_track_done_sig.connect(self._on_spc_track_done)
+        self._spc_extend_done_sig.connect(self._on_spc_extend_done)
         self._spc_ch_render_done_sig.connect(self._on_spc_ch_render_done)
         # GBS 関連
         self._gbs_loading = False
@@ -4711,7 +4759,7 @@ class MainWindow(QMainWindow):
         self._dur_lbl.wheelEvent        = self._dur_lbl_wheel
         self._dur_lbl.enterEvent        = self._dur_lbl_enter
         self._dur_lbl.leaveEvent        = self._dur_lbl_leave
-        self._attach_tip(self._dur_lbl, "Total time\n(NSF/GBS)\nDrag↑↓/Wheel: step\nR-Click: Reset to detected time")
+        self._attach_tip(self._dur_lbl, "Total time\n(NSF/SPC/GBS)\nDrag↑↓/Wheel: change duration\nR-Click: Back to initial time")
         self._vol_slider=QSlider(Qt.Orientation.Horizontal)
         self._vol_slider.setRange(0,200); self._vol_slider.setValue(100)
         self._vol_slider.setFixedWidth(self.S(80))
@@ -6315,7 +6363,8 @@ class MainWindow(QMainWindow):
         elif is_spc:
             self._spec_timer.stop()
             self._spc_update_panel()
-            self._nsf_set_dur_editable(False)
+            _spc_td = (self.engine._spc.track_data.get(0) or {}) if self.engine._spc else {}
+            self._nsf_set_dur_editable(not _spc_td.get('natural_end', True))
         elif is_gbs:
             self._spec_timer.stop()
             self._gbs_update_panel()
@@ -6508,6 +6557,9 @@ class MainWindow(QMainWindow):
         self._fine_lbl.set_value(self.engine.fine_semi)
         self._fine_lbl.setText(self._fine_text(self.engine.fine_semi))
         self._spc_update_panel()
+        if spc:
+            _td = spc.track_data.get(spc.cur_track, {})
+            self._nsf_set_dur_editable(not _td.get('natural_end', True))
         self._st(f"SPC: Track {spc.cur_track+1 if spc else 1}")
 
     def _spc_on_ch_toggle(self, ch_idx, solo, reset):
@@ -6542,6 +6594,19 @@ class MainWindow(QMainWindow):
                 self._spc_ch_rendering = False
                 self._status_sig.emit(f"SPC ch render failed: {ex}")
         threading.Thread(target=do_render, daemon=True).start()
+
+    def _spc_start_extend(self, track_idx, new_sec):
+        self._game_start_extend(new_sec, '_spc_loading',
+            lambda s, st: self.engine.spc_extend_track(track_idx, s, st),
+            self._spc_extend_done_sig, "SPC")
+
+    @pyqtSlot(float, bool, object)
+    def _on_spc_extend_done(self, dur, natural_end, wf):
+        self._on_game_extend_done(dur, wf, '_spc_loading', self.engine._spc, self._spc_panel, 'SPC')
+        spc = self.engine._spc
+        if spc:
+            td = spc.track_data.get(spc.cur_track, {})
+            self._nsf_set_dur_editable(not td.get('natural_end', True))
 
     @pyqtSlot(object, int, int)
     def _on_spc_ch_render_done(self, wav, ch_mask, track_idx):
@@ -6855,11 +6920,16 @@ class MainWindow(QMainWindow):
         if not self._nsf_dur_editable: return
         nsf = self.engine._nsf
         gbs = self.engine._gbs
+        spc = self.engine._spc
         if e.button() == Qt.MouseButton.RightButton:
             if nsf:
                 td = nsf.track_data.get(nsf.cur_track, {})
                 initial = td.get('initial_sec', NSF_DEFAULT_DUR_SEC)
                 self._nsf_start_extend(nsf.cur_track, initial)
+            elif spc:
+                td = spc.track_data.get(spc.cur_track, {})
+                initial = td.get('initial_sec', SPC_DEFAULT_DUR_SEC)
+                self._spc_start_extend(spc.cur_track, initial)
             elif gbs:
                 td = gbs.track_data.get(gbs.cur_track, {})
                 initial = td.get('initial_sec', GBS_DEFAULT_DUR_SEC)
@@ -6872,6 +6942,10 @@ class MainWindow(QMainWindow):
                 td = nsf.track_data.get(nsf.cur_track, {})
                 self._nsf_dur_drag_base = td.get('view_sec', NSF_DEFAULT_DUR_SEC)
                 self._nsf_dur_drag_initial = td.get('initial_sec', NSF_DEFAULT_DUR_SEC)
+            elif spc:
+                td = spc.track_data.get(spc.cur_track, {})
+                self._nsf_dur_drag_base = td.get('view_sec', SPC_DEFAULT_DUR_SEC)
+                self._nsf_dur_drag_initial = td.get('initial_sec', SPC_DEFAULT_DUR_SEC)
             elif gbs:
                 td = gbs.track_data.get(gbs.cur_track, {})
                 self._nsf_dur_drag_base = td.get('view_sec', GBS_DEFAULT_DUR_SEC)
@@ -6905,11 +6979,15 @@ class MainWindow(QMainWindow):
         self._nsf_dur_drag_y = None; self._nsf_dur_drag_base = None
         self._nsf_dur_drag_initial = None; self._nsf_dur_drag_steps = 0
         nsf = self.engine._nsf
+        spc = self.engine._spc
         gbs = self.engine._gbs
         if steps == 0:
             if nsf:
                 td = nsf.track_data.get(nsf.cur_track, {})
                 self._dur_lbl.setText(self._fmt(td.get('view_sec', NSF_DEFAULT_DUR_SEC)))
+            elif spc:
+                td = spc.track_data.get(spc.cur_track, {})
+                self._dur_lbl.setText(self._fmt(td.get('view_sec', SPC_DEFAULT_DUR_SEC)))
             elif gbs:
                 td = gbs.track_data.get(gbs.cur_track, {})
                 self._dur_lbl.setText(self._fmt(td.get('view_sec', GBS_DEFAULT_DUR_SEC)))
@@ -6922,6 +7000,9 @@ class MainWindow(QMainWindow):
         if nsf:
             if self._nsf_loading: return
             self._nsf_start_extend(nsf.cur_track, new_sec)
+        elif spc:
+            if self._spc_loading: return
+            self._spc_start_extend(spc.cur_track, new_sec)
         elif gbs:
             if self._gbs_loading: return
             self._gbs_start_extend(gbs.cur_track, new_sec)
@@ -6931,6 +7012,7 @@ class MainWindow(QMainWindow):
         delta = e.angleDelta().y()
         if delta == 0: return
         nsf = self.engine._nsf
+        spc = self.engine._spc
         gbs = self.engine._gbs
         if nsf:
             if self._nsf_loading: return
@@ -6940,6 +7022,14 @@ class MainWindow(QMainWindow):
             new_sec = self._dur_step_navigate(initial, cur, 1 if delta > 0 else -1)
             if new_sec == cur: return
             self._nsf_start_extend(nsf.cur_track, new_sec)
+        elif spc:
+            if self._spc_loading: return
+            td = spc.track_data.get(spc.cur_track, {})
+            cur = td.get('view_sec', SPC_DEFAULT_DUR_SEC)
+            initial = td.get('initial_sec', SPC_DEFAULT_DUR_SEC)
+            new_sec = self._dur_step_navigate(initial, cur, 1 if delta > 0 else -1)
+            if new_sec == cur: return
+            self._spc_start_extend(spc.cur_track, new_sec)
         elif gbs:
             if self._gbs_loading: return
             td = gbs.track_data.get(gbs.cur_track, {})
