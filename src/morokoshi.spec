@@ -5,7 +5,7 @@ a = Analysis(
     ['morokoshi.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('..\\icon\\morokoshi.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

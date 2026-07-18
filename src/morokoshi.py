@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.7.2"
+APP_VERSION = "v1.8.0"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -7702,14 +7702,24 @@ def main():
 
     # ウィンドウ・タスクバーアイコン設定
     def _find_app_icon():
+        candidates = []
         if getattr(sys, 'frozen', False):
-            base = os.path.dirname(os.path.abspath(sys.executable))
+            # --onefile: _MEIPASS に --add-data で同梱したアイコンを優先
+            meipass = getattr(sys, '_MEIPASS', None)
+            if meipass:
+                candidates.append(os.path.join(meipass, "morokoshi.ico"))
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            candidates.append(os.path.join(exe_dir, "morokoshi.ico"))
         else:
             base = os.path.dirname(os.path.abspath(__file__))
-        for p in [os.path.join(base, "morokoshi.ico"),
-                  os.path.join(base, "..", "icon", "morokoshi.ico"),
-                  os.path.join(base, "icon", "morokoshi.ico")]:
-            if os.path.exists(p): return QIcon(p)
+            candidates += [
+                os.path.join(base, "morokoshi.ico"),
+                os.path.join(base, "..", "icon", "morokoshi.ico"),
+                os.path.join(base, "icon", "morokoshi.ico"),
+            ]
+        for p in candidates:
+            if os.path.exists(p):
+                return QIcon(p)
         if getattr(sys, 'frozen', False):
             return QIcon(sys.executable)
         return QIcon()
