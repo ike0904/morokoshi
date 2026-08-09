@@ -104,5 +104,10 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
+### v1.9.0 (2026-08-09) ← 最新
+- SPEED_VALUES に 0.1・0.15 を追加（9段階に拡張）
+- マニュアル更新（JP/EN Speed欄・更新履歴）
+- PDF 再生成・exe ビルド・morokoshi190.zip リリース
+
 ### v1.8.1 (2026-08-09)
 - SPEED_VALUES に 0.1 と 0.15 を追加（最小値 0.2 → 0.1 に拡張）
