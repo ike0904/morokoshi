@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.8.0"
+APP_VERSION = "v1.8.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -61,7 +61,7 @@ RED_HL  = "#CC3333"   # ハイライト赤
 MARKER_A = 10  # A-point key in engine.markers (AB repeat / Ear mode)
 MARKER_B = 11  # B-point key in engine.markers (AB repeat / Ear mode)
 
-SPEED_VALUES = [0.2, 0.25, 0.33, 0.5, 1.0, 1.5, 2.0]
+SPEED_VALUES = [0.1, 0.15, 0.2, 0.25, 0.33, 0.5, 1.0, 1.5, 2.0]
 
 def _fmt_speed(v):
     for sv in SPEED_VALUES:
