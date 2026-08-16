@@ -6734,12 +6734,13 @@ class MainWindow(QMainWindow):
         spc_raw = spc._spc_raws.get(track_idx) if spc else None
         if spc_raw is None:
             self._spc_ch_rendering = False; return
+        gme_t = self.engine._gme_tempo
         def do_render():
             try:
                 gme = _gme_load()
                 if gme is None:
                     self._spc_ch_rendering = False; return
-                wav, _, _ = _spc_render(gme, spc_raw, ch_mask, decoded_sec, trim_silence=False)
+                wav, _, _ = _spc_render(gme, spc_raw, ch_mask, decoded_sec, trim_silence=False, tempo=gme_t)
                 self._spc_ch_render_done_sig.emit(wav, ch_mask, track_idx)
             except Exception as ex:
                 self._spc_ch_rendering = False
@@ -6871,12 +6872,13 @@ class MainWindow(QMainWindow):
             self._gbs_ch_rendering = False; return
         td = gbs.track_data.get(track_idx) if gbs else None
         single_loop_sec = td.get('single_loop_sec') if td else None
+        gme_t = self.engine._gme_tempo
         def do_render():
             try:
                 gme = _gme_load()
                 if gme is None:
                     self._gbs_ch_rendering = False; return
-                wav, _, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec)
+                wav, _, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec, tempo=gme_t)
                 self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx)
             except Exception as ex:
                 self._gbs_ch_rendering = False
@@ -7263,12 +7265,13 @@ class MainWindow(QMainWindow):
     def _nsf_start_ch_render(self, ch_mask, track_idx, nsf_raw, ch_count, decoded_sec):
         """ch切替のバックグラウンドレンダリングを開始する"""
         self._nsf_ch_rendering = True
+        gme_t = self.engine._gme_tempo
         def do_render():
             try:
                 gme = _gme_load()
                 if gme is None:
                     self._nsf_ch_rendering = False; return
-                wav, _, _ = _nsf_render(gme, nsf_raw, track_idx, ch_mask, ch_count, decoded_sec)
+                wav, _, _ = _nsf_render(gme, nsf_raw, track_idx, ch_mask, ch_count, decoded_sec, tempo=gme_t)
                 self._nsf_ch_render_done_sig.emit(wav, ch_mask, track_idx)
             except Exception as ex:
                 self._nsf_ch_rendering = False
