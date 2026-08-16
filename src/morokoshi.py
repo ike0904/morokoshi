@@ -449,6 +449,8 @@ def _gme_load():
             lib.gme_free_info.argtypes   = [_ct.c_void_p]
             lib.gme_set_fade.restype     = None
             lib.gme_set_fade.argtypes    = [_ct.c_void_p, _ct.c_int]
+            lib.gme_set_tempo.restype    = None
+            lib.gme_set_tempo.argtypes   = [_ct.c_void_p, _ct.c_double]
             _gme_lib_cache = lib
             return lib
         except Exception as ex:
@@ -695,16 +697,17 @@ def _nsf_detect_ch_used(gme_lib, nsf_raw, track_idx, ch_count, detect_sec=3.0, s
     return ch_used
 
 
-def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, scb=None):
+def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, scb=None, tempo=1.0):
     """指定チャンネルマスクでNSFを1パスレンダリングする（mute-after方式）。
-    mute-afterによりINITは全ch正常実行→タイミング正確。
-    1パスなのでINIT汚染は1×（N倍増幅しない）→実用上は聴こえないレベル。
-    戻り値: (float32 mono array, natural_end: bool, actual_dur_sec: float)"""
+    tempo: 再生速度倍率（1.0=等速, 0.5=半速）。gme_set_tempoで実現。
+    戻り値: (float32 mono array, natural_end: bool, actual_wall_dur_sec: float)"""
     if dur_sec is None:
         dur_sec = NSF_DEFAULT_DUR_SEC
     CHUNK = NSF_FRAME_SAMPLES
-    target_s = int(dur_sec * NSF_SR)
-    min_s = int(NSF_MIN_DURATION * NSF_SR)
+    tempo = max(tempo, 0.01)
+    wall_dur = min(dur_sec / tempo, NSF_MAX_DUR_SEC)
+    target_s = int(wall_dur * NSF_SR)
+    min_s = int(NSF_MIN_DURATION / tempo * NSF_SR)
     _buf = _ct.create_string_buffer(nsf_raw, len(nsf_raw))
     emu = _ct.c_void_p()
     err = gme_lib.gme_open_data(_buf, len(nsf_raw), _ct.byref(emu), NSF_SR)
@@ -714,6 +717,8 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
     if err2 is not None:
         gme_lib.gme_delete(emu)
         return np.zeros(max(target_s, min_s), dtype=np.float32), True, dur_sec
+    if abs(tempo - 1.0) > 1e-6:
+        gme_lib.gme_set_tempo(emu, float(tempo))
     # mute-after: INIT後にマスク設定（タイミング正確化）
     for i in range(ch_count):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
@@ -868,30 +873,36 @@ def _spc_detect_ch_used(gme_lib, spc_raw, detect_sec=3.0, scb=None):
         _log(f"SPC ch{ch}: used={used}")
     return ch_used
 
-def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=True, play_len_ms=0):
+def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=True, play_len_ms=0, tempo=1.0):
     """指定チャンネルマスクでSPCを1パスレンダリングする。
-    play_len_ms>0 の場合 gme_set_fade でループを有効化し、fade後まで収録する。
-    trim_silence=False の場合は無音トリムをスキップし固定長を維持する。
-    戻り値: (float32 mono array, natural_end: bool, actual_dur_sec: float)"""
+    tempo: 再生速度倍率（1.0=等速）。gme_set_tempoで実現。
+    戻り値: (float32 mono array, natural_end: bool, actual_wall_dur_sec: float)"""
     if dur_sec is None:
         dur_sec = SPC_DEFAULT_DUR_SEC
+    tempo = max(tempo, 0.01)
     CHUNK = 735
-    min_s = int(SPC_MIN_DURATION * SPC_SR)
+    min_s = int(SPC_MIN_DURATION / tempo * SPC_SR)
     _buf = _ct.create_string_buffer(spc_raw, len(spc_raw))
     emu = _ct.c_void_p()
     err = gme_lib.gme_open_data(_buf, len(spc_raw), _ct.byref(emu), SPC_SR)
-    if play_len_ms > 0:
+    if play_len_ms > 0 and abs(tempo - 1.0) < 1e-6:
         target_s = int((play_len_ms / 1000.0 + 8.0) * SPC_SR)
+    elif play_len_ms > 0:
+        # tempoが異なる場合: play_len_msをwall-clock換算
+        target_s = int((play_len_ms / 1000.0 / tempo + 8.0) * SPC_SR)
     else:
-        target_s = int(dur_sec * SPC_SR)
+        target_s = int(min(dur_sec / tempo, SPC_MAX_DUR_SEC) * SPC_SR)
     if err is not None:
         return np.zeros(max(target_s, min_s), dtype=np.float32), True, dur_sec
     err2 = gme_lib.gme_start_track(emu, 0)
     if err2 is not None:
         gme_lib.gme_delete(emu)
         return np.zeros(max(target_s, min_s), dtype=np.float32), True, dur_sec
+    if abs(tempo - 1.0) > 1e-6:
+        gme_lib.gme_set_tempo(emu, float(tempo))
     if play_len_ms > 0:
-        gme_lib.gme_set_fade(emu, play_len_ms)
+        fade_ms = play_len_ms if abs(tempo - 1.0) < 1e-6 else int(play_len_ms / tempo)
+        gme_lib.gme_set_fade(emu, fade_ms)
     for i in range(SPC_CH_COUNT):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
     gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
@@ -1067,11 +1078,13 @@ def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
 
 
 def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_sec=None,
-                detect_silence=False, scb=None):
+                detect_silence=False, scb=None, tempo=1.0):
     """指定マスクでGBSをレンダリング（ループ折り返し対応）。
-    戻り値: (float32 mono array, actual_dur_sec, natural_end)"""
+    tempo: 再生速度倍率（1.0=等速）。gme_set_tempoで実現。
+    戻り値: (float32 mono array, actual_wall_dur_sec, natural_end)"""
     if dur_sec is None: dur_sec = GBS_DEFAULT_DUR_SEC
-    CHUNK = 735; target_s = int(dur_sec * GBS_SR)
+    tempo = max(tempo, 0.01)
+    CHUNK = 735; target_s = int(min(dur_sec / tempo, GBS_MAX_DUR_SEC) * GBS_SR)
 
     def _one_pass(stop_s):
         """1パスレンダリング。(arr_int16, ended_early)を返す"""
@@ -1082,6 +1095,8 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
         if gme_lib.gme_start_track(emu, track_idx) is not None:
             gme_lib.gme_delete(emu)
             return np.zeros(0, dtype=np.int16), True
+        if abs(tempo - 1.0) > 1e-6:
+            gme_lib.gme_set_tempo(emu, float(tempo))
         for i in range(GBS_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
         gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
@@ -1102,7 +1117,7 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
 
     # libgmeが早期終了 & 1ループ時間が判明している場合はタイル繰り返し
     if ended_early and single_loop_sec and single_loop_sec > 0 and len(arr) > 0:
-        one_loop_s = int(single_loop_sec * GBS_SR)
+        one_loop_s = int(single_loop_sec / tempo * GBS_SR)
         if 0 < one_loop_s <= len(arr):
             one_loop = arr[:one_loop_s]
             n = math.ceil(target_s / one_loop_s) + 1
@@ -1123,7 +1138,7 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
                 float(np.max(np.abs(arr_f[sil_start:]))) < GBS_SILENCE_THRESH):
             natural_end = True
             nz = np.where(np.abs(arr_f) > GBS_SILENCE_THRESH)[0]
-            min_s = int(GBS_MIN_DUR_SEC * GBS_SR)
+            min_s = int(GBS_MIN_DUR_SEC / tempo * GBS_SR)
             music_end = (min(len(arr_f), nz[-1] + int(0.5 * GBS_SR)) if len(nz) > 0 else min_s)
             arr_f = arr_f[:max(min_s, music_end)]
 
@@ -1231,6 +1246,7 @@ class AudioEngine:
         self._spc=None   # SpcState or None
         self._gbs=None   # GbsState or None
         self.volume=1.0; self.speed=1.0; self.semitones=0; self.fine_semi=0.0
+        self._gme_tempo=1.0   # ゲーム音楽の現在レンダリングテンポ（1.0=ストレッチなし）
         self.ab_active=False; self.ear_active=False; self.markers={}
         self._stream=None; self._lock=threading.Lock()
         self._stop=threading.Event(); self._tmp=tempfile.mkdtemp()
@@ -1296,7 +1312,7 @@ class AudioEngine:
         with self._lock:
             self.data=data; self.sr=sr; self._file_hash=fh
             self._proc=data; self._proc_spd=1.0; self._proc_semi=0
-            self.speed=1.0; self.semitones=0; self.fine_semi=0.0
+            self.speed=1.0; self.semitones=0; self.fine_semi=0.0; self._gme_tempo=1.0
             self.position=0; self._src_pos=0; self.markers={}; self.ab_active=False; self.ear_active=False
             self._out_buf=np.zeros((0,2),dtype=np.float32)
             self._mem=ConvCache()
@@ -1394,7 +1410,7 @@ class AudioEngine:
         nsf.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
             'decoded_sec': actual_dur, 'view_sec': actual_dur,
-            'natural_end': natural_end, 'initial_sec': actual_dur,
+            'natural_end': natural_end, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
         }
         nsf.ch_active = list(ch_used)
 
@@ -1417,24 +1433,30 @@ class AudioEngine:
     # ── 共通: ch切替・セッション管理 ──────────────────────────
 
     def _mix_apply(self, state, cur_sec=None):
-        """wavをengine.dataに設定する共通実装。戻り値: 長さ(sec)"""
+        """wavをengine.dataに設定する共通実装。戻り値: 楽曲秒（musical seconds）"""
         if state is None or state.cur_track not in state.track_data:
             return 0.0
         td = state.track_data[state.cur_track]
         wav = td.get('wav')
         if wav is None or len(wav) == 0:
             return 0.0
+        gme_t = td.get('gme_tempo', 1.0)
         raw_len = len(wav)
-        view_s = int(td.get('view_sec', raw_len / state.sr) * state.sr)
+        # view_secは楽曲秒。WAVサンプル数に変換する
+        view_sec_musical = td.get('view_sec', raw_len / state.sr * gme_t)
+        view_s = int(view_sec_musical / gme_t * state.sr)
         view_s = max(1, min(view_s, raw_len))
         mixed = np.clip(wav[:view_s], -1.0, 1.0).astype(np.float32)
         stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
-        dur = len(stereo) / state.sr
+        dur = len(stereo) / state.sr * gme_t  # 楽曲秒で返す
         with self._lock:
             self.data = stereo; self.sr = state.sr
+            self._gme_tempo = gme_t
             self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
             if cur_sec is not None:
-                self.position = max(0, min(int(cur_sec * state.sr), len(stereo) - 1))
+                # cur_secは楽曲秒 → WAVサンプルへ変換
+                wav_pos = max(0, min(int(cur_sec / gme_t * state.sr), len(stereo) - 1))
+                self.position = wav_pos
                 self._out_buf = np.zeros((0, 2), dtype=np.float32)
             else:
                 self.position = max(0, min(self.position, len(stereo) - 1))
@@ -1467,15 +1489,17 @@ class AudioEngine:
         """ch切替レンダリング完了後のwavホットスワップ共通実装（再生位置保持）"""
         if state is None or state.cur_track not in state.track_data: return
         td = state.track_data[state.cur_track]
+        gme_t = td.get('gme_tempo', 1.0)
         td['wav'] = wav; td['ch_mask'] = ch_mask
-        td['decoded_sec'] = len(wav) / state.sr
+        td['decoded_sec'] = len(wav) / state.sr * gme_t  # 楽曲秒で保存
         raw_len = len(wav)
-        view_s = int(td.get('view_sec', raw_len / state.sr) * state.sr)
+        view_sec_musical = td.get('view_sec', raw_len / state.sr * gme_t)
+        view_s = int(view_sec_musical / gme_t * state.sr)
         view_s = max(1, min(view_s, raw_len))
         mixed = np.clip(wav[:view_s], -1.0, 1.0).astype(np.float32)
         stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
-        cur_sec = self.current_sec()
-        new_pos = max(0, min(int(cur_sec * state.sr), len(stereo) - 1))
+        cur_sec = self.current_sec()  # 楽曲秒
+        new_pos = max(0, min(int(cur_sec / gme_t * state.sr), len(stereo) - 1))
         with self._lock:
             self.data = stereo; self.sr = state.sr
             self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
@@ -1590,7 +1614,7 @@ class AudioEngine:
             nsf.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'view_sec': actual_dur,
-                'natural_end': natural_end, 'initial_sec': actual_dur,
+                'natural_end': natural_end, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
             }
 
         self._inject_pending_session(nsf, track_idx)
@@ -1607,9 +1631,10 @@ class AudioEngine:
                 if scb: scb(f"NSF: re-rendering with session channels...")
                 new_wav, new_nat, new_dur = _nsf_render(gme2, nsf._nsf_raw, track_idx,
                                                         target_ch_mask, nsf.ch_count,
-                                                        td.get('decoded_sec', NSF_DEFAULT_DUR_SEC), scb)
+                                                        td.get('decoded_sec', NSF_DEFAULT_DUR_SEC), scb,
+                                                        tempo=self._gme_tempo)
                 td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
-                td['decoded_sec'] = new_dur; td['view_sec'] = new_dur
+                td['decoded_sec'] = new_dur * self._gme_tempo; td['view_sec'] = new_dur * self._gme_tempo
                 td['natural_end'] = new_nat
 
         self.stop()
@@ -1617,7 +1642,7 @@ class AudioEngine:
         dur = self._nsf_mix_apply(cur_sec=restore_pos)
         with self._rt_lock:
             data_len = len(self.data) if self.data is not None else 0
-            restore_s = max(0, min(int(restore_pos * nsf.sr), data_len - 1))
+            restore_s = max(0, min(int(restore_pos / self._gme_tempo * nsf.sr), data_len - 1))
             self._src_pos    = restore_s
             self._played_orig = restore_s
         return dur
@@ -1638,8 +1663,9 @@ class AudioEngine:
             with self._rt_lock:
                 new_len = len(self.data) if self.data is not None else 1
                 # Keep only the valid pre-buffered portion (up to new end)
-                spd = self.speed if self.speed > 0 else 1.0
-                buf_keep = max(0, int((new_len - self._played_orig) / spd))
+                gme_t = self._gme_tempo
+                eff_spd = 1.0 if gme_t != 1.0 else (self.speed if self.speed > 0 else 1.0)
+                buf_keep = max(0, int((new_len - self._played_orig) / eff_spd))
                 if len(self._out_buf) > buf_keep:
                     self._out_buf = self._out_buf[:buf_keep]
                 # Allow feeder to hit EOF naturally at new_len
@@ -1654,12 +1680,13 @@ class AudioEngine:
         if gme is None: return self._nsf_mix_apply(), False
 
         ch_mask = td.get('ch_mask', (1 << nsf.ch_count) - 1)
+        gme_t = self._gme_tempo
         if scb: scb(f"NSF: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
         new_wav, new_natural_end, new_actual_dur = _nsf_render(
-            gme, nsf._nsf_raw, track_idx, ch_mask, nsf.ch_count, new_view_sec, scb)
+            gme, nsf._nsf_raw, track_idx, ch_mask, nsf.ch_count, new_view_sec, scb, tempo=gme_t)
 
         td['wav']         = new_wav
-        td['decoded_sec'] = new_actual_dur
+        td['decoded_sec'] = new_actual_dur * gme_t
         td['view_sec']    = new_view_sec
         td['natural_end'] = new_natural_end
 
@@ -1685,8 +1712,9 @@ class AudioEngine:
                     if gme3 and scb: scb("NSF: re-rendering with newly found channels...")
                     if gme3:
                         _w2, _ne2, _d2 = _nsf_render(gme3, nsf._nsf_raw, track_idx,
-                                                      new_ch_mask, nsf.ch_count, new_view_sec, scb)
-                        td['wav'] = _w2; td['decoded_sec'] = _d2
+                                                      new_ch_mask, nsf.ch_count, new_view_sec, scb,
+                                                      tempo=gme_t)
+                        td['wav'] = _w2; td['decoded_sec'] = _d2 * gme_t
                         td['view_sec'] = new_view_sec; td['natural_end'] = _ne2
                         new_natural_end = _ne2
 
@@ -1724,7 +1752,7 @@ class AudioEngine:
         spc._spc_raws = {0: spc_raw}
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
         }
         with self._lock:
             self._spc = spc
@@ -1788,7 +1816,7 @@ class AudioEngine:
         spc._spc_raws = {i: raw for i, raw in enumerate(spc_raws_list)}
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
         }
         with self._lock:
             self._spc = spc
@@ -1869,7 +1897,7 @@ class AudioEngine:
         spc._spc_raws = {i: raw for i, raw in enumerate(spc_raws_list)}
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
         }
         with self._lock:
             self._spc = spc
@@ -1976,7 +2004,7 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
             'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
         }
         with self._lock:
             self._gbs = gbs
@@ -2075,7 +2103,7 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': [True] * GBS_CH_COUNT,
             'ch_mask': all_mask, 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
         }
         with self._lock:
             self._gbs = gbs
@@ -2130,7 +2158,7 @@ class AudioEngine:
                 gme, spc_raw, ch_mask, dur_sec, scb, play_len_ms=meta_t.get('play_len_ms', 0))
             spc.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
-                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
             }
 
         self._inject_pending_session(spc, track_idx)
@@ -2147,19 +2175,20 @@ class AudioEngine:
             if spc_raw2 and gme2:
                 if scb: scb(f"SPC: re-rendering with session channels...")
                 meta_t2 = spc.track_metas[track_idx] if track_idx < len(spc.track_metas) else {}
+                gme_t = self._gme_tempo
                 new_wav, _, new_dur = _spc_render(
                     gme2, spc_raw2, target_ch_mask,
-                    meta_t2.get('dur_sec', SPC_DEFAULT_DUR_SEC), scb,
-                    play_len_ms=meta_t2.get('play_len_ms', 0))
+                    td.get('decoded_sec', SPC_DEFAULT_DUR_SEC), scb,
+                    play_len_ms=meta_t2.get('play_len_ms', 0), tempo=gme_t)
                 td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
-                td['decoded_sec'] = new_dur
+                td['decoded_sec'] = new_dur * gme_t
 
         self.stop()
         self._mem = ConvCache()
         dur = self._spc_mix_apply(cur_sec=restore_pos)
         with self._rt_lock:
             data_len = len(self.data) if self.data is not None else 0
-            restore_s = max(0, min(int(restore_pos * spc.sr), data_len - 1))
+            restore_s = max(0, min(int(restore_pos / self._gme_tempo * spc.sr), data_len - 1))
             self._src_pos     = restore_s
             self._played_orig = restore_s
         return dur
@@ -2178,8 +2207,9 @@ class AudioEngine:
             dur = self._spc_mix_apply()
             with self._rt_lock:
                 new_len = len(self.data) if self.data is not None else 1
-                spd = self.speed if self.speed > 0 else 1.0
-                buf_keep = max(0, int((new_len - self._played_orig) / spd))
+                gme_t = self._gme_tempo
+                eff_spd = 1.0 if gme_t != 1.0 else (self.speed if self.speed > 0 else 1.0)
+                buf_keep = max(0, int((new_len - self._played_orig) / eff_spd))
                 if len(self._out_buf) > buf_keep:
                     self._out_buf = self._out_buf[:buf_keep]
                 self._src_pos = min(self._src_pos, new_len)
@@ -2193,12 +2223,13 @@ class AudioEngine:
         if gme is None: return self._spc_mix_apply(), False
 
         ch_mask = td.get('ch_mask', (1 << SPC_CH_COUNT) - 1)
+        gme_t = self._gme_tempo
         if scb: scb(f"SPC: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
         new_wav, new_natural_end, new_actual_dur = _spc_render(
-            gme, spc_raw, ch_mask, new_view_sec, scb, trim_silence=True, play_len_ms=0)
+            gme, spc_raw, ch_mask, new_view_sec, scb, trim_silence=True, play_len_ms=0, tempo=gme_t)
 
         td['wav'] = new_wav
-        td['decoded_sec'] = new_actual_dur
+        td['decoded_sec'] = new_actual_dur * gme_t
         td['view_sec'] = new_view_sec
         td['natural_end'] = new_natural_end
 
@@ -2248,7 +2279,7 @@ class AudioEngine:
             gbs.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur,
+                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
             }
 
         self._inject_pending_session(gbs, track_idx)
@@ -2268,19 +2299,21 @@ class AudioEngine:
                     detect_sil2 = False
                 else:
                     dur_sec2, sl2, detect_sil2 = _gbs_compute_target_no_m3u(gme2, gbs._gbs_raw, track_idx)
+                gme_t = self._gme_tempo
                 new_wav, new_dur, new_nat = _gbs_render(
-                    gme2, gbs._gbs_raw, track_idx, target_ch_mask, dur_sec2, sl2, detect_sil2, scb)
+                    gme2, gbs._gbs_raw, track_idx, target_ch_mask, dur_sec2, sl2, detect_sil2, scb,
+                    tempo=gme_t)
                 if meta_t2.get('has_m3u', False):
                     new_nat = True
                 td['wav'] = new_wav; td['ch_mask'] = target_ch_mask
-                td['decoded_sec'] = new_dur; td['natural_end'] = new_nat; td['view_sec'] = new_dur
+                td['decoded_sec'] = new_dur * gme_t; td['natural_end'] = new_nat; td['view_sec'] = new_dur * gme_t
 
         self.stop()
         self._mem = ConvCache()
         dur = self._gbs_mix_apply(cur_sec=restore_pos)
         with self._rt_lock:
             data_len = len(self.data) if self.data is not None else 0
-            restore_s = max(0, min(int(restore_pos * gbs.sr), data_len - 1))
+            restore_s = max(0, min(int(restore_pos / self._gme_tempo * gbs.sr), data_len - 1))
             self._src_pos     = restore_s
             self._played_orig = restore_s
         return dur
@@ -2299,8 +2332,9 @@ class AudioEngine:
             dur = self._gbs_mix_apply()
             with self._rt_lock:
                 new_len = len(self.data) if self.data is not None else 1
-                spd = self.speed if self.speed > 0 else 1.0
-                buf_keep = max(0, int((new_len - self._played_orig) / spd))
+                gme_t = self._gme_tempo
+                eff_spd = 1.0 if gme_t != 1.0 else (self.speed if self.speed > 0 else 1.0)
+                buf_keep = max(0, int((new_len - self._played_orig) / eff_spd))
                 if len(self._out_buf) > buf_keep:
                     self._out_buf = self._out_buf[:buf_keep]
                 self._src_pos = min(self._src_pos, new_len)
@@ -2314,13 +2348,14 @@ class AudioEngine:
 
         ch_mask     = td.get('ch_mask', (1 << GBS_CH_COUNT) - 1)
         single_loop = td.get('single_loop_sec')
+        gme_t = self._gme_tempo
         if scb: scb(f"GBS: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
         new_wav, new_dur, new_nat = _gbs_render(
             gme, gbs._gbs_raw, track_idx, ch_mask, new_view_sec, single_loop,
-            detect_silence=True, scb=scb)
+            detect_silence=True, scb=scb, tempo=gme_t)
         td['wav']         = new_wav
-        td['decoded_sec'] = new_dur
-        td['view_sec']    = new_dur
+        td['decoded_sec'] = new_dur * gme_t
+        td['view_sec']    = new_dur * gme_t
         td['natural_end'] = new_nat
 
         # 延長後に未使用chを再検出（延長部分で登場するchを自動ON）
@@ -2345,9 +2380,9 @@ class AudioEngine:
                     if gme3:
                         _w2, _d2, _ne2 = _gbs_render(gme3, gbs._gbs_raw, track_idx,
                                                       new_ch_mask, new_view_sec, single_loop,
-                                                      detect_silence=True, scb=scb)
-                        td['wav'] = _w2; td['decoded_sec'] = _d2
-                        td['view_sec'] = _d2; td['natural_end'] = _ne2
+                                                      detect_silence=True, scb=scb, tempo=gme_t)
+                        td['wav'] = _w2; td['decoded_sec'] = _d2 * gme_t
+                        td['view_sec'] = _d2 * gme_t; td['natural_end'] = _ne2
                         new_nat = _ne2
 
         self._mem = ConvCache()
@@ -2406,8 +2441,12 @@ class AudioEngine:
 
     def set_speed(self, v, scb=None):
         self.speed = min(SPEED_VALUES, key=lambda x: abs(x - v))
-        self._rt_reset_from_current()
-        if scb: scb(f"Speed{_fmt_speed(self.speed)} Key{self.semitones:+d}")
+        if self._nsf or self._spc or self._gbs:
+            # ゲーム音楽: gme_set_tempoで再レンダリング（音質劣化なし）
+            threading.Thread(target=self._game_rerender, args=(self.speed, scb), daemon=True).start()
+        else:
+            self._rt_reset_from_current()
+            if scb: scb(f"Speed{_fmt_speed(self.speed)} Key{self.semitones:+d}")
 
     def set_semitones(self, v, scb=None):
         self.semitones = max(-24,min(24,int(v)))
@@ -2418,6 +2457,93 @@ class AudioEngine:
         self.fine_semi = round(max(-1.0,min(1.0, float(v))),2)
         self._rt_reset_from_current()
         if scb: scb(f"Speed×{self.speed:.1f} Key{self.semitones:+d} Fine{self.fine_semi:+.2f}")
+
+    def _game_rerender(self, new_tempo, scb=None):
+        """ゲーム音楽の速度変更時: gme_set_tempoで再レンダリングして差し替える。
+        位置は楽曲秒で保持し、新テンポのWAVでの対応サンプルにシークする。"""
+        if scb: scb(f"Re-rendering{_fmt_speed(new_tempo)}...")
+        # 現在の楽曲秒を保存（再レンダリング後にシークするため）
+        old_musical_sec = self._played_orig / self.sr * self._gme_tempo
+        self._gen += 1; gen = self._gen
+        try:
+            gme = _gme_load()
+            if gme is None:
+                # DLL未ロード: 従来の_fast_stretchにフォールバック
+                self._rt_reset_from_current()
+                if scb: scb(f"Speed{_fmt_speed(new_tempo)} Key{self.semitones:+d}")
+                return
+
+            if self._nsf:
+                nsf = self._nsf
+                td = nsf.track_data.get(nsf.cur_track)
+                if td is None: return
+                ch_mask = td.get('ch_mask', (1 << nsf.ch_count) - 1)
+                dur_sec = td.get('decoded_sec', NSF_DEFAULT_DUR_SEC)
+                wav, natural_end, actual_wall = _nsf_render(
+                    gme, nsf._nsf_raw, nsf.cur_track, ch_mask, nsf.ch_count,
+                    dur_sec=dur_sec, tempo=new_tempo)
+                td['wav'] = wav
+                td['gme_tempo'] = new_tempo
+                td['decoded_sec'] = actual_wall * new_tempo  # 楽曲秒で保持
+                if self._gen != gen: return
+                self._nsf_mix_apply()
+
+            elif self._spc:
+                spc = self._spc
+                td = spc.track_data.get(spc.cur_track)
+                if td is None: return
+                ch_mask = td.get('ch_mask', (1 << SPC_CH_COUNT) - 1)
+                dur_sec = td.get('decoded_sec', SPC_DEFAULT_DUR_SEC)
+                spc_raw = spc._spc_raws.get(spc.cur_track, b'')
+                if not spc_raw: return
+                play_len_ms = (spc.track_metas[spc.cur_track].get('play_len_ms', 0)
+                               if spc.track_metas else 0)
+                wav, natural_end, actual_wall = _spc_render(
+                    gme, spc_raw, ch_mask, dur_sec=dur_sec, tempo=new_tempo,
+                    play_len_ms=play_len_ms)
+                td['wav'] = wav
+                td['gme_tempo'] = new_tempo
+                td['decoded_sec'] = actual_wall * new_tempo
+                if self._gen != gen: return
+                self._spc_mix_apply()
+
+            elif self._gbs:
+                gbs = self._gbs
+                td = gbs.track_data.get(gbs.cur_track)
+                if td is None: return
+                ch_mask = td.get('ch_mask', (1 << GBS_CH_COUNT) - 1)
+                dur_sec = td.get('decoded_sec', GBS_DEFAULT_DUR_SEC)
+                single_loop = td.get('single_loop_sec')
+                wav, actual_wall, natural_end = _gbs_render(
+                    gme, gbs._gbs_raw, gbs.cur_track, ch_mask,
+                    dur_sec=dur_sec, single_loop_sec=single_loop,
+                    detect_silence=True, tempo=new_tempo)
+                td['wav'] = wav
+                td['gme_tempo'] = new_tempo
+                td['decoded_sec'] = actual_wall * new_tempo
+                if self._gen != gen: return
+                self._gbs_mix_apply()
+
+            else:
+                return
+
+            # 新テンポWAVの対応サンプル位置にシーク
+            data_len = len(self.data) if self.data is not None else 1
+            new_wav_pos = int(old_musical_sec / new_tempo * self.sr)
+            new_wav_pos = max(0, min(new_wav_pos, data_len - 1))
+            with self._rt_lock:
+                self._rt_gen += 1
+                self._src_pos = new_wav_pos
+                self._played_orig = new_wav_pos
+                self._out_buf = np.zeros((0, 2), dtype=np.float32)
+                self._feeder_eof = False
+
+            if scb: scb(f"Speed{_fmt_speed(new_tempo)} Key{self.semitones:+d}")
+
+        except Exception as e:
+            _log(f"_game_rerender error: {e}")
+            self._rt_reset_from_current()
+            if scb: scb(f"Speed{_fmt_speed(new_tempo)} Key{self.semitones:+d}")
 
     def _rt_reset_from_current(self):
         """speed/key変更時: 現在位置から先読みを作り直す"""
@@ -2444,6 +2570,22 @@ class AudioEngine:
         戻り値: (出力データ(out_frames,2), 消費した原曲サンプル数)
         ※ フィルター(HPF/LPF)はここでは適用しない（先読みバッファに入る前段）。
         　 cb()内で出力直前にかけることで、操作への反応を速くする。"""
+        if self._gme_tempo != 1.0:
+            # ゲーム音楽でgme_set_tempoによりテンポをWAVに焼き込み済み
+            # → 速度ストレッチ不要（1:1消費）。ピッチシフトのみ適用。
+            end=min(src_pos+out_frames, len(self.data))
+            consumed=end-src_pos
+            if consumed<=0:
+                return np.zeros((0,2),dtype=np.float32), 0
+            src=self.data[src_pos:end]
+            if abs(semi)<1e-9:
+                return src.copy(), consumed
+            mono=src.mean(axis=1).astype(np.float32)
+            conv=_fast_stretch(mono, self.sr, 1.0, semi)
+            m=min(out_frames, len(conv))
+            out=np.zeros((m,2),dtype=np.float32)
+            out[:,0]=conv[:m]; out[:,1]=conv[:m]
+            return out, consumed
         # 標準時は変換せず原曲そのまま（EOF付近ではゼロパディングせず実データ分だけ返す）
         if abs(spd-1.0)<1e-6 and abs(semi)<1e-9:
             end=min(src_pos+out_frames, len(self.data))
@@ -2500,7 +2642,7 @@ class AudioEngine:
         self.stop()
         if self.data is None: return
         if seek_sec is not None:
-            self._src_pos = int(seek_sec*self.sr)
+            self._src_pos = int(seek_sec/self._gme_tempo*self.sr)
         self._src_pos = max(0, min(self._src_pos, len(self.data)-1))
         self._played_orig = self._src_pos  # 現在位置の基点（原曲サンプル）
         with self._rt_lock:
@@ -2516,20 +2658,21 @@ class AudioEngine:
                 self._vis_latest=np.zeros(frames,dtype=np.float32)
                 return
             spd=self.speed if self.speed>0 else 1.0
+            gmt=self._gme_tempo  # ゲームテンポ（WAVに焼き込み済みなら1:1消費）
             with self._rt_lock:
                 if len(self._out_buf)>=frames:
                     seg=self._out_buf[:frames]
                     self._out_buf=self._out_buf[frames:]
                     seg=self._filter_process(seg)
                     outdata[:]=seg*self.volume
-                    self._played_orig += int(frames*spd)
+                    self._played_orig += frames if gmt!=1.0 else int(frames*spd)
                 else:
                     n=len(self._out_buf)
                     seg=self._filter_process(self._out_buf)
                     outdata[:n]=seg*self.volume
                     outdata[n:]=0
                     self._out_buf=np.zeros((0,2),dtype=np.float32)
-                    self._played_orig += int(n*spd)
+                    self._played_orig += n if gmt!=1.0 else int(n*spd)
                     if self._feeder_eof:
                         # 先読みが原曲末尾まで読み終え、バッファも使い切った→ここで初めて再生終了
                         self.playing=False
@@ -2539,8 +2682,11 @@ class AudioEngine:
                 aA=self.markers.get(MARKER_A); aB=self.markers.get(MARKER_B)
                 if aA is not None and aB is not None:
                     lo,hi=sorted([aA,aB])
-                    if self._played_orig >= int(hi*self.sr) or self._played_orig < int(lo*self.sr):
-                        self._played_orig = int(lo*self.sr)
+                    # マーカーは楽曲秒 → WAVサンプルへ変換
+                    gt=self._gme_tempo
+                    lo_s=int(lo/gt*self.sr); hi_s=int(hi/gt*self.sr)
+                    if self._played_orig >= hi_s or self._played_orig < lo_s:
+                        self._played_orig = lo_s
 
         # 先読みスレッド: out_bufに先のチャンクを供給
         def feeder():
@@ -2562,17 +2708,19 @@ class AudioEngine:
                         chunk_frames=CHUNK
                         with self._rt_lock:
                             gen=self._rt_gen
-                            # AB/Earループ判定（原曲秒）
+                            gt=self._gme_tempo
+                            # AB/Earループ判定（楽曲秒→WAVサンプルへ変換）
                             if (self.ab_active or self.ear_active):
                                 aA=self.markers.get(MARKER_A); aB=self.markers.get(MARKER_B)
                                 if aA is not None and aB is not None:
                                     lo,hi=sorted([aA,aB])
-                                    hi_s=int(hi*self.sr); lo_s=int(lo*self.sr)
+                                    hi_s=int(hi/gt*self.sr); lo_s=int(lo/gt*self.sr)
                                     if self._src_pos >= hi_s or self._src_pos < lo_s:
                                         self._src_pos=lo_s
                                     remain=hi_s - self._src_pos
                                     if remain>0:
-                                        chunk_frames=min(CHUNK, int(remain/spd)+1)
+                                        # gme_tempo適用中はWAV1:1消費なのでspd除算不要
+                                        chunk_frames=min(CHUNK, remain+1 if gt!=1.0 else int(remain/spd)+1)
                             start_pos=self._src_pos
                         out,consumed=self._make_chunk(start_pos, chunk_frames, spd, semi)
                         if consumed<=0:
@@ -2632,7 +2780,8 @@ class AudioEngine:
         if self.data is None:
             _log(f"Engine.seek: data is None, skip (sec={sec})")
             return
-        p=int(max(0.0,min(sec,self.total_sec()))*self.sr)
+        # secは楽曲秒 → WAVサンプルへ変換
+        p=int(max(0.0,min(sec,self.total_sec()))/self._gme_tempo*self.sr)
         p=min(p, max(0, len(self.data)-1))  # 末尾境界外アクセス防止（EOF直後のflash対策）
         _log(f"Engine.seek: sec={sec:.3f} -> src_pos={p}")
         with self._rt_lock:
@@ -2644,11 +2793,12 @@ class AudioEngine:
 
     def current_sec(self):
         if self.data is None: return 0.0
-        # 実際に出力した原曲サンプル数 = 現在聞こえている位置（x1.0基準の秒）
-        return max(0.0, self._played_orig/self.sr)
+        # WAVサンプル位置 → 楽曲秒（_gme_tempo=1.0なら従来通り）
+        return max(0.0, self._played_orig/self.sr*self._gme_tempo)
 
     def total_sec(self):
-        return len(self.data)/self.sr if self.data is not None else 0.0
+        if self.data is None: return 0.0
+        return len(self.data)/self.sr*self._gme_tempo
 
     def set_marker(self, n):
         self.markers[n]=self.current_sec()
