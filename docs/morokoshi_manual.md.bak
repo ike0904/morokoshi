@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v1.8.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v1.9.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v1.8.0)
+(対象バージョン: v1.9.0)
 
 ---
 
@@ -143,7 +143,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | **Tempo** | 曲のテンポ（BPM）。30～300。**シングルクリック**するとテンポ検出を実行します。 |
 | **Beat** | 拍子（1小節あたりの拍数）。1～16。 |
 | **Bar** | 早送り・早戻しの小節数。0.1～100。 |
-| **Speed** | 再生速度。×0.2 / ×0.25 / ×0.33 / ×0.5 / ×1.0 / ×1.5 / ×2.0 の7段階。 |
+| **Speed** | 再生速度。×0.1 / ×0.15 / ×0.2 / ×0.25 / ×0.33 / ×0.5 / ×1.0 / ×1.5 / ×2.0 の9段階。 |
 
 これらの数値ボックスは、共通して次の操作ができます（詳しくは「4. 基本的な使い方」で解説します）。
 
@@ -221,7 +221,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 ### ステップ2: 再生・一時停止と速度・キー・Fineの調整
 
 1. 中央の <img src="icons/play_pause.png" width="20"> **ボタン**（またはスペースキー）で再生／一時停止します。
-2. **Speed** を調整すると、音の高さを変えずに**再生速度だけ**を変えられます。×0.2 / ×0.25 / ×0.33 / ×0.5 / ×1.0 / ×1.5 / ×2.0 の7段階から選べます。
+2. **Speed** を調整すると、音の高さを変えずに**再生速度だけ**を変えられます。×0.1 / ×0.15 / ×0.2 / ×0.25 / ×0.33 / ×0.5 / ×1.0 / ×1.5 / ×2.0 の9段階から選べます。
 3. **Key** を調整すると、速度を変えずに**音程だけ**を上下できます（-24～+24半音）。
 4. 原曲と手持ちの楽器・環境とでピッチが微妙に合わない時は、**Fine** で-1.00～+1.00の範囲で微調整できます（Keyとは別の独立した値です）。
 
@@ -567,7 +567,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v1.8.0**  
+**Morokoshi Time v1.9.0**  
 *Created by Ike-san*
 
 ---
@@ -585,6 +585,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v1.6.0** | 2026/6/28 | **SPC（SNES/スーパーファミコンのゲーム音楽）対応**。チャンネル個別ON/OFF、ZIPファイルをそのまま複数曲として開く機能など。<br>**GBS（Game Boyのゲーム音楽）対応**。チャンネル個別ON/OFF、複数曲切り替えなど。<br>**NSF/SPC/GBSをZIPファイルのまま直接開ける**ようになりました（解凍不要）。<br>**フォルダのドラッグ＆ドロップ**でフォルダ内のゲーム音楽ファイルを一括認識して開けます。<br>全数値ボックスのホイール操作対応（編集モードに入らなくてもホイールで値を変えられます）。<br>波形エリアの上下ドラッグでもズームができるようになりました。<br>A-B区間外の波形を左右ドラッグしてスクロールできます。<br>Speed（再生速度）を7段階固定に変更（×0.2、×0.25、×0.33、×0.5、×1.0、×1.5、×2.0）。<br>ゲーム音楽（NSF/SPC/GBS）の曲頭ノイズを修正（改良版libgme.dll適用）。 |
 | **v1.7.0** | 2026/7/12 | **Rew/FF シングルクリック**：A<->B 間の秒数をそのままコピーし、Tempoを自動逆算します。<br>**Tempo シングルクリック**：テンポ検出アイコンと同じ操作になりました。<br>テンポ検出の精度を改善しました。 |
 | **v1.8.0** | 2026/7/18 | **ESCキー**で再生を一時停止できるようになりました。<br>タスクバーのアイコンをもろこしマークに修正しました。<br>マーカーのずれを修正しました。 |
+| **v1.9.0** | 2026/8/9 | **Speed（再生速度）の最低速度を拡張**しました。×0.1・×0.15 の2段階を追加し、計9段階になりました（従来の最低速度は×0.2）。 |
 
 ---
 
@@ -593,7 +594,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v1.8.0)
+(Target version: v1.9.0)
 
 ---
 
@@ -725,7 +726,7 @@ This area is arranged in **two vertical columns** (left column and center column
 | **Tempo** | Song tempo (BPM). Range: 30–300. **Single-click** to run tempo detection. |
 | **Beat** | Time signature (beats per measure). Range: 1–16. |
 | **Bar** | Number of measures per Rew/FF jump. Range: 0.1–100. |
-| **Speed** | Playback speed. 7 fixed steps: ×0.2, ×0.25, ×0.33, ×0.5, ×1.0, ×1.5, ×2.0. |
+| **Speed** | Playback speed. 9 fixed steps: ×0.1, ×0.15, ×0.2, ×0.25, ×0.33, ×0.5, ×1.0, ×1.5, ×2.0. |
 
 All numeric input boxes share the same interaction methods (details in "4. Basic Usage"):
 
@@ -803,7 +804,7 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 ### Step 2: Play/Pause, Speed, Key, and Fine
 
 1. Click the <img src="icons/play_pause.png" width="20"> **button** (or press Space) to play/pause.
-2. Adjust **Speed** to change the **playback rate without affecting pitch**. Choose from 7 steps: ×0.2, ×0.25, ×0.33, ×0.5, ×1.0, ×1.5, ×2.0.
+2. Adjust **Speed** to change the **playback rate without affecting pitch**. Choose from 9 steps: ×0.1, ×0.15, ×0.2, ×0.25, ×0.33, ×0.5, ×1.0, ×1.5, ×2.0.
 3. Adjust **Key** to shift **pitch without affecting speed** (−24 to +24 semitones).
 4. If the pitch is slightly off between the original and your instrument, use **Fine** (−1.00 to +1.00, independent of Key) to correct it.
 
@@ -1147,7 +1148,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v1.8.0**
+**Morokoshi Time v1.9.0**
 *Created by Ike-san*
 
 ---
@@ -1165,3 +1166,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v1.6.0** | 2026/6/28 | **SPC (SNES/Super Famicom game music) support**. Per-channel ON/OFF, open ZIP files directly as multi-track collections, etc.<br>**GBS (Game Boy game music) support**. Per-channel ON/OFF, multi-track switching, etc.<br>**NSF/SPC/GBS can now be opened directly from a ZIP archive** (no extraction needed).<br>**Drag & drop a folder** to batch-recognize all game music files inside.<br>All numeric input boxes now support mouse wheel (change values without entering edit mode).<br>Waveform area can now be zoomed by dragging up/down.<br>Drag outside the A-B region of the waveform to scroll left/right.<br>Speed changed to 7 fixed steps (×0.2, ×0.25, ×0.33, ×0.5, ×1.0, ×1.5, ×2.0).<br>Fixed startup noise in game music (NSF/SPC/GBS) by applying improved libgme.dll. |
 | **v1.7.0** | 2026/7/12 | **Rew/FF single-click**: Copies the A<->B duration directly and back-calculates Tempo automatically.<br>**Tempo single-click**: Same behavior as clicking the Detect Tempo icon.<br>Improved tempo detection accuracy. |
 | **v1.8.0** | 2026/7/18 | Added **ESC key** to pause playback.<br>Fixed taskbar icon to show the Morokoshi icon.<br>Fixed a marker position offset bug. |
+| **v1.9.0** | 2026/8/9 | **Extended minimum playback speed.** Added ×0.1 and ×0.15, bringing the total to 9 speed steps (previously ×0.2 was the slowest). |
