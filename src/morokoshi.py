@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.1"
+APP_VERSION = "v2.0.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4861,7 +4861,7 @@ class MainWindow(QMainWindow):
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\nDrag←→ pos/A/B line: Move it\n2-click: Set marker\n2-click on A/B: Reset")
+        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset")
         wf_lo.addWidget(self._waveform)
         from PyQt6.QtWidgets import QScrollBar
         self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
