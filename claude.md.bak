@@ -99,3 +99,22 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 *※ `--add-data "app_icon.ico;."` の部分で、exeの内部（一時フォルダのルート）にアイコンを埋め込む指示をしています（Windowsなので区切り文字はセミコロン `;` です）。*
 
 この「AUMIDの設定」と「`--add-data` による内部同梱＋パスの書き換え」を行うことで、エクスプローラー上でもタスクバー上でも、正しく自作のアイコンが表示されるようになります！
+
+---
+
+## 作業記録
+
+### v2.0.0 (2026-08-17) ← 最新
+- マニュアル更新（JP/EN 更新履歴・表紙バージョン）・PDF 再生成
+- exe ビルド・morokoshi200.zip リリース
+- ※ v1.9.0 → v2.0.0 の間の中間バージョン（右端インクリメント）は未発行。次回以降は作業のたびにインクリメントすること。
+
+### v2.0.0 実装内容（v1.9.0 からの変更）
+- ゲーム音楽（NSF/SPC/GBS）の低速再生を gme_set_tempo に切り替え（音質劣化なし）
+- NSF/SPC/GBS のトラックごとに Speed・Key・Fine・AB 等を独立保存
+- ch ON/OFF 時に gme_tempo を引き継ぐよう修正
+
+### v1.9.0 (2026-08-09)
+- SPEED_VALUES に 0.1・0.15 を追加（9段階に拡張）
+- マニュアル更新（JP/EN Speed欄・更新履歴）
+- PDF 再生成・exe ビルド・morokoshi190.zip リリース

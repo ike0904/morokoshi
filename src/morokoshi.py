@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.0"
+APP_VERSION = "v2.0.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -61,13 +61,14 @@ RED_HL  = "#CC3333"   # ハイライト赤
 MARKER_A = 10  # A-point key in engine.markers (AB repeat / Ear mode)
 MARKER_B = 11  # B-point key in engine.markers (AB repeat / Ear mode)
 
-SPEED_VALUES = [0.1, 0.15, 0.2, 0.25, 0.33, 0.5, 1.0, 1.5, 2.0]
+SPEED_VALUES = [0.125, 0.25, 0.5, 1.0]
+_SPEED_LABELS = {0.125: "×1/8", 0.25: "×1/4", 0.5: "×1/2", 1.0: "×1/1"}
 
 def _fmt_speed(v):
     for sv in SPEED_VALUES:
         if abs(v - sv) < 0.005:
-            return f"×{sv}"
-    return f"×{v:.2f}"
+            return _SPEED_LABELS.get(sv, f"×{sv}")
+    return f"×{v}"
 
 
 # ── キャッシュ
@@ -2865,7 +2866,8 @@ class AudioEngine:
 class WaveformWidget(QWidget):
     seeked = pyqtSignal(float)
     view_changed = pyqtSignal()  # ズーム/スクロール時に発火
-    ab_drag = pyqtSignal(float)  # AB範囲ドラッグ時、移動量(全体比率)を発火
+    ab_drag = pyqtSignal(float)  # AB範囲ドラッグ時、移動量(全体比率)を発火（未使用）
+    ab_range_set = pyqtSignal(float, float)  # ドラッグでAB範囲を設定: (start_ratio, end_ratio)
     double_clicked = pyqtSignal(float)  # ダブルクリック位置(全体比率)を発火
     marker_reset_requested = pyqtSignal(int)  # マーカーの真上をダブルクリック→そのマーカー番号(MARKER_A or MARKER_B)
     seek_revert = pyqtSignal(float)  # ダブルクリック確定時、1回目クリックによるシークを取り消すための復元先比率
@@ -3058,11 +3060,11 @@ class WaveformWidget(QWidget):
                     else:
                         self._drag_mode="marker_b_move"
             else:
-                # フリーエリア: 上下はズーム、AB帯内左右はAB移動、AB帯外左右はスクロール
-                if abs(dy)>5 and (not self._press_on_ab or abs(dy)>=abs(dx)):
-                    self._drag_mode="zoom_drag"
-                elif abs(dx)>5:
-                    self._drag_mode="ab_move" if self._press_on_ab else "scroll_drag"
+                # フリーエリア: 上下はズーム、左右はAB範囲設定
+                if abs(dy) > 5:
+                    self._drag_mode = "zoom_drag"
+                elif abs(dx) > 5:
+                    self._drag_mode = "ab_set_drag"
         if self._drag_mode=="zoom_drag":
             vlo,vhi=self._press_view
             span_base=max(0.001,vhi-vlo)
@@ -3075,25 +3077,11 @@ class WaveformWidget(QWidget):
             self._view_lo=max(0.0,lo); self._view_hi=min(1.0,hi)
             self._last_manual=time.time()
             self.update(); self.view_changed.emit()
-        elif self._drag_mode=="scroll_drag":
-            # press時のratioがcursor位置に来るようビューをパン
-            w=max(1,self.width())
-            vlo_base,vhi_base=self._press_view
-            span=vhi_base-vlo_base
-            r_at_press=vlo_base+(self._press_x/w)*span
-            new_vlo=r_at_press-(e.position().x()/w)*span
-            new_vhi=new_vlo+span
-            if new_vlo<0: new_vlo=0; new_vhi=span
-            if new_vhi>1: new_vhi=1; new_vlo=1-span
-            self._view_lo=max(0.0,new_vlo); self._view_hi=min(1.0,new_vhi)
-            self._last_manual=time.time()
-            self.update(); self.view_changed.emit()
-        elif self._drag_mode=="ab_move":
-            # 現在のマウス比率とpress時比率の差分だけABを移動
-            cur_r=self._x2r(e.position().x(), max(1,self.width()))
-            delta=cur_r-self._press_r
-            self._press_r=cur_r  # 差分方式（累積）
-            self.ab_drag.emit(delta)
+        elif self._drag_mode=="ab_set_drag":
+            # ドラッグ範囲をA-Bリピートとして設定
+            cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
+            r1 = max(0.0, min(1.0, self._press_r))
+            self.ab_range_set.emit(r1, cur_r)
         elif self._drag_mode=="pos_move":
             r=max(0.0,min(1.0,self._x2r(e.position().x(), max(1,self.width()))))
             self.position=r  # 見た目はすぐ追従させる
@@ -3118,6 +3106,10 @@ class WaveformWidget(QWidget):
             # ドラッグ確定: 最終位置へ実際にシークする
             r=max(0.0,min(1.0,self._x2r(e.position().x(), max(1,self.width()))))
             self.seeked.emit(r)
+        elif self._drag_mode=="ab_set_drag":
+            cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
+            r1 = max(0.0, min(1.0, self._press_r))
+            self.ab_range_set.emit(r1, cur_r)
         self._dragging=False; self._drag_mode=None
 
     def mouseDoubleClickEvent(self,e):
@@ -4736,7 +4728,7 @@ class MainWindow(QMainWindow):
         mid_vlo.addWidget(mk_row("Bar   ", self._bar_edit))
         mid_vlo.addWidget(DividerRow(BORDER, self.S(5)))
 
-        self._spd_lbl=DragLabel("×1.0", default=1.0, values=SPEED_VALUES, lazy=True)
+        self._spd_lbl=DragLabel("×1/1", default=1.0, values=SPEED_VALUES, lazy=True)
         self._spd_lbl.set_value(1.0); self._spd_lbl.setFixedWidth(VAL_W); self._spd_lbl.setFixedHeight(self.S(22))
         self._spd_lbl.value_changed.connect(self._on_spd)
         self._spd_lbl.value_preview.connect(lambda v: self._spd_lbl.setText(_fmt_speed(v)))
@@ -4869,7 +4861,7 @@ class MainWindow(QMainWindow):
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→ (outside A-B): Scroll\nDrag←→ (inside A-B): Move A&B\nDrag←→ pos/A/B line: Move it\n2-click: Set marker\n2-click on A/B: Reset")
+        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\nDrag←→ pos/A/B line: Move it\n2-click: Set marker\n2-click on A/B: Reset")
         wf_lo.addWidget(self._waveform)
         from PyQt6.QtWidgets import QScrollBar
         self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
@@ -4883,7 +4875,7 @@ class MainWindow(QMainWindow):
         self._wf_scroll.valueChanged.connect(self._on_wf_scroll)
         self._attach_tip(self._wf_scroll, "Drag←→: Scroll")
         self._waveform.view_changed.connect(self._sync_wf_scroll)
-        self._waveform.ab_drag.connect(self._on_ab_drag)
+        self._waveform.ab_range_set.connect(self._on_ab_range_set)
         self._waveform.double_clicked.connect(self._on_wf_double_click)
         self._waveform.position_drag.connect(self._on_wf_position_drag)
         self._waveform.marker_drag.connect(self._on_wf_marker_drag)
@@ -6135,7 +6127,7 @@ class MainWindow(QMainWindow):
         self.engine.speed=1.0; self.engine.semitones=0; self.engine.fine_semi=0.0
         self.engine.markers={}; self.engine.ab_active=False; self.engine.ear_active=False
         self._tempo=120.0; self._beat=4; self._bar=2.0
-        self._spd_lbl.set_value(1.0); self._spd_lbl.setText("×1.0")
+        self._spd_lbl.set_value(1.0); self._spd_lbl.setText("×1/1")
         self._key_lbl.set_value(0);   self._key_lbl.setText("±0")
         self._fine_lbl.set_value(0.0); self._fine_lbl.setText("±0.00")
         self._tempo_edit.setText("120.0"); self._beat_edit.setText("4"); self._bar_edit.setText("2.0")
@@ -7390,6 +7382,17 @@ class MainWindow(QMainWindow):
         self.engine.markers[MARKER_A]=a+ds
         self.engine.markers[MARKER_B]=b+ds
         self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
+        self._update_wf_ab()
+
+    def _on_ab_range_set(self, r1, r2):
+        # 波形ドラッグでA-B範囲を設定: ドラッグ開始〜終了位置がA〜B
+        if self._total <= 0: return
+        a = min(r1, r2) * self._total
+        b = max(r1, r2) * self._total
+        self.engine.markers[MARKER_A] = a
+        self.engine.markers[MARKER_B] = b
+        self._refresh_marker(MARKER_A)
+        self._refresh_marker(MARKER_B)
         self._update_wf_ab()
 
     def _on_wf_double_click(self, ratio):
