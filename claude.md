@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.8 (2026-08-24) ← 最新
+### v2.0.9 (2026-08-24) ← 最新
+- 【DLL修正】ch2 頭削りバグ修正（根本原因特定・1行修正）
+  - 根本原因: `before_silence_detection_()` の burn loop 終了後、Multi_Buffer に PLAY フレームの音データが残存
+  - この残存データを `redo_silence_detection_()` の最初の `fill_buf()` が「即音」として検出し `silence_count=0` → 頭削り
+  - 修正: `Classic_Emu::clear_buf_impl_()` で `before_silence_detection_()` の直後に `buf->clear()` を追加（1行）
+  - 効果: ch2 の頭削り解消（silence_count が正しく蓄積される）
+
+### v2.0.8 (2026-08-24) ※ v2.0.9 で頭削りバグ修正
 - 【DLL修正】NSF INIT ノイズ根本修正（DW3 track7/9/26 ch2/ch4 等）
   - `Classic_Emu::clear_buf_impl_()` に `before_silence_detection_()` 仮想フックを追加
   - `Nsf_Emu::before_silence_detection_()` でINITフレームを全チャンネルミュートで焼き切り後、APUレジスタを無音化（$4000/$4004=0x10, $4008=0x80, $400C=0x10）
