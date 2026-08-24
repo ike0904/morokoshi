@@ -104,7 +104,13 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.4 (2026-08-24) ← 最新
+### v2.0.5 (2026-08-24) ← 最新
+- 【バグ1修正】NSF ch solo 時に INIT バースト後の長い無音が保持されない問題を修正
+  - 原因: libgme の NSF INIT サブルーチン実行中に ch が一時発音（DLL 仕様）し、INIT ノイズが _LEAK_S（83ms）を越えると `nz0=0` になり、従来の cleanup が何もしなかった
+  - 修正: `nz0=0` の場合にケースCとして「INITバースト（≤300ms）+ 長い無音（≥500ms）+ 本曲」パターンを検出し、本曲開始点までゼロ化するロジックを追加
+  - 対象ログ: `NSF INIT burst+gap: zeroing 0..Xs` が出れば修正が適用されている
+
+### v2.0.4 (2026-08-24)
 - 【バグ2修正】NSF ZIP ファイルのセッション保存/復元が機能しない問題を修正
   - 原因: `_load_nsf_zip` が ZIP を一時ディレクトリに展開して `_load_nsf` を呼ぶため、`_file_hash` が毎回異なる一時パスのハッシュになっていた
   - 修正: `_load_nsf` 呼び出し後に `_file_hash` と `nsf.path` を ZIP ファイルのパスで上書き
