@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.7 (2026-08-24) ← 最新
+### v2.0.8 (2026-08-24) ← 最新
+- 【DLL修正】NSF INIT ノイズ根本修正（DW3 track7/9/26 ch2/ch4 等）
+  - `Classic_Emu::clear_buf_impl_()` に `before_silence_detection_()` 仮想フックを追加
+  - `Nsf_Emu::before_silence_detection_()` でINITフレームを全チャンネルミュートで焼き切り後、APUレジスタを無音化（$4000/$4004=0x10, $4008=0x80, $400C=0x10）
+  - `Music_Emu::redo_silence_detection_()` のループ後 `silence_count` / `emu_time` リセットを廃止し、曲頭の本来の無音区間をPlayback出力に保持
+  - 効果: INIT ノイズ消滅 + 曲頭無音（PLAY以降）を正確に保持（INITフレーム67ms分は除外されるが誤差範囲）
+
+### v2.0.7 (2026-08-24)
 - 【リバート】v2.0.5/v2.0.6 の Python 側 INIT ノイズ除去コードを全廃
   - v2.0.6 のバースト検出ロジックが「冒頭の短い音符→無音」のパターンを誤検知し他の曲の頭を削る副作用があった
   - gme_clear_blip_buffer (DLL) がINITノイズを担当する設計に戻す

@@ -104,7 +104,36 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.3 (2026-08-24) ← 最新
+### v2.0.8 (2026-08-24) ← 最新
+- 【DLL修正】NSF INIT ノイズ根本修正（DW3 track7/9/26 ch2/ch4 等）
+  - `Classic_Emu::clear_buf_impl_()` に `before_silence_detection_()` 仮想フックを追加
+  - `Nsf_Emu::before_silence_detection_()` でINITフレームを全チャンネルミュートで焼き切り後、APUレジスタを無音化（$4000/$4004=0x10, $4008=0x80, $400C=0x10）
+  - `Music_Emu::redo_silence_detection_()` のループ後 `silence_count` / `emu_time` リセットを廃止し、曲頭の本来の無音区間をPlayback出力に保持
+  - 効果: INIT ノイズ消滅 + 曲頭無音（PLAY以降）を正確に保持（INITフレーム67ms分は除外されるが誤差範囲）
+
+### v2.0.7 (2026-08-24)
+- 【リバート】v2.0.5/v2.0.6 の Python 側 INIT ノイズ除去コードを全廃
+  - v2.0.6 のバースト検出ロジックが「冒頭の短い音符→無音」のパターンを誤検知し他の曲の頭を削る副作用があった
+  - gme_clear_blip_buffer (DLL) がINITノイズを担当する設計に戻す
+  - NSF ch2 (DW3 track7) の INIT ノイズ残留問題は未解決だが、他の曲を壊す修正は行わない
+
+### v2.0.6 (2026-08-24)
+- 【失敗】バースト検出で他の曲の頭を誤って削る副作用 → v2.0.7 でリバート
+
+### v2.0.5 (2026-08-24)
+- 【失敗】_GAP_MIN=500ms 設定ミスで全件スキップ → v2.0.6→v2.0.7 でリバート
+
+### v2.0.4 (2026-08-24)
+- 【バグ2修正】NSF ZIP ファイルのセッション保存/復元が機能しない問題を修正
+  - 原因: `_load_nsf_zip` が ZIP を一時ディレクトリに展開して `_load_nsf` を呼ぶため、`_file_hash` が毎回異なる一時パスのハッシュになっていた
+  - 修正: `_load_nsf` 呼び出し後に `_file_hash` と `nsf.path` を ZIP ファイルのパスで上書き
+- 【潜在バグ修正】ファイルロード時に `_played_orig` がリセットされない問題を修正
+  - 修正: 全ロード関数（NSF/SPC/GBS/WAV等）に `with self._rt_lock: self._played_orig = 0` を追加
+  - これにより「前のファイルの再生位置が ch solo 時の seek_sec に影響する」問題を解消
+- 【デバッグログ追加】`_apply_new_wav`・各 `_start_ch_render` に seek_sec の詳細ログを追加
+- 【NSF レンダリングログ】head_silence（頭の無音長さ）をログ出力に追加
+
+### v2.0.3 (2026-08-24)
 - ゲームモードで無音始まりのchを単独選択すると無音が削られるバグを修正
 - 原因: ch切替レンダリング（バックグラウンドスレッド）完了時に `current_sec()` を参照していたため、レンダリング中に再生位置が進んでしまい、無音頭部をスキップした位置に移動していた
 - 修正: NSF/SPC/GBS 各 `_start_ch_render` でクリック時点の `current_sec()` を `seek_sec` として記録し、シグナル経由で `_apply_new_wav` に渡すよう変更
