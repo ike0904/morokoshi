@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.2"
+APP_VERSION = "v2.0.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1486,7 +1486,7 @@ class AudioEngine:
                    if i < len(state.ch_active) and state.ch_active[i] and
                    i < len(ch_used) and ch_used[i])
 
-    def _apply_new_wav(self, state, wav, ch_mask):
+    def _apply_new_wav(self, state, wav, ch_mask, seek_sec=None):
         """ch切替レンダリング完了後のwavホットスワップ共通実装（再生位置保持）"""
         if state is None or state.cur_track not in state.track_data: return
         td = state.track_data[state.cur_track]
@@ -1499,7 +1499,8 @@ class AudioEngine:
         view_s = max(1, min(view_s, raw_len))
         mixed = np.clip(wav[:view_s], -1.0, 1.0).astype(np.float32)
         stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
-        cur_sec = self.current_sec()  # 楽曲秒
+        # seek_sec: chトグルクリック時点の位置（レンダリング中に進んだ分を無視）
+        cur_sec = seek_sec if seek_sec is not None else self.current_sec()  # 楽曲秒
         new_pos = max(0, min(int(cur_sec / gme_t * state.sr), len(stereo) - 1))
         with self._lock:
             self.data = stereo; self.sr = state.sr
@@ -1585,8 +1586,8 @@ class AudioEngine:
     def _nsf_toggle_channel(self, ch_idx, solo=False, reset=False):
         return self._toggle_channel(self._nsf, ch_idx, solo, reset)
 
-    def _nsf_apply_new_wav(self, wav, ch_mask):
-        self._apply_new_wav(self._nsf, wav, ch_mask)
+    def _nsf_apply_new_wav(self, wav, ch_mask, seek_sec=None):
+        self._apply_new_wav(self._nsf, wav, ch_mask, seek_sec)
 
     def nsf_set_track(self, track_idx, scb=None):
         """NSFトラックを切り替える。必要に応じてデコードする。戻り値: 長さ(sec)"""
@@ -2133,8 +2134,8 @@ class AudioEngine:
     def _spc_toggle_channel(self, ch_idx, solo=False, reset=False):
         return self._toggle_channel(self._spc, ch_idx, solo, reset)
 
-    def _spc_apply_new_wav(self, wav, ch_mask):
-        self._apply_new_wav(self._spc, wav, ch_mask)
+    def _spc_apply_new_wav(self, wav, ch_mask, seek_sec=None):
+        self._apply_new_wav(self._spc, wav, ch_mask, seek_sec)
 
     def spc_set_track(self, track_idx, scb=None):
         """SPCトラック(ZIP内)を切り替える。戻り値: 長さ(sec)"""
@@ -2249,8 +2250,8 @@ class AudioEngine:
     def _gbs_toggle_channel(self, ch_idx, solo=False, reset=False):
         return self._toggle_channel(self._gbs, ch_idx, solo, reset)
 
-    def _gbs_apply_new_wav(self, wav, ch_mask):
-        self._apply_new_wav(self._gbs, wav, ch_mask)
+    def _gbs_apply_new_wav(self, wav, ch_mask, seek_sec=None):
+        self._apply_new_wav(self._gbs, wav, ch_mask, seek_sec)
 
     def gbs_set_track(self, track_idx, scb=None):
         """GBSトラックを切り替える。戻り値: 長さ(sec)"""
@@ -4486,13 +4487,13 @@ class MainWindow(QMainWindow):
     _tempo_busy_sig = pyqtSignal(bool)
     _nsf_track_done_sig = pyqtSignal(float, object)        # dur, waveform
     _nsf_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
-    _nsf_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
-    _spc_track_done_sig = pyqtSignal(float, object)        # dur, waveform
-    _spc_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
-    _spc_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
-    _gbs_track_done_sig = pyqtSignal(float, object)        # dur, waveform
-    _gbs_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
-    _gbs_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
+    _nsf_ch_render_done_sig = pyqtSignal(object, int, int, float) # wav, ch_mask, track_idx, seek_sec
+    _spc_track_done_sig = pyqtSignal(float, object)               # dur, waveform
+    _spc_extend_done_sig = pyqtSignal(float, bool, object)        # dur, natural_end, waveform
+    _spc_ch_render_done_sig = pyqtSignal(object, int, int, float) # wav, ch_mask, track_idx, seek_sec
+    _gbs_track_done_sig = pyqtSignal(float, object)               # dur, waveform
+    _gbs_extend_done_sig = pyqtSignal(float, bool, object)        # dur, natural_end, waveform
+    _gbs_ch_render_done_sig = pyqtSignal(object, int, int, float) # wav, ch_mask, track_idx, seek_sec
 
     def __init__(self):
         super().__init__()
@@ -6722,6 +6723,7 @@ class MainWindow(QMainWindow):
     def _spc_start_ch_render(self, ch_mask, track_idx, decoded_sec):
         """SPC ch切替バックグラウンドレンダリングを開始する"""
         self._spc_ch_rendering = True
+        seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
         spc = self.engine._spc
         spc_raw = spc._spc_raws.get(track_idx) if spc else None
         if spc_raw is None:
@@ -6733,7 +6735,7 @@ class MainWindow(QMainWindow):
                 if gme is None:
                     self._spc_ch_rendering = False; return
                 wav, _, _ = _spc_render(gme, spc_raw, ch_mask, decoded_sec, trim_silence=False, tempo=gme_t)
-                self._spc_ch_render_done_sig.emit(wav, ch_mask, track_idx)
+                self._spc_ch_render_done_sig.emit(wav, ch_mask, track_idx, seek_sec)
             except Exception as ex:
                 self._spc_ch_rendering = False
                 self._status_sig.emit(f"SPC ch render failed: {ex}")
@@ -6749,13 +6751,13 @@ class MainWindow(QMainWindow):
         self._on_game_extend_done(dur, wf, '_spc_loading', self.engine._spc, self._spc_panel, 'SPC')
         self._nsf_set_dur_editable(False)
 
-    @pyqtSlot(object, int, int)
-    def _on_spc_ch_render_done(self, wav, ch_mask, track_idx):
+    @pyqtSlot(object, int, int, float)
+    def _on_spc_ch_render_done(self, wav, ch_mask, track_idx, seek_sec):
         """SPC ch切替レンダリング完了後のUI更新"""
         self._spc_ch_rendering = False
         spc = self.engine._spc
         if spc is None or spc.cur_track != track_idx: return
-        self.engine._spc_apply_new_wav(wav, ch_mask)
+        self.engine._spc_apply_new_wav(wav, ch_mask, seek_sec)
         wf = self.engine.get_waveform(700)
         self._waveform.set_waveform(wf)
 
@@ -6858,6 +6860,7 @@ class MainWindow(QMainWindow):
     def _gbs_start_ch_render(self, ch_mask, track_idx, decoded_sec):
         """GBS ch切替バックグラウンドレンダリングを開始する"""
         self._gbs_ch_rendering = True
+        seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
         gbs = self.engine._gbs
         gbs_raw = gbs._gbs_raw if gbs else None
         if gbs_raw is None:
@@ -6871,19 +6874,19 @@ class MainWindow(QMainWindow):
                 if gme is None:
                     self._gbs_ch_rendering = False; return
                 wav, _, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec, tempo=gme_t)
-                self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx)
+                self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx, seek_sec)
             except Exception as ex:
                 self._gbs_ch_rendering = False
                 self._status_sig.emit(f"GBS ch render failed: {ex}")
         threading.Thread(target=do_render, daemon=True).start()
 
-    @pyqtSlot(object, int, int)
-    def _on_gbs_ch_render_done(self, wav, ch_mask, track_idx):
+    @pyqtSlot(object, int, int, float)
+    def _on_gbs_ch_render_done(self, wav, ch_mask, track_idx, seek_sec):
         """GBS ch切替レンダリング完了後のUI更新"""
         self._gbs_ch_rendering = False
         gbs = self.engine._gbs
         if gbs is None or gbs.cur_track != track_idx: return
-        self.engine._gbs_apply_new_wav(wav, ch_mask)
+        self.engine._gbs_apply_new_wav(wav, ch_mask, seek_sec)
         wf = self.engine.get_waveform(700)
         self._waveform.set_waveform(wf)
 
@@ -7257,6 +7260,7 @@ class MainWindow(QMainWindow):
     def _nsf_start_ch_render(self, ch_mask, track_idx, nsf_raw, ch_count, decoded_sec):
         """ch切替のバックグラウンドレンダリングを開始する"""
         self._nsf_ch_rendering = True
+        seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
         gme_t = self.engine._gme_tempo
         def do_render():
             try:
@@ -7264,19 +7268,19 @@ class MainWindow(QMainWindow):
                 if gme is None:
                     self._nsf_ch_rendering = False; return
                 wav, _, _ = _nsf_render(gme, nsf_raw, track_idx, ch_mask, ch_count, decoded_sec, tempo=gme_t)
-                self._nsf_ch_render_done_sig.emit(wav, ch_mask, track_idx)
+                self._nsf_ch_render_done_sig.emit(wav, ch_mask, track_idx, seek_sec)
             except Exception as ex:
                 self._nsf_ch_rendering = False
                 self._status_sig.emit(f"NSF ch render failed: {ex}")
         threading.Thread(target=do_render, daemon=True).start()
 
-    @pyqtSlot(object, int, int)
-    def _on_nsf_ch_render_done(self, wav, ch_mask, track_idx):
+    @pyqtSlot(object, int, int, float)
+    def _on_nsf_ch_render_done(self, wav, ch_mask, track_idx, seek_sec):
         """ch切替レンダリング完了後のUI更新"""
         self._nsf_ch_rendering = False
         nsf = self.engine._nsf
         if nsf is None or nsf.cur_track != track_idx: return
-        self.engine._nsf_apply_new_wav(wav, ch_mask)
+        self.engine._nsf_apply_new_wav(wav, ch_mask, seek_sec)
         wf = self.engine.get_waveform(700)
         self._waveform.set_waveform(wf)
 
