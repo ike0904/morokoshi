@@ -104,7 +104,22 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.2 (2026-08-23) ← 最新
+### v2.0.4 (2026-08-24) ← 最新
+- 【バグ2修正】NSF ZIP ファイルのセッション保存/復元が機能しない問題を修正
+  - 原因: `_load_nsf_zip` が ZIP を一時ディレクトリに展開して `_load_nsf` を呼ぶため、`_file_hash` が毎回異なる一時パスのハッシュになっていた
+  - 修正: `_load_nsf` 呼び出し後に `_file_hash` と `nsf.path` を ZIP ファイルのパスで上書き
+- 【潜在バグ修正】ファイルロード時に `_played_orig` がリセットされない問題を修正
+  - 修正: 全ロード関数（NSF/SPC/GBS/WAV等）に `with self._rt_lock: self._played_orig = 0` を追加
+  - これにより「前のファイルの再生位置が ch solo 時の seek_sec に影響する」問題を解消
+- 【デバッグログ追加】`_apply_new_wav`・各 `_start_ch_render` に seek_sec の詳細ログを追加
+- 【NSF レンダリングログ】head_silence（頭の無音長さ）をログ出力に追加
+
+### v2.0.3 (2026-08-24)
+- ゲームモードで無音始まりのchを単独選択すると無音が削られるバグを修正
+- 原因: ch切替レンダリング（バックグラウンドスレッド）完了時に `current_sec()` を参照していたため、レンダリング中に再生位置が進んでしまい、無音頭部をスキップした位置に移動していた
+- 修正: NSF/SPC/GBS 各 `_start_ch_render` でクリック時点の `current_sec()` を `seek_sec` として記録し、シグナル経由で `_apply_new_wav` に渡すよう変更
+
+### v2.0.2 (2026-08-23)
 - 波形ツールチップから「Drag←→ pos/A/B line: Move it」を削除
 
 ### v2.0.1 (2026-08-23)

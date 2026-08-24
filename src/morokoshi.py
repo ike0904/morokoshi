@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.3"
+APP_VERSION = "v2.0.4"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -768,7 +768,9 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
         _log(f"NSF noise cleanup: LEAK_S={_LEAK_S} nz0={_nz[0] if len(_nz)>0 else 'none(zeroed)'}")
 
     actual_dur_sec = len(arr_f) / NSF_SR
-    _log(f"NSF render: mask={ch_mask:#b} ch_count={ch_count} dur={actual_dur_sec:.1f}s natural_end={natural_end}")
+    _nz_all = np.where(np.abs(arr_f) > NSF_SILENCE_THRESH)[0]
+    head_sil_sec = (_nz_all[0] / NSF_SR if len(_nz_all) > 0 else actual_dur_sec)
+    _log(f"NSF render: mask={ch_mask:#b} ch_count={ch_count} dur={actual_dur_sec:.1f}s natural_end={natural_end} head_silence={head_sil_sec:.3f}s")
     return arr_f, natural_end, actual_dur_sec
 
 
@@ -1319,6 +1321,8 @@ class AudioEngine:
             self._mem=ConvCache()
             self.filter_lo_idx=0; self.filter_hi_idx=len(FILTER_BANDS_HZ)-1
             self._filter_zi=None; self._filter_sos_cache_key=None; self._filter_sos_cache=None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return len(data)/sr
@@ -1427,6 +1431,8 @@ class AudioEngine:
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
             self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -1502,6 +1508,7 @@ class AudioEngine:
         # seek_sec: chトグルクリック時点の位置（レンダリング中に進んだ分を無視）
         cur_sec = seek_sec if seek_sec is not None else self.current_sec()  # 楽曲秒
         new_pos = max(0, min(int(cur_sec / gme_t * state.sr), len(stereo) - 1))
+        _log(f"apply_new_wav: seek_sec={seek_sec} cur_sec={cur_sec:.3f} new_pos={new_pos} wav_len={len(stereo)} playing={self.playing} paused={self.paused}")
         with self._lock:
             self.data = stereo; self.sr = state.sr
             self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
@@ -1771,6 +1778,8 @@ class AudioEngine:
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
             self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -1835,6 +1844,8 @@ class AudioEngine:
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
             self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -1856,7 +1867,15 @@ class AudioEngine:
                 zf.extract(nsf_names[0], tmp_dir)
             import os as _os
             nsf_path = _os.path.join(tmp_dir, nsf_names[0].replace('/', _os.sep).replace('\\', _os.sep))
-            return self._load_nsf(nsf_path, scb)
+            dur = self._load_nsf(nsf_path, scb)
+            # _load_nsf は一時パスのハッシュを使うため、ZIPパスのハッシュで上書きする
+            # （一時ディレクトリは毎回変わるため、セッション保存/復元が正常に機能しない）
+            fh = _fhash(path)
+            with self._lock:
+                self._file_hash = fh
+                if self._nsf is not None:
+                    self._nsf.path = path  # ステータスバーにZIPファイル名を表示
+            return dur
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1916,6 +1935,8 @@ class AudioEngine:
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
             self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -2023,6 +2044,8 @@ class AudioEngine:
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
             self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -2122,6 +2145,8 @@ class AudioEngine:
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
             self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -6724,6 +6749,7 @@ class MainWindow(QMainWindow):
         """SPC ch切替バックグラウンドレンダリングを開始する"""
         self._spc_ch_rendering = True
         seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
+        _log(f"SPC ch render start: mask={ch_mask:#b} track={track_idx} seek_sec={seek_sec:.3f} playing={self.engine.playing} paused={self.engine.paused}")
         spc = self.engine._spc
         spc_raw = spc._spc_raws.get(track_idx) if spc else None
         if spc_raw is None:
@@ -6861,6 +6887,7 @@ class MainWindow(QMainWindow):
         """GBS ch切替バックグラウンドレンダリングを開始する"""
         self._gbs_ch_rendering = True
         seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
+        _log(f"GBS ch render start: mask={ch_mask:#b} track={track_idx} seek_sec={seek_sec:.3f} playing={self.engine.playing} paused={self.engine.paused}")
         gbs = self.engine._gbs
         gbs_raw = gbs._gbs_raw if gbs else None
         if gbs_raw is None:
@@ -7261,6 +7288,7 @@ class MainWindow(QMainWindow):
         """ch切替のバックグラウンドレンダリングを開始する"""
         self._nsf_ch_rendering = True
         seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
+        _log(f"NSF ch render start: mask={ch_mask:#b} track={track_idx} seek_sec={seek_sec:.3f} playing={self.engine.playing} paused={self.engine.paused}")
         gme_t = self.engine._gme_tempo
         def do_render():
             try:

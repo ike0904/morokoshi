@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v1.9.0"
+APP_VERSION = "v2.0.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -61,13 +61,14 @@ RED_HL  = "#CC3333"   # ハイライト赤
 MARKER_A = 10  # A-point key in engine.markers (AB repeat / Ear mode)
 MARKER_B = 11  # B-point key in engine.markers (AB repeat / Ear mode)
 
-SPEED_VALUES = [0.1, 0.15, 0.2, 0.25, 0.33, 0.5, 1.0, 1.5, 2.0]
+SPEED_VALUES = [0.125, 0.25, 0.5, 1.0]
+_SPEED_LABELS = {0.125: "×1/8", 0.25: "×1/4", 0.5: "×1/2", 1.0: "×1/1"}
 
 def _fmt_speed(v):
     for sv in SPEED_VALUES:
         if abs(v - sv) < 0.005:
-            return f"×{sv}"
-    return f"×{v:.2f}"
+            return _SPEED_LABELS.get(sv, f"×{sv}")
+    return f"×{v}"
 
 
 # ── キャッシュ
@@ -1485,7 +1486,7 @@ class AudioEngine:
                    if i < len(state.ch_active) and state.ch_active[i] and
                    i < len(ch_used) and ch_used[i])
 
-    def _apply_new_wav(self, state, wav, ch_mask):
+    def _apply_new_wav(self, state, wav, ch_mask, seek_sec=None):
         """ch切替レンダリング完了後のwavホットスワップ共通実装（再生位置保持）"""
         if state is None or state.cur_track not in state.track_data: return
         td = state.track_data[state.cur_track]
@@ -1498,7 +1499,8 @@ class AudioEngine:
         view_s = max(1, min(view_s, raw_len))
         mixed = np.clip(wav[:view_s], -1.0, 1.0).astype(np.float32)
         stereo = np.stack([mixed, mixed], axis=1).astype(np.float32)
-        cur_sec = self.current_sec()  # 楽曲秒
+        # seek_sec: chトグルクリック時点の位置（レンダリング中に進んだ分を無視）
+        cur_sec = seek_sec if seek_sec is not None else self.current_sec()  # 楽曲秒
         new_pos = max(0, min(int(cur_sec / gme_t * state.sr), len(stereo) - 1))
         with self._lock:
             self.data = stereo; self.sr = state.sr
@@ -1565,6 +1567,9 @@ class AudioEngine:
             self.markers     = {}
             self.ab_active   = False
             self.ear_active  = False
+            self.speed       = 1.0
+            self.semitones   = 0
+            self.fine_semi   = 0.0
             return 0.0
 
     def _inject_pending_session(self, state, track_idx):
@@ -1581,8 +1586,8 @@ class AudioEngine:
     def _nsf_toggle_channel(self, ch_idx, solo=False, reset=False):
         return self._toggle_channel(self._nsf, ch_idx, solo, reset)
 
-    def _nsf_apply_new_wav(self, wav, ch_mask):
-        self._apply_new_wav(self._nsf, wav, ch_mask)
+    def _nsf_apply_new_wav(self, wav, ch_mask, seek_sec=None):
+        self._apply_new_wav(self._nsf, wav, ch_mask, seek_sec)
 
     def nsf_set_track(self, track_idx, scb=None):
         """NSFトラックを切り替える。必要に応じてデコードする。戻り値: 長さ(sec)"""
@@ -2129,8 +2134,8 @@ class AudioEngine:
     def _spc_toggle_channel(self, ch_idx, solo=False, reset=False):
         return self._toggle_channel(self._spc, ch_idx, solo, reset)
 
-    def _spc_apply_new_wav(self, wav, ch_mask):
-        self._apply_new_wav(self._spc, wav, ch_mask)
+    def _spc_apply_new_wav(self, wav, ch_mask, seek_sec=None):
+        self._apply_new_wav(self._spc, wav, ch_mask, seek_sec)
 
     def spc_set_track(self, track_idx, scb=None):
         """SPCトラック(ZIP内)を切り替える。戻り値: 長さ(sec)"""
@@ -2245,8 +2250,8 @@ class AudioEngine:
     def _gbs_toggle_channel(self, ch_idx, solo=False, reset=False):
         return self._toggle_channel(self._gbs, ch_idx, solo, reset)
 
-    def _gbs_apply_new_wav(self, wav, ch_mask):
-        self._apply_new_wav(self._gbs, wav, ch_mask)
+    def _gbs_apply_new_wav(self, wav, ch_mask, seek_sec=None):
+        self._apply_new_wav(self._gbs, wav, ch_mask, seek_sec)
 
     def gbs_set_track(self, track_idx, scb=None):
         """GBSトラックを切り替える。戻り値: 長さ(sec)"""
@@ -2862,7 +2867,8 @@ class AudioEngine:
 class WaveformWidget(QWidget):
     seeked = pyqtSignal(float)
     view_changed = pyqtSignal()  # ズーム/スクロール時に発火
-    ab_drag = pyqtSignal(float)  # AB範囲ドラッグ時、移動量(全体比率)を発火
+    ab_drag = pyqtSignal(float)  # AB範囲ドラッグ時、移動量(全体比率)を発火（未使用）
+    ab_range_set = pyqtSignal(float, float)  # ドラッグでAB範囲を設定: (start_ratio, end_ratio)
     double_clicked = pyqtSignal(float)  # ダブルクリック位置(全体比率)を発火
     marker_reset_requested = pyqtSignal(int)  # マーカーの真上をダブルクリック→そのマーカー番号(MARKER_A or MARKER_B)
     seek_revert = pyqtSignal(float)  # ダブルクリック確定時、1回目クリックによるシークを取り消すための復元先比率
@@ -3055,11 +3061,11 @@ class WaveformWidget(QWidget):
                     else:
                         self._drag_mode="marker_b_move"
             else:
-                # フリーエリア: 上下はズーム、AB帯内左右はAB移動、AB帯外左右はスクロール
-                if abs(dy)>5 and (not self._press_on_ab or abs(dy)>=abs(dx)):
-                    self._drag_mode="zoom_drag"
-                elif abs(dx)>5:
-                    self._drag_mode="ab_move" if self._press_on_ab else "scroll_drag"
+                # フリーエリア: 上下はズーム、左右はAB範囲設定
+                if abs(dy) > 5:
+                    self._drag_mode = "zoom_drag"
+                elif abs(dx) > 5:
+                    self._drag_mode = "ab_set_drag"
         if self._drag_mode=="zoom_drag":
             vlo,vhi=self._press_view
             span_base=max(0.001,vhi-vlo)
@@ -3072,25 +3078,11 @@ class WaveformWidget(QWidget):
             self._view_lo=max(0.0,lo); self._view_hi=min(1.0,hi)
             self._last_manual=time.time()
             self.update(); self.view_changed.emit()
-        elif self._drag_mode=="scroll_drag":
-            # press時のratioがcursor位置に来るようビューをパン
-            w=max(1,self.width())
-            vlo_base,vhi_base=self._press_view
-            span=vhi_base-vlo_base
-            r_at_press=vlo_base+(self._press_x/w)*span
-            new_vlo=r_at_press-(e.position().x()/w)*span
-            new_vhi=new_vlo+span
-            if new_vlo<0: new_vlo=0; new_vhi=span
-            if new_vhi>1: new_vhi=1; new_vlo=1-span
-            self._view_lo=max(0.0,new_vlo); self._view_hi=min(1.0,new_vhi)
-            self._last_manual=time.time()
-            self.update(); self.view_changed.emit()
-        elif self._drag_mode=="ab_move":
-            # 現在のマウス比率とpress時比率の差分だけABを移動
-            cur_r=self._x2r(e.position().x(), max(1,self.width()))
-            delta=cur_r-self._press_r
-            self._press_r=cur_r  # 差分方式（累積）
-            self.ab_drag.emit(delta)
+        elif self._drag_mode=="ab_set_drag":
+            # ドラッグ範囲をA-Bリピートとして設定
+            cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
+            r1 = max(0.0, min(1.0, self._press_r))
+            self.ab_range_set.emit(r1, cur_r)
         elif self._drag_mode=="pos_move":
             r=max(0.0,min(1.0,self._x2r(e.position().x(), max(1,self.width()))))
             self.position=r  # 見た目はすぐ追従させる
@@ -3115,6 +3107,10 @@ class WaveformWidget(QWidget):
             # ドラッグ確定: 最終位置へ実際にシークする
             r=max(0.0,min(1.0,self._x2r(e.position().x(), max(1,self.width()))))
             self.seeked.emit(r)
+        elif self._drag_mode=="ab_set_drag":
+            cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
+            r1 = max(0.0, min(1.0, self._press_r))
+            self.ab_range_set.emit(r1, cur_r)
         self._dragging=False; self._drag_mode=None
 
     def mouseDoubleClickEvent(self,e):
@@ -4491,13 +4487,13 @@ class MainWindow(QMainWindow):
     _tempo_busy_sig = pyqtSignal(bool)
     _nsf_track_done_sig = pyqtSignal(float, object)        # dur, waveform
     _nsf_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
-    _nsf_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
-    _spc_track_done_sig = pyqtSignal(float, object)        # dur, waveform
-    _spc_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
-    _spc_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
-    _gbs_track_done_sig = pyqtSignal(float, object)        # dur, waveform
-    _gbs_extend_done_sig = pyqtSignal(float, bool, object) # dur, natural_end, waveform
-    _gbs_ch_render_done_sig = pyqtSignal(object, int, int) # wav, ch_mask, track_idx
+    _nsf_ch_render_done_sig = pyqtSignal(object, int, int, float) # wav, ch_mask, track_idx, seek_sec
+    _spc_track_done_sig = pyqtSignal(float, object)               # dur, waveform
+    _spc_extend_done_sig = pyqtSignal(float, bool, object)        # dur, natural_end, waveform
+    _spc_ch_render_done_sig = pyqtSignal(object, int, int, float) # wav, ch_mask, track_idx, seek_sec
+    _gbs_track_done_sig = pyqtSignal(float, object)               # dur, waveform
+    _gbs_extend_done_sig = pyqtSignal(float, bool, object)        # dur, natural_end, waveform
+    _gbs_ch_render_done_sig = pyqtSignal(object, int, int, float) # wav, ch_mask, track_idx, seek_sec
 
     def __init__(self):
         super().__init__()
@@ -4733,7 +4729,7 @@ class MainWindow(QMainWindow):
         mid_vlo.addWidget(mk_row("Bar   ", self._bar_edit))
         mid_vlo.addWidget(DividerRow(BORDER, self.S(5)))
 
-        self._spd_lbl=DragLabel("×1.0", default=1.0, values=SPEED_VALUES, lazy=True)
+        self._spd_lbl=DragLabel("×1/1", default=1.0, values=SPEED_VALUES, lazy=True)
         self._spd_lbl.set_value(1.0); self._spd_lbl.setFixedWidth(VAL_W); self._spd_lbl.setFixedHeight(self.S(22))
         self._spd_lbl.value_changed.connect(self._on_spd)
         self._spd_lbl.value_preview.connect(lambda v: self._spd_lbl.setText(_fmt_speed(v)))
@@ -4866,7 +4862,7 @@ class MainWindow(QMainWindow):
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→ (outside A-B): Scroll\nDrag←→ (inside A-B): Move A&B\nDrag←→ pos/A/B line: Move it\n2-click: Set marker\n2-click on A/B: Reset")
+        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset")
         wf_lo.addWidget(self._waveform)
         from PyQt6.QtWidgets import QScrollBar
         self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
@@ -4880,7 +4876,7 @@ class MainWindow(QMainWindow):
         self._wf_scroll.valueChanged.connect(self._on_wf_scroll)
         self._attach_tip(self._wf_scroll, "Drag←→: Scroll")
         self._waveform.view_changed.connect(self._sync_wf_scroll)
-        self._waveform.ab_drag.connect(self._on_ab_drag)
+        self._waveform.ab_range_set.connect(self._on_ab_range_set)
         self._waveform.double_clicked.connect(self._on_wf_double_click)
         self._waveform.position_drag.connect(self._on_wf_position_drag)
         self._waveform.marker_drag.connect(self._on_wf_marker_drag)
@@ -6132,7 +6128,7 @@ class MainWindow(QMainWindow):
         self.engine.speed=1.0; self.engine.semitones=0; self.engine.fine_semi=0.0
         self.engine.markers={}; self.engine.ab_active=False; self.engine.ear_active=False
         self._tempo=120.0; self._beat=4; self._bar=2.0
-        self._spd_lbl.set_value(1.0); self._spd_lbl.setText("×1.0")
+        self._spd_lbl.set_value(1.0); self._spd_lbl.setText("×1/1")
         self._key_lbl.set_value(0);   self._key_lbl.setText("±0")
         self._fine_lbl.set_value(0.0); self._fine_lbl.setText("±0.00")
         self._tempo_edit.setText("120.0"); self._beat_edit.setText("4"); self._bar_edit.setText("2.0")
@@ -6727,17 +6723,19 @@ class MainWindow(QMainWindow):
     def _spc_start_ch_render(self, ch_mask, track_idx, decoded_sec):
         """SPC ch切替バックグラウンドレンダリングを開始する"""
         self._spc_ch_rendering = True
+        seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
         spc = self.engine._spc
         spc_raw = spc._spc_raws.get(track_idx) if spc else None
         if spc_raw is None:
             self._spc_ch_rendering = False; return
+        gme_t = self.engine._gme_tempo
         def do_render():
             try:
                 gme = _gme_load()
                 if gme is None:
                     self._spc_ch_rendering = False; return
-                wav, _, _ = _spc_render(gme, spc_raw, ch_mask, decoded_sec, trim_silence=False)
-                self._spc_ch_render_done_sig.emit(wav, ch_mask, track_idx)
+                wav, _, _ = _spc_render(gme, spc_raw, ch_mask, decoded_sec, trim_silence=False, tempo=gme_t)
+                self._spc_ch_render_done_sig.emit(wav, ch_mask, track_idx, seek_sec)
             except Exception as ex:
                 self._spc_ch_rendering = False
                 self._status_sig.emit(f"SPC ch render failed: {ex}")
@@ -6753,13 +6751,13 @@ class MainWindow(QMainWindow):
         self._on_game_extend_done(dur, wf, '_spc_loading', self.engine._spc, self._spc_panel, 'SPC')
         self._nsf_set_dur_editable(False)
 
-    @pyqtSlot(object, int, int)
-    def _on_spc_ch_render_done(self, wav, ch_mask, track_idx):
+    @pyqtSlot(object, int, int, float)
+    def _on_spc_ch_render_done(self, wav, ch_mask, track_idx, seek_sec):
         """SPC ch切替レンダリング完了後のUI更新"""
         self._spc_ch_rendering = False
         spc = self.engine._spc
         if spc is None or spc.cur_track != track_idx: return
-        self.engine._spc_apply_new_wav(wav, ch_mask)
+        self.engine._spc_apply_new_wav(wav, ch_mask, seek_sec)
         wf = self.engine.get_waveform(700)
         self._waveform.set_waveform(wf)
 
@@ -6862,31 +6860,33 @@ class MainWindow(QMainWindow):
     def _gbs_start_ch_render(self, ch_mask, track_idx, decoded_sec):
         """GBS ch切替バックグラウンドレンダリングを開始する"""
         self._gbs_ch_rendering = True
+        seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
         gbs = self.engine._gbs
         gbs_raw = gbs._gbs_raw if gbs else None
         if gbs_raw is None:
             self._gbs_ch_rendering = False; return
         td = gbs.track_data.get(track_idx) if gbs else None
         single_loop_sec = td.get('single_loop_sec') if td else None
+        gme_t = self.engine._gme_tempo
         def do_render():
             try:
                 gme = _gme_load()
                 if gme is None:
                     self._gbs_ch_rendering = False; return
-                wav, _, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec)
-                self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx)
+                wav, _, _ = _gbs_render(gme, gbs_raw, track_idx, ch_mask, decoded_sec, single_loop_sec, tempo=gme_t)
+                self._gbs_ch_render_done_sig.emit(wav, ch_mask, track_idx, seek_sec)
             except Exception as ex:
                 self._gbs_ch_rendering = False
                 self._status_sig.emit(f"GBS ch render failed: {ex}")
         threading.Thread(target=do_render, daemon=True).start()
 
-    @pyqtSlot(object, int, int)
-    def _on_gbs_ch_render_done(self, wav, ch_mask, track_idx):
+    @pyqtSlot(object, int, int, float)
+    def _on_gbs_ch_render_done(self, wav, ch_mask, track_idx, seek_sec):
         """GBS ch切替レンダリング完了後のUI更新"""
         self._gbs_ch_rendering = False
         gbs = self.engine._gbs
         if gbs is None or gbs.cur_track != track_idx: return
-        self.engine._gbs_apply_new_wav(wav, ch_mask)
+        self.engine._gbs_apply_new_wav(wav, ch_mask, seek_sec)
         wf = self.engine.get_waveform(700)
         self._waveform.set_waveform(wf)
 
@@ -7260,25 +7260,27 @@ class MainWindow(QMainWindow):
     def _nsf_start_ch_render(self, ch_mask, track_idx, nsf_raw, ch_count, decoded_sec):
         """ch切替のバックグラウンドレンダリングを開始する"""
         self._nsf_ch_rendering = True
+        seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
+        gme_t = self.engine._gme_tempo
         def do_render():
             try:
                 gme = _gme_load()
                 if gme is None:
                     self._nsf_ch_rendering = False; return
-                wav, _, _ = _nsf_render(gme, nsf_raw, track_idx, ch_mask, ch_count, decoded_sec)
-                self._nsf_ch_render_done_sig.emit(wav, ch_mask, track_idx)
+                wav, _, _ = _nsf_render(gme, nsf_raw, track_idx, ch_mask, ch_count, decoded_sec, tempo=gme_t)
+                self._nsf_ch_render_done_sig.emit(wav, ch_mask, track_idx, seek_sec)
             except Exception as ex:
                 self._nsf_ch_rendering = False
                 self._status_sig.emit(f"NSF ch render failed: {ex}")
         threading.Thread(target=do_render, daemon=True).start()
 
-    @pyqtSlot(object, int, int)
-    def _on_nsf_ch_render_done(self, wav, ch_mask, track_idx):
+    @pyqtSlot(object, int, int, float)
+    def _on_nsf_ch_render_done(self, wav, ch_mask, track_idx, seek_sec):
         """ch切替レンダリング完了後のUI更新"""
         self._nsf_ch_rendering = False
         nsf = self.engine._nsf
         if nsf is None or nsf.cur_track != track_idx: return
-        self.engine._nsf_apply_new_wav(wav, ch_mask)
+        self.engine._nsf_apply_new_wav(wav, ch_mask, seek_sec)
         wf = self.engine.get_waveform(700)
         self._waveform.set_waveform(wf)
 
@@ -7384,6 +7386,17 @@ class MainWindow(QMainWindow):
         self.engine.markers[MARKER_A]=a+ds
         self.engine.markers[MARKER_B]=b+ds
         self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
+        self._update_wf_ab()
+
+    def _on_ab_range_set(self, r1, r2):
+        # 波形ドラッグでA-B範囲を設定: ドラッグ開始〜終了位置がA〜B
+        if self._total <= 0: return
+        a = min(r1, r2) * self._total
+        b = max(r1, r2) * self._total
+        self.engine.markers[MARKER_A] = a
+        self.engine.markers[MARKER_B] = b
+        self._refresh_marker(MARKER_A)
+        self._refresh_marker(MARKER_B)
         self._update_wf_ab()
 
     def _on_wf_double_click(self, ratio):
