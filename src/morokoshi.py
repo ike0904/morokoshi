@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.5"
+APP_VERSION = "v2.0.6"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -772,28 +772,22 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
             arr_f[:_LEAK_S] = 0.0
         else:
             # ケースC: _nz[0]==0 → _LEAK_S直後から音がある
-            # INITバースト（短い発音）+ 長い無音 + 本曲 のパターンを検出して除去する
+            # INITバーストの除去: _LEAK_S以降300ms以内に無音になればINITバーストと判定し
+            # バースト終端（最初の無音サンプル）までゼロ化する。
+            # バースト終端は定義上「無音サンプル」なので、本曲の音は削らない。
             _BURST_MAX = int(0.3 * NSF_SR)   # INITバースト上限: 300ms
-            _GAP_MIN   = int(0.5 * NSF_SR)   # 本曲前の無音下限: 500ms
             _post = arr_f[_LEAK_S:]
             _sil_in_post = np.where(np.abs(_post) <= NSF_SILENCE_THRESH)[0]
             if len(_sil_in_post) > 0 and _sil_in_post[0] <= _BURST_MAX:
-                # _LEAK_S直後の発音が300ms以内に終わった → INITバースト候補
+                # _LEAK_S直後の発音が300ms以内に終わった → INITバーストと判定
                 _burst_end = _LEAK_S + int(_sil_in_post[0])
-                _after_burst = arr_f[_burst_end:]
-                _nz_after = np.where(np.abs(_after_burst) > NSF_SILENCE_THRESH)[0]
-                if len(_nz_after) > 0 and _nz_after[0] >= _GAP_MIN:
-                    # 500ms以上の無音の後に本曲 → INITバーストと判定、本曲開始点までゼロ化
-                    _real_start = _burst_end + int(_nz_after[0])
-                    _log(f"NSF INIT burst+gap: zeroing 0..{_real_start/NSF_SR:.3f}s (real music at {_real_start/NSF_SR:.3f}s)")
-                    arr_f[:_real_start] = 0.0
-                    _fe = min(_real_start + 256, len(arr_f))
-                    if _fe > _real_start:
-                        arr_f[_real_start:_fe] *= np.linspace(0.0, 1.0, _fe - _real_start, dtype=np.float32)
-                else:
-                    _log(f"NSF nz0=0: burst end {_burst_end/NSF_SR:.3f}s but gap too short, keeping audio")
+                _log(f"NSF INIT burst: zeroing 0..{_burst_end/NSF_SR:.3f}s")
+                arr_f[:_burst_end] = 0.0
+                _fe = min(_burst_end + 256, len(arr_f))
+                if _fe > _burst_end:
+                    arr_f[_burst_end:_fe] *= np.linspace(0.0, 1.0, _fe - _burst_end, dtype=np.float32)
             else:
-                _log(f"NSF nz0=0: burst >{_BURST_MAX/NSF_SR:.3f}s or no silence after _LEAK_S, keeping audio")
+                _log(f"NSF nz0=0: burst >{_BURST_MAX/NSF_SR:.3f}s or no silence, keeping audio")
         _log(f"NSF noise cleanup: LEAK_S={_LEAK_S} nz0={_nz[0] if len(_nz)>0 else 'none(zeroed)'}")
 
     actual_dur_sec = len(arr_f) / NSF_SR
