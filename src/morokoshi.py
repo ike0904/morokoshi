@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.6"
+APP_VERSION = "v2.0.7"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -748,47 +748,9 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
         music_end = (min(len(arr_f), nz[-1] + int(0.5 * NSF_SR)) if len(nz) > 0
                      else min_s)
         arr_f = arr_f[:max(min_s, music_end)]
-    # INIT汚染クリーンアップ：楽音開始以前をゼロ化
-    # mute-afterでも最大5フレーム分（≈83ms）はINIT汚染が残る可能性がある。
-    # _LEAK_S以降の状態で3ケースに分岐：
-    #   A) 無音→楽音: 楽音開始点までゼロ化
-    #   B) 全無音: INIT区間もゼロ化
-    #   C) _LEAK_S直後から音あり(nz0==0): INITバーストの可能性を検査
-    #      INITバースト（≤300ms）+ 長い無音（≥500ms）+ 本曲 なら本曲開始点までゼロ化
-    #      それ以外は頭から本曲が始まっているとみなして何もしない（頭切れ防止）
-    # ※libgme は NSF INIT サブルーチン中に ch が一時的に発音することがある（DLL仕様）。
-    _LEAK_S = 5 * CHUNK   # ≈83ms: cover INIT noise tail
-    if len(arr_f) > _LEAK_S:
-        _nz = np.where(np.abs(arr_f[_LEAK_S:]) > NSF_SILENCE_THRESH)[0]
-        if len(_nz) > 0 and _nz[0] > 0:
-            # ケースA: _LEAK_S以降に無音→楽音のパターン：楽音開始点までゼロ化
-            _ms = _LEAK_S + int(_nz[0])
-            arr_f[:_ms] = 0.0
-            _fe = min(_ms + 256, len(arr_f))
-            if _fe > _ms:
-                arr_f[_ms:_fe] *= np.linspace(0.0, 1.0, _fe - _ms, dtype=np.float32)
-        elif len(_nz) == 0:
-            # ケースB: _LEAK_S以降に楽音なし＝INIT汚染ノイズのみ → INIT区間もゼロ化
-            arr_f[:_LEAK_S] = 0.0
-        else:
-            # ケースC: _nz[0]==0 → _LEAK_S直後から音がある
-            # INITバーストの除去: _LEAK_S以降300ms以内に無音になればINITバーストと判定し
-            # バースト終端（最初の無音サンプル）までゼロ化する。
-            # バースト終端は定義上「無音サンプル」なので、本曲の音は削らない。
-            _BURST_MAX = int(0.3 * NSF_SR)   # INITバースト上限: 300ms
-            _post = arr_f[_LEAK_S:]
-            _sil_in_post = np.where(np.abs(_post) <= NSF_SILENCE_THRESH)[0]
-            if len(_sil_in_post) > 0 and _sil_in_post[0] <= _BURST_MAX:
-                # _LEAK_S直後の発音が300ms以内に終わった → INITバーストと判定
-                _burst_end = _LEAK_S + int(_sil_in_post[0])
-                _log(f"NSF INIT burst: zeroing 0..{_burst_end/NSF_SR:.3f}s")
-                arr_f[:_burst_end] = 0.0
-                _fe = min(_burst_end + 256, len(arr_f))
-                if _fe > _burst_end:
-                    arr_f[_burst_end:_fe] *= np.linspace(0.0, 1.0, _fe - _burst_end, dtype=np.float32)
-            else:
-                _log(f"NSF nz0=0: burst >{_BURST_MAX/NSF_SR:.3f}s or no silence, keeping audio")
-        _log(f"NSF noise cleanup: LEAK_S={_LEAK_S} nz0={_nz[0] if len(_nz)>0 else 'none(zeroed)'}")
+    # INIT汚染クリーンアップ: 廃止
+    # gme_clear_blip_buffer (DLL) がINITノイズを処理する。
+    # Python側でのゼロ化は誤検知で本曲冒頭を削ることがあるため禁止。
 
     actual_dur_sec = len(arr_f) / NSF_SR
     _nz_all = np.where(np.abs(arr_f) > NSF_SILENCE_THRESH)[0]
