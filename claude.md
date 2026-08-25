@@ -104,7 +104,18 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.9 (2026-08-24) ← 最新
+### v2.0.10 (2026-08-25) ← 最新
+- 【Python修正】`gbs_extend_track` に `trim_sec`/`user_extended`/`no_trim` ロジックを追加
+  - NSF/SPC と同様のパターンで GBS も終端検出バイパス機能に対応
+  - `no_trim=True` 時は `view_sec = new_view_sec`（ユーザー指定秒をそのまま保持）
+  - ch 再検出後の再レンダリングブロックにも `no_trim` を引き継ぐよう修正
+- 【Python修正】`silence_max` 撤廃・tempo スケーリング修正・速度ロード時の gme_tempo チェック追加
+  （v2.0.10 でまとめてコミット）
+- 【Python修正】`_nsf_render`/`_spc_render`/`_gbs_render` に `no_trim=False` パラメータ追加
+- 【Python修正】全 `track_data` 初期化に `trim_sec`/`user_extended` フィールド追加
+- 【Python修正】`nsf_extend_track`/`spc_extend_track`/`gbs_extend_track` を更新
+
+### v2.0.9 (2026-08-24)
 - 【DLL修正】ch2 頭削りバグ修正（根本原因特定・1行修正）
   - 根本原因: `before_silence_detection_()` の burn loop 終了後、Multi_Buffer に PLAY フレームの音データが残存
   - この残存データを `redo_silence_detection_()` の最初の `fill_buf()` が「即音」として検出し `silence_count=0` → 頭削り
