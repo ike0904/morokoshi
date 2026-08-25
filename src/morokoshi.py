@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.1.3"
+APP_VERSION = "v2.1.4"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1228,7 +1228,7 @@ def _log(msg):
 
 class AudioEngine:
     def __init__(self):
-        self.data=None; self.sr=44100; self._file_hash=None
+        self.data=None; self.sr=44100; self._file_hash=None; self._wf_ref_peak=None
         self._proc=None; self._proc_spd=1.0; self._proc_semi=0
         self.position=0; self.playing=False; self.paused=False
         self._feeder_eof=False
@@ -2827,13 +2827,18 @@ class AudioEngine:
             return _estimate_bpm(seg, self.sr)
         except: return None
 
-    def get_waveform(self, width=700):
+    def get_waveform(self, width=700, update_ref=False):
         if self.data is None: return None
         mono=self.data.mean(axis=1); n=len(mono)
         chunk=max(1,n//width)
         peaks=np.array([np.abs(mono[i*chunk:min((i+1)*chunk,n)]).max() for i in range(width)],dtype=np.float32)
         mx=peaks.max()
-        if mx>0: peaks/=mx
+        if update_ref:
+            if mx > 0: self._wf_ref_peak = float(mx)
+            denom = mx
+        else:
+            denom = self._wf_ref_peak if self._wf_ref_peak else mx
+        if denom > 0: peaks /= denom
         return peaks
 
     def get_spectrum(self):
@@ -6443,7 +6448,7 @@ class MainWindow(QMainWindow):
         try:
             tot = self.engine.load_folder(folder_path, self._st)
             _log(f"_load_folder_th: loaded tot={tot}")
-            wf = self.engine.get_waveform(700)
+            wf = self.engine.get_waveform(700, update_ref=True)
             session = load_session(self.engine._file_hash)
             self._load_done_sig.emit(tot, wf, session)
         except Exception as ex:
@@ -6485,7 +6490,7 @@ class MainWindow(QMainWindow):
         try:
             tot=self.engine.load(path, self._st)
             _log(f"_load_th: loaded tot={tot} data_is_None={self.engine.data is None} _proc_is_None={self.engine._proc is None}")
-            wf=self.engine.get_waveform(700)
+            wf=self.engine.get_waveform(700, update_ref=True)
             session=load_session(self.engine._file_hash)
             self._load_done_sig.emit(tot, wf, session)
         except Exception as ex:
@@ -6667,7 +6672,7 @@ class MainWindow(QMainWindow):
         def do_set():
             try:
                 dur = self.engine.spc_set_track(track_idx_0based, self._st)
-                wf = self.engine.get_waveform(700)
+                wf = self.engine.get_waveform(700, update_ref=True)
                 self._spc_track_done_sig.emit(dur, wf)
             except Exception as ex:
                 self._spc_loading = False
@@ -6805,7 +6810,7 @@ class MainWindow(QMainWindow):
         def do_set():
             try:
                 dur = self.engine.gbs_set_track(track_idx_0based, self._st)
-                wf = self.engine.get_waveform(700)
+                wf = self.engine.get_waveform(700, update_ref=True)
                 self._gbs_track_done_sig.emit(dur, wf)
             except Exception as ex:
                 self._gbs_loading = False
@@ -6950,7 +6955,7 @@ class MainWindow(QMainWindow):
         def do_set():
             try:
                 dur=self.engine.nsf_set_track(track_idx_0based, self._st)
-                wf=self.engine.get_waveform(700)
+                wf=self.engine.get_waveform(700, update_ref=True)
                 self._nsf_track_done_sig.emit(dur, wf)
             except Exception as ex:
                 self._nsf_loading = False
