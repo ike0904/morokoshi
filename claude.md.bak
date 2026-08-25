@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.13 (2026-08-25) ← 最新
+### v2.0.14 (2026-08-25) ← 最新
+- 【Python修正】NSF/SPC の extend_track で終端検出直後のインクリメントがスキップされるバグを修正
+  - 根本原因: `no_trim=False`（新規終端検出 + trim）時も `td['view_sec'] = new_view_sec`（ユーザー指定秒）が設定されていた
+  - wav は trim 後の秒数（例 3:30）だが `view_sec = 4:00` → `_dur_lbl` は 3:30 を表示するがホイールは 4:00 から計算 → 5:00 にスキップ
+  - 修正: `td['view_sec'] = new_view_sec if no_trim else new_actual_dur * gme_t`
+  - GBS は v2.0.10 の実装時から既に正しかった
+
+### v2.0.13 (2026-08-25)
 - 【Python修正】NSF/GBS の総時間スタートを 1:00 に固定・下限仕様を整理
   - 初期ロード時 `natural_end=True` かつ `actual_dur > 10` → wav をゼロパディング（60秒）、view_sec=1:00
   - `has_m3u=True`（GBS メタ曲時間あり）→ スタート = メタ時間（下限 = メタ時間）

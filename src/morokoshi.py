@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.13"
+APP_VERSION = "v2.0.14"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1693,7 +1693,7 @@ class AudioEngine:
 
         td['wav']         = new_wav
         td['decoded_sec'] = new_actual_dur * gme_t
-        td['view_sec']    = new_view_sec
+        td['view_sec']    = new_view_sec if no_trim else new_actual_dur * gme_t
         if not no_trim:
             td['natural_end'] = new_natural_end
             td['trim_sec']    = new_actual_dur * gme_t if new_natural_end else None
@@ -2264,7 +2264,7 @@ class AudioEngine:
 
         td['wav'] = new_wav
         td['decoded_sec'] = new_actual_dur * gme_t
-        td['view_sec'] = new_view_sec
+        td['view_sec'] = new_view_sec if no_trim else new_actual_dur * gme_t
         if not no_trim:
             td['natural_end'] = new_natural_end
             td['trim_sec']    = new_actual_dur * gme_t if new_natural_end else None
