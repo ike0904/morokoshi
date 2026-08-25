@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.1.0"
+APP_VERSION = "v2.1.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3507,7 +3507,7 @@ class NsfPanel(QWidget):
     def _track_move(self, e):
         if self._track_editor is not None: return
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
-        dy = self._drag_y0 - e.position().y()  # 上=正=インクリメント
+        dy = e.position().y() - self._drag_y0
         if abs(dy) < 4: return
         self._dragging = True
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
@@ -3537,7 +3537,7 @@ class NsfPanel(QWidget):
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         step = 10 if shift else 1
         delta = e.angleDelta().y()
-        v = self._cur + (step if delta > 0 else -step)
+        v = self._cur + (-step if delta > 0 else step)
         v = max(0, min(self._total - 1, v))
         if v != self._cur:
             self._cur = v
@@ -3783,7 +3783,7 @@ class SpcPanel(QWidget):
     def _track_move(self, e):
         if self._track_editor is not None: return
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
-        dy = self._drag_y0 - e.position().y()
+        dy = e.position().y() - self._drag_y0
         if abs(dy) < 4: return
         self._dragging = True
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
@@ -3814,7 +3814,7 @@ class SpcPanel(QWidget):
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         step = 10 if shift else 1
         delta = e.angleDelta().y()
-        v = self._cur + (step if delta > 0 else -step)
+        v = self._cur + (-step if delta > 0 else step)
         v = max(0, min(self._total - 1, v))
         if v != self._cur:
             self._cur = v
