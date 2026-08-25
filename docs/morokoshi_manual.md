@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.1.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.2.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v2.1.0)
+(対象バージョン: v2.2.0)
 
 ---
 
@@ -186,7 +186,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 * 曲全体の波形が表示されます。再生済みの部分は明るい色になります。
 * AマーカーとBマーカーの両方が設定されていると、その間が**黄色い帯**で表示されます。
 * **マウスホイール**または**上下ドラッグ**で**拡大・縮小**できます。
-* 波形の**A-B区間外を左右ドラッグ**、または下部のバーをドラッグ、または**Shift+ホイール**で**左右スクロール**できます。
+* 波形を**左右にドラッグ**すると、**A・Bマーカーの範囲をドラッグ操作で設定**できます。左右スクロールは下部のバーをドラッグするか、**Shift+ホイール**で行います。
 * 現在位置の**白い線**、A・Bマーカーの**黄色い線**は、いずれも直接ドラッグして動かせます（詳しくは「4. 基本的な使い方 ステップ5」）。
 
 ### 最下部の再生・音量エリア
@@ -295,10 +295,12 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 **■ 拡大・縮小する（ズーム）**
 波形の上で**マウスホイールを回す**か、**上下にドラッグ**すると、カーソル位置を中心に拡大・縮小します。細かい部分を聴き取りたいときに、波形を拡大すると見やすくなります。
 
+**■ 波形ドラッグでA-B区間を設定する**
+波形を**左右にドラッグ**すると、ドラッグ開始位置と終了位置に**AマーカーとBマーカーがセット**されます。A・B区間を素早く視覚的に設定したいときに便利です。
+
 **■ 左右にスクロールする**
 拡大しているときは、次の方法で表示位置を左右に動かせます。
 
-* **A-B区間外**（黄色い帯の外側）の波形を**左右にドラッグ**する。
 * 波形の下にある**スクロールバーをドラッグ**する。
 * **Shift+マウスホイール**を回す。
 
@@ -423,7 +425,7 @@ Ear Mode中は、A・Bが常に「セットで」動きます。
 | SPC（SNES/スーパーファミコン） | 8ch（固定） |
 | GBS（Game Boy） | 4ch（固定） |
 
-* **グレーアウトしているボタン**: その曲で使われていないチャンネルです。
+* **グレーアウトしているボタン（NSFのみ）**: その曲で使われていないチャンネルです。SPC・GBSでは全チャンネルが有効として表示されます。
 * **ON（黄色い枠）**: 再生に含まれています。
 * **OFF（暗い表示）**: ミュートされています。
 
@@ -567,7 +569,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v2.1.0**  
+**Morokoshi Time v2.2.0**  
 *Created by Ike-san*
 
 ---
@@ -587,7 +589,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v1.8.0** | 2026/7/18 | **ESCキー**で再生を一時停止できるようになりました。<br>タスクバーのアイコンをもろこしマークに修正しました。<br>マーカーのずれを修正しました。 |
 | **v1.9.0** | 2026/8/9 | **Speed（再生速度）の最低速度を拡張**しました。×0.1・×0.15 の2段階を追加し、計9段階になりました（従来の最低速度は×0.2）。 |
 | **v2.0.0** | 2026/8/17 | **ゲーム音楽（NSF/SPC/GBS）のスロー再生品質を大幅改善**しました。これまでは生成したWAVを引き伸ばす方式でしたが、エミュレータの内部テンポ（gme_set_tempo）を変更する方式に切り替えました。×0.1 などの超低速でも音程が正確に保たれ、音質劣化がありません。<br>**NSF/SPC/GBS のトラックごとにSpeed・Key・Fine・ABループなどの設定を独立して保存**するようになりました。別トラックに切り替えても、それぞれのトラックの設定が個別に記憶されます。 |
-| **v2.1.0** | 2026/8/25 | **ゲーム音楽（NSF/SPC/GBS）の総再生時間操作を改善**しました。<br>・初期表示は1:00（10秒以内で終わる曲は0:10）に統一<br>・増減ステップを0:10・1:00・2:00…の1分単位に統一<br>・終端が自動検出された場合はその時間が下限として固定されます（延長は可能）<br>**低速再生（×1/4・×1/8など）時に曲が途中で終了するバグを修正**しました。<br>**チャンネル切替時に曲頭の無音が省略されるバグを修正**しました。<br>**NSFファイルの曲頭ノイズをさらに修正**しました（DLL更新）。 |
+| **v2.2.0** | 2026/8/25 | **ゲーム音楽（NSF/SPC/GBS）の総再生時間操作を改善**しました。<br>・初期表示は1:00（10秒以内で終わる曲は0:10）に統一<br>・増減ステップを0:10・1:00・2:00…の1分単位に統一<br>・終端が自動検出された場合はその時間が下限として固定されます（延長は可能）<br>**低速再生（×1/4・×1/8など）時に曲が途中で終了するバグを修正**しました。<br>**チャンネル切替時に曲頭の無音が省略されるバグを修正**しました。<br>**FDS拡張音源を使用するNSFファイルの再生を改善**しました（一部ファイルで音が出なかった問題を修正、DLL更新）。<br>**波形エリアの左右ドラッグ操作をA-B区間の設定**に変更しました（左右スクロールは下部スクロールバーまたはShift+ホイール）。<br>**SPC・GBSのチャンネル表示を全チャンネル有効**に変更しました（グレーアウト誤検出の解消）。<br>**チャンネルソロ時の波形スケールを全チャンネル混合時に合わせて表示**するよう改善しました（無音チャンネルのノイズが異常拡大される問題を修正）。<br>**トラック番号のホイール/ドラッグ操作方向を「下＝次のトラック」**に変更しました。<br>**初期表示倍率（Zoom）を2倍**に変更しました。 |
 
 ---
 
@@ -596,7 +598,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v2.1.0)
+(Target version: v2.2.0)
 
 ---
 
@@ -771,7 +773,7 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 * Displays the entire waveform of the loaded file. The already-played portion appears in a brighter color.
 * When both A and B markers are set, the region between them is highlighted in **yellow**.
 * **Mouse wheel** or **drag up/down** to **zoom in/out** (centered on the cursor).
-* **Drag left/right outside the A-B region**, drag the scroll bar at the bottom, or use **Shift+wheel** to **scroll left/right**.
+* **Drag left/right on the waveform** to **set the A and B markers** at the drag start and end points. To scroll, drag the scroll bar at the bottom or use **Shift+wheel**.
 * The **white current-position line** and the **yellow A/B marker lines** can all be dragged directly (see "Step 5" for details).
 
 ### Playback & Volume Area (Bottom)
@@ -881,10 +883,12 @@ The waveform area lets you navigate and set markers visually and intuitively.
 **■ Zooming in/out**
 **Scroll the mouse wheel** or **drag up/down** over the waveform to zoom in or out, centered on the cursor. Zooming in makes fine sections easier to see and hear.
 
+**■ Setting the A-B range by dragging the waveform**
+**Drag left/right on the waveform** to set the A and B markers at the drag start and end positions. This is a quick way to define a repeat region visually.
+
 **■ Scrolling left/right**
 When zoomed in, you can scroll using any of these methods:
 
-* **Drag left/right outside the A-B region** (outside the yellow band).
 * **Drag the scroll bar** at the bottom of the waveform.
 * **Shift+mouse wheel**.
 
@@ -1008,7 +1012,7 @@ Each audio channel is shown as a button. The number of channels depends on the f
 | SPC (SNES/Super Famicom) | 8 (fixed) |
 | GBS (Game Boy) | 4 (fixed) |
 
-* **Greyed-out buttons**: channels not used by the current track.
+* **Greyed-out buttons (NSF only)**: channels not used by the current track. For SPC and GBS, all channels are shown as active.
 * **ON (yellow border)**: channel is included in playback.
 * **OFF (dim display)**: channel is muted.
 
@@ -1150,7 +1154,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v2.1.0**
+**Morokoshi Time v2.2.0**
 *Created by Ike-san*
 
 ---
@@ -1170,4 +1174,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v1.8.0** | 2026/7/18 | Added **ESC key** to pause playback.<br>Fixed taskbar icon to show the Morokoshi icon.<br>Fixed a marker position offset bug. |
 | **v1.9.0** | 2026/8/9 | **Extended minimum playback speed.** Added ×0.1 and ×0.15, bringing the total to 9 speed steps (previously ×0.2 was the slowest). |
 | **v2.0.0** | 2026/8/17 | **Significantly improved slow-playback quality for game music (NSF/SPC/GBS).** The previous approach stretched the rendered WAV; the new approach changes the emulator's internal tempo via gme_set_tempo. Even at extreme slow speeds like ×0.1, pitch stays accurate with no audio degradation.<br>**Speed, Key, Fine, AB loop, and other settings are now saved independently per track** for NSF/SPC/GBS. Switching tracks no longer resets your settings — each track remembers its own state. |
-| **v2.1.0** | 2026/8/25 | **Improved total duration control for game music (NSF/SPC/GBS).**<br>· Default duration is now 1:00 (0:10 only for tracks ending within 10 seconds)<br>· Duration steps unified to 0:10, 1:00, 2:00, … in 1-minute increments<br>· Once the natural end is auto-detected, that time becomes the lower bound (extension beyond it is still possible)<br>**Fixed a bug where tracks stopped prematurely at slow speeds** (×1/4, ×1/8, etc.).<br>**Fixed a bug where opening silence was skipped when switching channels.**<br>**Further improved NSF startup noise** (DLL update). |
+| **v2.2.0** | 2026/8/25 | **Improved total duration control for game music (NSF/SPC/GBS).**<br>· Default duration is now 1:00 (0:10 only for tracks ending within 10 seconds)<br>· Duration steps unified to 0:10, 1:00, 2:00, … in 1-minute increments<br>· Once the natural end is auto-detected, that time becomes the lower bound (extension beyond it is still possible)<br>**Fixed a bug where tracks stopped prematurely at slow speeds** (×1/4, ×1/8, etc.).<br>**Fixed a bug where opening silence was skipped when switching channels.**<br>**Improved FDS expansion audio NSF playback** (fixed silent playback on certain FDS NSF files; DLL update).<br>**Waveform left/right drag now sets the A-B range** (instead of scrolling). Scroll via the scrollbar or Shift+wheel.<br>**SPC and GBS channels are now always shown as active** (removed false greyout detection).<br>**Waveform scale in channel solo mode now matches the full-mix scale** (fixed over-amplified noise display on silent channels).<br>**Track number wheel/drag direction changed to "down = next track"** for a more intuitive feel.<br>**Default display zoom changed to 2×.** |
