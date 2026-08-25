@@ -104,7 +104,12 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.14 (2026-08-25) ← 最新
+### v2.1.0 (2026-08-25) ← 最新
+- マニュアル更新（表紙バージョン・JP/EN 対象バージョン・JP/EN 更新履歴）・PDF 再生成
+- exe ビルド・morokoshi210.zip リリース
+- git tag v2.1.0
+
+### v2.0.14 (2026-08-25)
 - 【Python修正】NSF/SPC の extend_track で終端検出直後のインクリメントがスキップされるバグを修正
   - 根本原因: `no_trim=False`（新規終端検出 + trim）時も `td['view_sec'] = new_view_sec`（ユーザー指定秒）が設定されていた
   - wav は trim 後の秒数（例 3:30）だが `view_sec = 4:00` → `_dur_lbl` は 3:30 を表示するがホイールは 4:00 から計算 → 5:00 にスキップ

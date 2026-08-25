@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v1.9.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.0.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v1.9.0)
+(対象バージョン: v2.0.0)
 
 ---
 
@@ -567,7 +567,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v1.9.0**  
+**Morokoshi Time v2.0.0**  
 *Created by Ike-san*
 
 ---
@@ -586,6 +586,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v1.7.0** | 2026/7/12 | **Rew/FF シングルクリック**：A<->B 間の秒数をそのままコピーし、Tempoを自動逆算します。<br>**Tempo シングルクリック**：テンポ検出アイコンと同じ操作になりました。<br>テンポ検出の精度を改善しました。 |
 | **v1.8.0** | 2026/7/18 | **ESCキー**で再生を一時停止できるようになりました。<br>タスクバーのアイコンをもろこしマークに修正しました。<br>マーカーのずれを修正しました。 |
 | **v1.9.0** | 2026/8/9 | **Speed（再生速度）の最低速度を拡張**しました。×0.1・×0.15 の2段階を追加し、計9段階になりました（従来の最低速度は×0.2）。 |
+| **v2.0.0** | 2026/8/17 | **ゲーム音楽（NSF/SPC/GBS）のスロー再生品質を大幅改善**しました。これまでは生成したWAVを引き伸ばす方式でしたが、エミュレータの内部テンポ（gme_set_tempo）を変更する方式に切り替えました。×0.1 などの超低速でも音程が正確に保たれ、音質劣化がありません。<br>**NSF/SPC/GBS のトラックごとにSpeed・Key・Fine・ABループなどの設定を独立して保存**するようになりました。別トラックに切り替えても、それぞれのトラックの設定が個別に記憶されます。 |
 
 ---
 
@@ -594,7 +595,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v1.9.0)
+(Target version: v2.0.0)
 
 ---
 
@@ -1148,7 +1149,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v1.9.0**
+**Morokoshi Time v2.0.0**
 *Created by Ike-san*
 
 ---
@@ -1167,3 +1168,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v1.7.0** | 2026/7/12 | **Rew/FF single-click**: Copies the A<->B duration directly and back-calculates Tempo automatically.<br>**Tempo single-click**: Same behavior as clicking the Detect Tempo icon.<br>Improved tempo detection accuracy. |
 | **v1.8.0** | 2026/7/18 | Added **ESC key** to pause playback.<br>Fixed taskbar icon to show the Morokoshi icon.<br>Fixed a marker position offset bug. |
 | **v1.9.0** | 2026/8/9 | **Extended minimum playback speed.** Added ×0.1 and ×0.15, bringing the total to 9 speed steps (previously ×0.2 was the slowest). |
+| **v2.0.0** | 2026/8/17 | **Significantly improved slow-playback quality for game music (NSF/SPC/GBS).** The previous approach stretched the rendered WAV; the new approach changes the emulator's internal tempo via gme_set_tempo. Even at extreme slow speeds like ×0.1, pitch stays accurate with no audio degradation.<br>**Speed, Key, Fine, AB loop, and other settings are now saved independently per track** for NSF/SPC/GBS. Switching tracks no longer resets your settings — each track remembers its own state. |
