@@ -143,7 +143,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | **Tempo** | 曲のテンポ（BPM）。30～300。**シングルクリック**するとテンポ検出を実行します。 |
 | **Beat** | 拍子（1小節あたりの拍数）。1～16。 |
 | **Bar** | 早送り・早戻しの小節数。0.1～100。 |
-| **Speed** | 再生速度。×0.1 / ×0.15 / ×0.2 / ×0.25 / ×0.33 / ×0.5 / ×1.0 / ×1.5 / ×2.0 の9段階。 |
+| **Speed** | 再生速度。×1/8 / ×1/4 / ×1/2 / ×1/1 の4段階。 |
 
 これらの数値ボックスは、共通して次の操作ができます（詳しくは「4. 基本的な使い方」で解説します）。
 
@@ -221,7 +221,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 ### ステップ2: 再生・一時停止と速度・キー・Fineの調整
 
 1. 中央の <img src="icons/play_pause.png" width="20"> **ボタン**（またはスペースキー）で再生／一時停止します。
-2. **Speed** を調整すると、音の高さを変えずに**再生速度だけ**を変えられます。×0.1 / ×0.15 / ×0.2 / ×0.25 / ×0.33 / ×0.5 / ×1.0 / ×1.5 / ×2.0 の9段階から選べます。
+2. **Speed** を調整すると、音の高さを変えずに**再生速度だけ**を変えられます。×1/8 / ×1/4 / ×1/2 / ×1/1 の4段階から選べます。
 3. **Key** を調整すると、速度を変えずに**音程だけ**を上下できます（-24～+24半音）。
 4. 原曲と手持ちの楽器・環境とでピッチが微妙に合わない時は、**Fine** で-1.00～+1.00の範囲で微調整できます（Keyとは別の独立した値です）。
 
@@ -448,7 +448,7 @@ Ear Mode中は、A・Bが常に「セットで」動きます。
 ゲーム音楽の多くはループ（繰り返し）するため、「曲の終わり」が自動検出できません。
 
 * **自然終了した曲**: 総時間が自動で確定し、通常のファイルと同様に再生されます。
-* **ループ曲（自然終了しない曲）**: 右下の**総時間表示が赤く点滅**します。デフォルトの時間はNSF/GBSが1分、SPCが2分です（SPC内にループ情報が含まれる場合は自動確定します）。
+* **ループ曲（自然終了しない曲）**: 右下の**総時間表示が赤く点滅**します。デフォルトの時間は1分です（SPC内にループ情報が含まれる場合は自動確定します）。
 
 ループ曲の再生時間を伸ばすには:
 
@@ -589,7 +589,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v1.8.0** | 2026/7/18 | **ESCキー**で再生を一時停止できるようになりました。<br>タスクバーのアイコンをもろこしマークに修正しました。<br>マーカーのずれを修正しました。 |
 | **v1.9.0** | 2026/8/9 | **Speed（再生速度）の最低速度を拡張**しました。×0.1・×0.15 の2段階を追加し、計9段階になりました（従来の最低速度は×0.2）。 |
 | **v2.0.0** | 2026/8/17 | **ゲーム音楽（NSF/SPC/GBS）のスロー再生品質を大幅改善**しました。これまでは生成したWAVを引き伸ばす方式でしたが、エミュレータの内部テンポ（gme_set_tempo）を変更する方式に切り替えました。×0.1 などの超低速でも音程が正確に保たれ、音質劣化がありません。<br>**NSF/SPC/GBS のトラックごとにSpeed・Key・Fine・ABループなどの設定を独立して保存**するようになりました。別トラックに切り替えても、それぞれのトラックの設定が個別に記憶されます。 |
-| **v2.2.0** | 2026/8/25 | **ゲーム音楽（NSF/SPC/GBS）の総再生時間操作を改善**しました。<br>・初期表示は1:00（10秒以内で終わる曲は0:10）に統一<br>・増減ステップを0:10・1:00・2:00…の1分単位に統一<br>・終端が自動検出された場合はその時間が下限として固定されます（延長は可能）<br>**低速再生（×1/4・×1/8など）時に曲が途中で終了するバグを修正**しました。<br>**チャンネル切替時に曲頭の無音が省略されるバグを修正**しました。<br>**FDS拡張音源を使用するNSFファイルの再生を改善**しました（一部ファイルで音が出なかった問題を修正、DLL更新）。<br>**波形エリアの左右ドラッグ操作をA-B区間の設定**に変更しました（左右スクロールは下部スクロールバーまたはShift+ホイール）。<br>**SPC・GBSのチャンネル表示を全チャンネル有効**に変更しました（グレーアウト誤検出の解消）。<br>**チャンネルソロ時の波形スケールを全チャンネル混合時に合わせて表示**するよう改善しました（無音チャンネルのノイズが異常拡大される問題を修正）。<br>**トラック番号のホイール/ドラッグ操作方向を「下＝次のトラック」**に変更しました。<br>**初期表示倍率（Zoom）を2倍**に変更しました。 |
+| **v2.2.0** | 2026/8/25 | ゲーム音楽（NSF/SPC/GBS）の総再生時間操作を改善しました。<br>低速再生時に曲が途中で終了するバグを修正しました。<br>チャンネル切替時に曲頭の無音が省略されるバグを修正しました。<br>FDS拡張音源を使用するNSFファイルで音が出なかった問題を修正しました（DLL更新）。<br>波形エリアの左右ドラッグ操作をA-B区間の設定に変更しました。<br>再生速度の選択肢を×1/8・×1/4・×1/2・×1/1の4段階に変更しました。<br>トラック番号のホイール/ドラッグ操作方向を「下＝次のトラック」に変更しました。<br>初期表示倍率（Zoom）を2倍に変更しました。<br>その他軽微な修正を行いました。 |
 
 ---
 
@@ -730,7 +730,7 @@ This area is arranged in **two vertical columns** (left column and center column
 | **Tempo** | Song tempo (BPM). Range: 30–300. **Single-click** to run tempo detection. |
 | **Beat** | Time signature (beats per measure). Range: 1–16. |
 | **Bar** | Number of measures per Rew/FF jump. Range: 0.1–100. |
-| **Speed** | Playback speed. 9 fixed steps: ×0.1, ×0.15, ×0.2, ×0.25, ×0.33, ×0.5, ×1.0, ×1.5, ×2.0. |
+| **Speed** | Playback speed. 4 fixed steps: ×1/8, ×1/4, ×1/2, ×1/1. |
 
 All numeric input boxes share the same interaction methods (details in "4. Basic Usage"):
 
@@ -808,7 +808,7 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 ### Step 2: Play/Pause, Speed, Key, and Fine
 
 1. Click the <img src="icons/play_pause.png" width="20"> **button** (or press Space) to play/pause.
-2. Adjust **Speed** to change the **playback rate without affecting pitch**. Choose from 9 steps: ×0.1, ×0.15, ×0.2, ×0.25, ×0.33, ×0.5, ×1.0, ×1.5, ×2.0.
+2. Adjust **Speed** to change the **playback rate without affecting pitch**. Choose from 4 steps: ×1/8, ×1/4, ×1/2, ×1/1.
 3. Adjust **Key** to shift **pitch without affecting speed** (−24 to +24 semitones).
 4. If the pitch is slightly off between the original and your instrument, use **Fine** (−1.00 to +1.00, independent of Key) to correct it.
 
@@ -1035,7 +1035,7 @@ Each audio channel is shown as a button. The number of channels depends on the f
 Most game music loops indefinitely, so the end cannot be detected automatically.
 
 * **Tracks with a natural end**: Total time is confirmed automatically, like a normal file.
-* **Looping tracks (no natural end)**: The **Total Time display blinks red**. The default time is 1 minute for NSF/GBS and 2 minutes for SPC (SPC files with embedded loop data are set automatically).
+* **Looping tracks (no natural end)**: The **Total Time display blinks red**. The default time is 1 minute (SPC files with embedded loop data are set automatically).
 
 To extend the playback time of a looping track:
 
@@ -1174,4 +1174,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v1.8.0** | 2026/7/18 | Added **ESC key** to pause playback.<br>Fixed taskbar icon to show the Morokoshi icon.<br>Fixed a marker position offset bug. |
 | **v1.9.0** | 2026/8/9 | **Extended minimum playback speed.** Added ×0.1 and ×0.15, bringing the total to 9 speed steps (previously ×0.2 was the slowest). |
 | **v2.0.0** | 2026/8/17 | **Significantly improved slow-playback quality for game music (NSF/SPC/GBS).** The previous approach stretched the rendered WAV; the new approach changes the emulator's internal tempo via gme_set_tempo. Even at extreme slow speeds like ×0.1, pitch stays accurate with no audio degradation.<br>**Speed, Key, Fine, AB loop, and other settings are now saved independently per track** for NSF/SPC/GBS. Switching tracks no longer resets your settings — each track remembers its own state. |
-| **v2.2.0** | 2026/8/25 | **Improved total duration control for game music (NSF/SPC/GBS).**<br>· Default duration is now 1:00 (0:10 only for tracks ending within 10 seconds)<br>· Duration steps unified to 0:10, 1:00, 2:00, … in 1-minute increments<br>· Once the natural end is auto-detected, that time becomes the lower bound (extension beyond it is still possible)<br>**Fixed a bug where tracks stopped prematurely at slow speeds** (×1/4, ×1/8, etc.).<br>**Fixed a bug where opening silence was skipped when switching channels.**<br>**Improved FDS expansion audio NSF playback** (fixed silent playback on certain FDS NSF files; DLL update).<br>**Waveform left/right drag now sets the A-B range** (instead of scrolling). Scroll via the scrollbar or Shift+wheel.<br>**SPC and GBS channels are now always shown as active** (removed false greyout detection).<br>**Waveform scale in channel solo mode now matches the full-mix scale** (fixed over-amplified noise display on silent channels).<br>**Track number wheel/drag direction changed to "down = next track"** for a more intuitive feel.<br>**Default display zoom changed to 2×.** |
+| **v2.2.0** | 2026/8/25 | Improved total duration control for game music (NSF/SPC/GBS).<br>Fixed a bug where tracks stopped prematurely at slow speeds.<br>Fixed a bug where opening silence was skipped when switching channels.<br>Fixed silent playback on certain FDS expansion NSF files (DLL update).<br>Waveform left/right drag now sets the A-B range instead of scrolling.<br>Playback speed choices changed to 4 steps: ×1/8, ×1/4, ×1/2, ×1/1.<br>Track number wheel/drag direction changed to "down = next track."<br>Default display zoom changed to 2×.<br>Other minor fixes. |
