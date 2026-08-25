@@ -104,7 +104,36 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.14 (2026-08-25) ← 最新
+### v2.1.5 (2026-08-25) ← 最新
+- 【DLL修正】FDS拡張チップ使用NSFの全曲ノイズ問題を修正
+  - 根本原因: `before_silence_detection_()` が標準APUのみ無音化し、FDS wave channelを無音化していなかった
+  - 修正: APU無音化の直後に `if ( fds ) fds->reset()` を追加（wave/LFO/envelopeを全て無効化）
+  - 対象ファイル例: Cleopatra no Mahou (FDS拡張 expansion byte=0x04)
+
+### v2.1.4 (2026-08-25)
+- 【Python修正】ch ソロ時の波形を全ch混合時のスケールで表示（無音chのノイズが超拡大される問題を修正）
+  - `AudioEngine._wf_ref_peak` を追加（全ch混合ロード・トラック切替時に更新）
+  - `get_waveform(update_ref=True)` を5箇所（ファイルロード・各トラック切替）に設定
+  - ch ソロ時は `_wf_ref_peak` を分母に使用し、全ch時との振幅スケールを統一
+
+### v2.1.3 (2026-08-25)
+- 【Python修正】トラック番号ツールチップをウィジェット右側に表示（カーソルとの被りを解消）
+  - `show_tt` に `side='right'` 引数を追加し、トラック用呼び出し全箇所に適用
+
+### v2.1.2 (2026-08-25)
+- 【Python修正】SPC/GBS のチャンネルグレーアウト検出を廃止（NSF と同様に全ch used=True 固定）
+  - 3秒検出では遅れて鳴るchを誤グレーアウトするリスクがあるため
+  - GBS extend_track の `_unused` 再検出ブロックも削除
+
+### v2.1.1 (2026-08-25)
+- 【Python修正】トラック番号のホイール・ドラッグ操作をツールチップリストと同方向に変更（下=次トラック）
+
+### v2.1.0 (2026-08-25)
+- マニュアル更新（表紙バージョン・JP/EN 対象バージョン・JP/EN 更新履歴）・PDF 再生成
+- exe ビルド・morokoshi210.zip リリース
+- git tag v2.1.0
+
+### v2.0.14 (2026-08-25)
 - 【Python修正】NSF/SPC の extend_track で終端検出直後のインクリメントがスキップされるバグを修正
   - 根本原因: `no_trim=False`（新規終端検出 + trim）時も `td['view_sec'] = new_view_sec`（ユーザー指定秒）が設定されていた
   - wav は trim 後の秒数（例 3:30）だが `view_sec = 4:00` → `_dur_lbl` は 3:30 を表示するがホイールは 4:00 から計算 → 5:00 にスキップ

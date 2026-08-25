@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.1.5"
+APP_VERSION = "v2.1.6"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -241,10 +241,10 @@ def load_global_settings():
     try:
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
-        return {"zoom": float(d.get("zoom", 1.0)),
+        return {"zoom": float(d.get("zoom", 2.0)),
                 "volume": int(d.get("volume", 100))}
     except Exception:
-        return {"zoom": 1.0, "volume": 100}
+        return {"zoom": 2.0, "volume": 100}
 
 def save_global_settings(zoom, volume):
     p = os.path.join(CACHE, "settings.json")

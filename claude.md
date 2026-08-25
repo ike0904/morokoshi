@@ -104,7 +104,39 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.1.0 (2026-08-25) ← 最新
+### v2.1.6 (2026-08-25) ← 最新
+- 【DLL修正】FDS NSFが無音になる問題を修正（Cleopatra no Mahou等）
+  - 根本原因: NSFrip の音楽エンジンが作業変数を $ACDC/$AD69（$A000-$AFFF）に置いていたが、gme の SRAM は $6000-$7FFF のみでそれ以外は ROM 扱いで書き込みが無視されていた
+  - NSFPlay の FDS モードを参照し、FDS NSF では $8000-$DFFF のバンク切替ページを書き込み可能な `fds_wram` バッファに差し替える実装を追加
+  - 変更ファイル: `Nsf_Emu.h`（fds_wram/use_fds_wram追加）・`Nsf_Emu.cpp`（初期化/unload/init_sound）・`nes_cpu_io.h`（バンクスイッチ+WRAM書き込み処理）
+  - 他の拡張音源（VRC6/VRC7/MMC5/Namco163/Sunsoft5B）は標準SRAMで問題なし
+- 【Python修正】zoom初期値を2.0（大きい方）に変更
+
+### v2.1.5 (2026-08-25)
+- 【DLL修正】FDS拡張チップ使用NSFの全曲ノイズ問題を修正（後にv2.1.6で根本修正）
+  - 根本原因: `before_silence_detection_()` が標準APUのみ無音化し、FDS wave channelを無音化していなかった
+  - 修正: APU無音化の直後に `if ( fds ) fds->reset()` を追加（wave/LFO/envelopeを全て無効化）
+  - 対象ファイル例: Cleopatra no Mahou (FDS拡張 expansion byte=0x04)
+
+### v2.1.4 (2026-08-25)
+- 【Python修正】ch ソロ時の波形を全ch混合時のスケールで表示（無音chのノイズが超拡大される問題を修正）
+  - `AudioEngine._wf_ref_peak` を追加（全ch混合ロード・トラック切替時に更新）
+  - `get_waveform(update_ref=True)` を5箇所（ファイルロード・各トラック切替）に設定
+  - ch ソロ時は `_wf_ref_peak` を分母に使用し、全ch時との振幅スケールを統一
+
+### v2.1.3 (2026-08-25)
+- 【Python修正】トラック番号ツールチップをウィジェット右側に表示（カーソルとの被りを解消）
+  - `show_tt` に `side='right'` 引数を追加し、トラック用呼び出し全箇所に適用
+
+### v2.1.2 (2026-08-25)
+- 【Python修正】SPC/GBS のチャンネルグレーアウト検出を廃止（NSF と同様に全ch used=True 固定）
+  - 3秒検出では遅れて鳴るchを誤グレーアウトするリスクがあるため
+  - GBS extend_track の `_unused` 再検出ブロックも削除
+
+### v2.1.1 (2026-08-25)
+- 【Python修正】トラック番号のホイール・ドラッグ操作をツールチップリストと同方向に変更（下=次トラック）
+
+### v2.1.0 (2026-08-25)
 - マニュアル更新（表紙バージョン・JP/EN 対象バージョン・JP/EN 更新履歴）・PDF 再生成
 - exe ビルド・morokoshi210.zip リリース
 - git tag v2.1.0
