@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.1.1"
+APP_VERSION = "v2.1.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1714,12 +1714,8 @@ class AudioEngine:
         with open(path, 'rb') as _f:
             spc_raw = _f.read()
         meta = _spc_get_meta(gme, spc_raw)
-        if scb: scb("SPC: detecting channels...")
-        ch_used = _spc_detect_ch_used(gme, spc_raw, scb=scb)
-        ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * SPC_CH_COUNT
-            ch_mask = (1 << SPC_CH_COUNT) - 1
+        ch_used = [True] * SPC_CH_COUNT
+        ch_mask = (1 << SPC_CH_COUNT) - 1
         if scb: scb("SPC: rendering...")
         wav, natural_end, actual_dur = _spc_render(
             gme, spc_raw, ch_mask, meta['dur_sec'], scb, play_len_ms=meta.get('play_len_ms', 0))
@@ -1780,12 +1776,8 @@ class AudioEngine:
             m = _spc_get_meta(gme, raw)
             track_metas.append(m)
         # track 0 をデコード
-        if scb: scb("SPC: detecting channels (track 1)...")
-        ch_used = _spc_detect_ch_used(gme, spc_raws_list[0], scb=scb)
-        ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * SPC_CH_COUNT
-            ch_mask = (1 << SPC_CH_COUNT) - 1
+        ch_used = [True] * SPC_CH_COUNT
+        ch_mask = (1 << SPC_CH_COUNT) - 1
         if scb: scb("SPC: rendering track 1...")
         wav, natural_end, actual_dur = _spc_render(
             gme, spc_raws_list[0], ch_mask, track_metas[0]['dur_sec'], scb,
@@ -1872,12 +1864,8 @@ class AudioEngine:
         for i, raw in enumerate(spc_raws_list):
             m = _spc_get_meta(gme, raw)
             track_metas.append(m)
-        if scb: scb("SPC: detecting channels (track 1)...")
-        ch_used = _spc_detect_ch_used(gme, spc_raws_list[0], scb=scb)
-        ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * SPC_CH_COUNT
-            ch_mask = (1 << SPC_CH_COUNT) - 1
+        ch_used = [True] * SPC_CH_COUNT
+        ch_mask = (1 << SPC_CH_COUNT) - 1
         if scb: scb("SPC: rendering track 1...")
         wav, natural_end, actual_dur = _spc_render(
             gme, spc_raws_list[0], ch_mask, track_metas[0]['dur_sec'], scb,
@@ -1977,12 +1965,8 @@ class AudioEngine:
                 })
 
         # トラック0をデコード
-        if scb: scb("GBS: ch detection...")
-        ch_used = _gbs_detect_ch_used(gme, gbs_raw, 0, scb=scb)
-        ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * GBS_CH_COUNT
-            ch_mask = (1 << GBS_CH_COUNT) - 1
+        ch_used = [True] * GBS_CH_COUNT
+        ch_mask = (1 << GBS_CH_COUNT) - 1
         meta0 = track_metas[0] if track_metas else {}
         if meta0.get('has_m3u', False):
             dur_sec, single_loop = _gbs_target_sec(meta0)
@@ -2168,12 +2152,8 @@ class AudioEngine:
             if spc_raw is None: return 0.0
             gme = _gme_load()
             if gme is None: return 0.0
-            if scb: scb(f"SPC: detecting channels (track {track_idx+1})...")
-            ch_used = _spc_detect_ch_used(gme, spc_raw, scb=scb)
-            ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-            if ch_mask == 0:
-                ch_used = [True] * SPC_CH_COUNT
-                ch_mask = (1 << SPC_CH_COUNT) - 1
+            ch_used = [True] * SPC_CH_COUNT
+            ch_mask = (1 << SPC_CH_COUNT) - 1
             if scb: scb(f"SPC: rendering track {track_idx+1}...")
             meta_t = spc.track_metas[track_idx] if track_idx < len(spc.track_metas) else {}
             dur_sec = meta_t.get('dur_sec', SPC_DEFAULT_DUR_SEC)
@@ -2297,12 +2277,8 @@ class AudioEngine:
         if track_idx not in gbs.track_data:
             gme = _gme_load()
             if gme is None: return 0.0
-            if scb: scb(f"GBS: detecting channels (track {track_idx+1})...")
-            ch_used = _gbs_detect_ch_used(gme, gbs._gbs_raw, track_idx, scb=scb)
-            ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT) if ch_used[i])
-            if ch_mask == 0:
-                ch_used = [True] * GBS_CH_COUNT
-                ch_mask = (1 << GBS_CH_COUNT) - 1
+            ch_used = [True] * GBS_CH_COUNT
+            ch_mask = (1 << GBS_CH_COUNT) - 1
             meta_t = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
             if meta_t.get('has_m3u', False):
                 dur_sec, single_loop = _gbs_target_sec(meta_t)
@@ -2419,37 +2395,6 @@ class AudioEngine:
             if not new_nat:
                 td['user_extended'] = False
         new_nat_out = td.get('natural_end', new_nat)
-
-        # 延長後に未使用chを再検出（延長部分で登場するchを自動ON）
-        _unused = [i for i in range(GBS_CH_COUNT) if not td['ch_used'][i]]
-        if _unused:
-            gme2 = _gme_load()
-            if gme2 is not None:
-                if scb: scb("GBS: checking unused channels in extended range...")
-                _det_sec = min(new_dur, 60.0)
-                _found_all = _gbs_detect_ch_used(gme2, gbs._gbs_raw, track_idx, detect_sec=_det_sec)
-                _newly = [i for i in _unused if _found_all[i]]
-                if _newly:
-                    for i in _newly:
-                        td['ch_used'][i] = True
-                        gbs.ch_active[i] = True
-                    new_ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT)
-                                      if i < len(gbs.ch_active) and gbs.ch_active[i]
-                                      and td['ch_used'][i])
-                    td['ch_mask'] = new_ch_mask
-                    gme3 = _gme_load()
-                    if gme3 and scb: scb("GBS: re-rendering with newly found channels...")
-                    if gme3:
-                        _w2, _d2, _ne2 = _gbs_render(gme3, gbs._gbs_raw, track_idx,
-                                                      new_ch_mask, new_view_sec, single_loop,
-                                                      detect_silence=True, scb=scb, tempo=gme_t,
-                                                      no_trim=no_trim)
-                        td['wav'] = _w2; td['decoded_sec'] = _d2 * gme_t
-                        td['view_sec'] = new_view_sec if no_trim else _d2 * gme_t
-                        if not no_trim:
-                            td['natural_end'] = _ne2
-                            td['trim_sec'] = _d2 * gme_t if _ne2 else None
-                        new_nat_out = td.get('natural_end', _ne2)
 
         self._mem = ConvCache()
         dur = self._gbs_mix_apply()
