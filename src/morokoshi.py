@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.12"
+APP_VERSION = "v2.0.13"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1389,11 +1389,18 @@ class AudioEngine:
         if scb: scb("NSF: rendering track 1...")
         wav, natural_end, actual_dur = _nsf_render(gme, _nsf_raw, 0, ch_mask, ch_count,
                                                    NSF_DEFAULT_DUR_SEC, scb)
+        _trim_sec_init = actual_dur if natural_end else None
+        if natural_end and actual_dur > 10:
+            _pad_s = int(NSF_DEFAULT_DUR_SEC * NSF_SR)
+            if len(wav) < _pad_s:
+                wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+            actual_dur = NSF_DEFAULT_DUR_SEC
+        _init_view = actual_dur
         nsf.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
-            'decoded_sec': actual_dur, 'view_sec': actual_dur,
-            'natural_end': natural_end, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
-                'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
+            'decoded_sec': actual_dur, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+            'natural_end': natural_end, 'initial_sec': _init_view, 'gme_tempo': 1.0,
+                'trim_sec': _trim_sec_init, 'user_extended': False,
         }
         nsf.ch_active = list(ch_used)
 
@@ -1592,11 +1599,18 @@ class AudioEngine:
             if scb: scb(f"NSF: rendering track {track_idx+1}...")
             wav, natural_end, actual_dur = _nsf_render(gme, nsf._nsf_raw, track_idx, ch_mask,
                                                        nsf.ch_count, NSF_DEFAULT_DUR_SEC, scb)
+            _trim_sec_init = actual_dur if natural_end else None
+            if natural_end and actual_dur > 10:
+                _pad_s = int(NSF_DEFAULT_DUR_SEC * NSF_SR)
+                if len(wav) < _pad_s:
+                    wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+                actual_dur = NSF_DEFAULT_DUR_SEC
+            _init_view = actual_dur
             nsf.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
-                'decoded_sec': actual_dur, 'view_sec': actual_dur,
-                'natural_end': natural_end, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
-                'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
+                'decoded_sec': actual_dur, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+                'natural_end': natural_end, 'initial_sec': _init_view, 'gme_tempo': 1.0,
+                'trim_sec': _trim_sec_init, 'user_extended': False,
             }
 
         self._inject_pending_session(nsf, track_idx)
@@ -1639,9 +1653,9 @@ class AudioEngine:
         trim_sec      = td.get('trim_sec')       # 自然終端位置（musical秒）
         user_extended = td.get('user_extended', False)
         new_view_sec = max(NSF_MIN_DURATION, min(new_view_sec, NSF_MAX_DUR_SEC))
-        if trim_sec is not None:
-            trim_ceil = math.ceil(trim_sec / 60.0) * 60.0
-            new_view_sec = max(new_view_sec, trim_ceil)
+        _init_view_lower = td.get('initial_view_sec', 60.0)
+        _lower = max(_init_view_lower, trim_sec if trim_sec is not None else 0.0)
+        new_view_sec = max(new_view_sec, _lower)
 
         if new_view_sec <= decoded_sec:
             # 短縮/既存範囲内: view_secを更新するだけ
@@ -1978,8 +1992,16 @@ class AudioEngine:
         if scb: scb("GBS: rendering track 1...")
         wav, actual_dur, natural_end = _gbs_render(
             gme, gbs_raw, 0, ch_mask, dur_sec, single_loop, detect_sil, scb)
-        if meta0.get('has_m3u', False):
+        _has_m3u0 = meta0.get('has_m3u', False)
+        if _has_m3u0:
             natural_end = True  # m3uが時間を明示→自然終了扱い（赤点滅なし）
+        _trim_sec_init = actual_dur if natural_end else None
+        if not _has_m3u0 and natural_end and actual_dur > 10:
+            _pad_s = int(GBS_DEFAULT_DUR_SEC * GBS_SR)
+            if len(wav) < _pad_s:
+                wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+            actual_dur = GBS_DEFAULT_DUR_SEC
+        _init_view = actual_dur
 
         gbs = GbsState()
         gbs.path = path; gbs.game = game_title
@@ -1989,8 +2011,9 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
             'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
-                    'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
+            'natural_end': natural_end, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+            'initial_sec': _init_view, 'gme_tempo': 1.0,
+                    'trim_sec': _trim_sec_init, 'user_extended': False,
         }
         with self._lock:
             self._gbs = gbs
@@ -2070,9 +2093,17 @@ class AudioEngine:
         if scb: scb("GBS: rendering track 1...")
         wav, actual_dur, natural_end = _gbs_render(
             gme2, gbs_raw, 0, all_mask, dur_sec, single_loop, detect_sil, scb)
-        if meta0.get('has_m3u', False):
+        _has_m3u0 = meta0.get('has_m3u', False)
+        if _has_m3u0:
             natural_end = True
         actual_dur = max(GBS_MIN_DUR_SEC, actual_dur)
+        _trim_sec_init = actual_dur if natural_end else None
+        if not _has_m3u0 and natural_end and actual_dur > 10:
+            _pad_s = int(GBS_DEFAULT_DUR_SEC * GBS_SR)
+            if len(wav) < _pad_s:
+                wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+            actual_dur = GBS_DEFAULT_DUR_SEC
+        _init_view = actual_dur
         gbs = GbsState()
         gbs.path = folder_path; gbs.game = game_title
         track_metas_list = []
@@ -2091,8 +2122,9 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': [True] * GBS_CH_COUNT,
             'ch_mask': all_mask, 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
-                    'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
+            'natural_end': natural_end, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+            'initial_sec': _init_view, 'gme_tempo': 1.0,
+                    'trim_sec': _trim_sec_init, 'user_extended': False,
         }
         with self._lock:
             self._gbs = gbs
@@ -2194,9 +2226,9 @@ class AudioEngine:
         natural_end   = td.get('natural_end', True)
         trim_sec      = td.get('trim_sec')
         new_view_sec = max(SPC_MIN_DURATION, min(new_view_sec, SPC_MAX_DUR_SEC))
-        if trim_sec is not None:
-            trim_ceil = math.ceil(trim_sec / 60.0) * 60.0
-            new_view_sec = max(new_view_sec, trim_ceil)
+        _init_view_lower = td.get('initial_view_sec', 60.0)
+        _lower = max(_init_view_lower, trim_sec if trim_sec is not None else 0.0)
+        new_view_sec = max(new_view_sec, _lower)
 
         if new_view_sec <= decoded_sec:
             if trim_sec is not None:
@@ -2280,13 +2312,22 @@ class AudioEngine:
             if scb: scb(f"GBS: rendering track {track_idx+1}...")
             wav, actual_dur, natural_end = _gbs_render(
                 gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, single_loop, detect_sil, scb)
-            if meta_t.get('has_m3u', False):
+            _has_m3u_t = meta_t.get('has_m3u', False)
+            if _has_m3u_t:
                 natural_end = True  # m3uが時間を明示→自然終了扱い（赤点滅なし）
+            _trim_sec_init = actual_dur if natural_end else None
+            if not _has_m3u_t and natural_end and actual_dur > 10:
+                _pad_s = int(GBS_DEFAULT_DUR_SEC * GBS_SR)
+                if len(wav) < _pad_s:
+                    wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+                actual_dur = GBS_DEFAULT_DUR_SEC
+            _init_view = actual_dur
             gbs.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
-                    'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
+                'natural_end': natural_end, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+                'initial_sec': _init_view, 'gme_tempo': 1.0,
+                    'trim_sec': _trim_sec_init, 'user_extended': False,
             }
 
         self._inject_pending_session(gbs, track_idx)
@@ -2334,9 +2375,9 @@ class AudioEngine:
         natural_end   = td.get('natural_end', True)
         trim_sec      = td.get('trim_sec')
         new_view_sec  = max(GBS_MIN_DUR_SEC, min(new_view_sec, GBS_MAX_DUR_SEC))
-        if trim_sec is not None:
-            trim_ceil = math.ceil(trim_sec / 60.0) * 60.0
-            new_view_sec = max(new_view_sec, trim_ceil)
+        _init_view_lower = td.get('initial_view_sec', 60.0)
+        _lower = max(_init_view_lower, trim_sec if trim_sec is not None else 0.0)
+        new_view_sec = max(new_view_sec, _lower)
 
         if new_view_sec <= decoded_sec:
             if trim_sec is not None:

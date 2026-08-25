@@ -104,7 +104,15 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.12 (2026-08-25) ← 最新
+### v2.0.13 (2026-08-25) ← 最新
+- 【Python修正】NSF/GBS の総時間スタートを 1:00 に固定・下限仕様を整理
+  - 初期ロード時 `natural_end=True` かつ `actual_dur > 10` → wav をゼロパディング（60秒）、view_sec=1:00
+  - `has_m3u=True`（GBS メタ曲時間あり）→ スタート = メタ時間（下限 = メタ時間）
+  - `initial_view_sec` フィールドを track_data に追加（スタート値 = 絶対下限）
+  - extend_track のクランプを `lower = max(initial_view_sec, trim_sec or 0)` に変更
+  - これにより：スタートからのデクリメント不可・終端検出時はその位置が下限に昇格
+
+### v2.0.12 (2026-08-25)
 - 【Python修正】総再生時間のステップを常に「0:10 + 1分単位」に固定
   - `_dur_step_list` から initial_sec を特別追加する処理を削除
 - 【Python修正】終端検出後の下限を「1分単位切り上げ」に変更
