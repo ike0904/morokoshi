@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.10"
+APP_VERSION = "v2.0.11"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1639,6 +1639,8 @@ class AudioEngine:
         trim_sec      = td.get('trim_sec')       # 自然終端位置（musical秒）
         user_extended = td.get('user_extended', False)
         new_view_sec = max(NSF_MIN_DURATION, min(new_view_sec, NSF_MAX_DUR_SEC))
+        if trim_sec is not None:
+            new_view_sec = max(new_view_sec, trim_sec)
 
         if new_view_sec <= decoded_sec:
             # 短縮/既存範囲内: view_secを更新するだけ
@@ -2191,6 +2193,8 @@ class AudioEngine:
         natural_end   = td.get('natural_end', True)
         trim_sec      = td.get('trim_sec')
         new_view_sec = max(SPC_MIN_DURATION, min(new_view_sec, SPC_MAX_DUR_SEC))
+        if trim_sec is not None:
+            new_view_sec = max(new_view_sec, trim_sec)
 
         if new_view_sec <= decoded_sec:
             if trim_sec is not None:
@@ -2328,6 +2332,8 @@ class AudioEngine:
         natural_end   = td.get('natural_end', True)
         trim_sec      = td.get('trim_sec')
         new_view_sec  = max(GBS_MIN_DUR_SEC, min(new_view_sec, GBS_MAX_DUR_SEC))
+        if trim_sec is not None:
+            new_view_sec = max(new_view_sec, trim_sec)
 
         if new_view_sec <= decoded_sec:
             if trim_sec is not None:

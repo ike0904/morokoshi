@@ -104,7 +104,12 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.10 (2026-08-25) ← 最新
+### v2.0.11 (2026-08-25) ← 最新
+- 【Python修正】NSF/SPC/GBS の `extend_track` に終端検出後の下限ガード追加
+  - 一度 `trim_sec` が確定した後は `new_view_sec = max(new_view_sec, trim_sec)` で下回れないよう制限
+  - 例：3:20で終端検出→3:20が最短下限。4:00に延長可能、戻すときは3:20まで
+
+### v2.0.10 (2026-08-25)
 - 【Python修正】`gbs_extend_track` に `trim_sec`/`user_extended`/`no_trim` ロジックを追加
   - NSF/SPC と同様のパターンで GBS も終端検出バイパス機能に対応
   - `no_trim=True` 時は `view_sec = new_view_sec`（ユーザー指定秒をそのまま保持）
