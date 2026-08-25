@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.0.11 (2026-08-25) ← 最新
+### v2.0.12 (2026-08-25) ← 最新
+- 【Python修正】総再生時間のステップを常に「0:10 + 1分単位」に固定
+  - `_dur_step_list` から initial_sec を特別追加する処理を削除
+- 【Python修正】終端検出後の下限を「1分単位切り上げ」に変更
+  - 3:20で終端検出 → 下限は4:00（ceil(200/60)*60=240秒）
+  - NSF/SPC/GBS 全 extend_track で `math.ceil(trim_sec/60)*60` でクランプ
+
+### v2.0.11 (2026-08-25)
 - 【Python修正】NSF/SPC/GBS の `extend_track` に終端検出後の下限ガード追加
   - 一度 `trim_sec` が確定した後は `new_view_sec = max(new_view_sec, trim_sec)` で下回れないよう制限
   - 例：3:20で終端検出→3:20が最短下限。4:00に延長可能、戻すときは3:20まで

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.11"
+APP_VERSION = "v2.0.12"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -1640,7 +1640,8 @@ class AudioEngine:
         user_extended = td.get('user_extended', False)
         new_view_sec = max(NSF_MIN_DURATION, min(new_view_sec, NSF_MAX_DUR_SEC))
         if trim_sec is not None:
-            new_view_sec = max(new_view_sec, trim_sec)
+            trim_ceil = math.ceil(trim_sec / 60.0) * 60.0
+            new_view_sec = max(new_view_sec, trim_ceil)
 
         if new_view_sec <= decoded_sec:
             # 短縮/既存範囲内: view_secを更新するだけ
@@ -2194,7 +2195,8 @@ class AudioEngine:
         trim_sec      = td.get('trim_sec')
         new_view_sec = max(SPC_MIN_DURATION, min(new_view_sec, SPC_MAX_DUR_SEC))
         if trim_sec is not None:
-            new_view_sec = max(new_view_sec, trim_sec)
+            trim_ceil = math.ceil(trim_sec / 60.0) * 60.0
+            new_view_sec = max(new_view_sec, trim_ceil)
 
         if new_view_sec <= decoded_sec:
             if trim_sec is not None:
@@ -2333,7 +2335,8 @@ class AudioEngine:
         trim_sec      = td.get('trim_sec')
         new_view_sec  = max(GBS_MIN_DUR_SEC, min(new_view_sec, GBS_MAX_DUR_SEC))
         if trim_sec is not None:
-            new_view_sec = max(new_view_sec, trim_sec)
+            trim_ceil = math.ceil(trim_sec / 60.0) * 60.0
+            new_view_sec = max(new_view_sec, trim_ceil)
 
         if new_view_sec <= decoded_sec:
             if trim_sec is not None:
@@ -7057,15 +7060,8 @@ class MainWindow(QMainWindow):
         self._dur_lbl.unsetCursor()
 
     def _dur_step_list(self, initial_sec):
-        """総再生時間ステップリストを返す（初期検出時間を含む）"""
-        import bisect
-        base = [10, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]
-        rounded = round(initial_sec, 1)
-        if rounded not in base and 10 <= rounded <= 900:
-            steps = list(base)
-            bisect.insort(steps, rounded)
-            return steps
-        return list(base)
+        """総再生時間ステップリストを返す（0:10 + 1分単位）"""
+        return [10, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]
 
     def _dur_step_navigate(self, initial_sec, cur_sec, direction):
         """ステップリスト内で現在値から上下に移動した値を返す"""
