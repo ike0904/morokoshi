@@ -4514,10 +4514,11 @@ class FileHistoryPopup(QFrame):
             for p in paths:
                 name = os.path.basename(p)
                 btn = QPushButton(name)
-                btn.setToolTip(p)
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.setMinimumWidth(260)
                 btn.clicked.connect(lambda _checked, pp=p: self._select(pp))
+                btn.enterEvent = lambda e, pp=p, b=btn: show_tt(pp, b)
+                btn.leaveEvent = lambda e: hide_tt()
                 lo.addWidget(btn)
 
     def _select(self, path):
