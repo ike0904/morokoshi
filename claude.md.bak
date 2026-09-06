@@ -104,8 +104,21 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.1.5 (2026-08-25) ← 最新
-- 【DLL修正】FDS拡張チップ使用NSFの全曲ノイズ問題を修正
+### v2.2.0 (2026-08-25) ← 最新
+- マニュアル更新（表紙バージョン・JP/EN 対象バージョン・波形ドラッグ説明・SPC/GBSグレーアウト注記・JP/EN 更新履歴 v2.1.0→v2.2.0に置換）・PDF 再生成
+- exe ビルド・morokoshi220.zip リリース
+- git tag v2.2.0
+
+### v2.1.6 (2026-08-25)
+- 【DLL修正】FDS NSFが無音になる問題を修正（Cleopatra no Mahou等）
+  - 根本原因: NSFrip の音楽エンジンが作業変数を $ACDC/$AD69（$A000-$AFFF）に置いていたが、gme の SRAM は $6000-$7FFF のみでそれ以外は ROM 扱いで書き込みが無視されていた
+  - NSFPlay の FDS モードを参照し、FDS NSF では $8000-$DFFF のバンク切替ページを書き込み可能な `fds_wram` バッファに差し替える実装を追加
+  - 変更ファイル: `Nsf_Emu.h`（fds_wram/use_fds_wram追加）・`Nsf_Emu.cpp`（初期化/unload/init_sound）・`nes_cpu_io.h`（バンクスイッチ+WRAM書き込み処理）
+  - 他の拡張音源（VRC6/VRC7/MMC5/Namco163/Sunsoft5B）は標準SRAMで問題なし
+- 【Python修正】zoom初期値を2.0（大きい方）に変更
+
+### v2.1.5 (2026-08-25)
+- 【DLL修正】FDS拡張チップ使用NSFの全曲ノイズ問題を修正（後にv2.1.6で根本修正）
   - 根本原因: `before_silence_detection_()` が標準APUのみ無音化し、FDS wave channelを無音化していなかった
   - 修正: APU無音化の直後に `if ( fds ) fds->reset()` を追加（wave/LFO/envelopeを全て無効化）
   - 対象ファイル例: Cleopatra no Mahou (FDS拡張 expansion byte=0x04)

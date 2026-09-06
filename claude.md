@@ -104,7 +104,20 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.1.6 (2026-08-25) ← 最新
+### v2.2.1 (2026-09-06) ← 最新
+- 【DLL修正】NSF 全曲で頭が ~184ms カットされていたバグを修正
+  - 根本原因: `before_silence_detection_()` の burn ループ条件 `play_ready > 0` が実質的に常にtrueになっていた（PLAYが完了すると play_ready=1 にリセットされるため）
+  - 結果: 4回 × 4096サンプル = ~184ms が毎回捨てられ、Adventure Island のような最初から鮮明に始まる曲で頭が大きく切れていた
+  - 修正: ループ条件を `play_ready > 1` に変更し、小さなチャンク(64サンプル)で細かく検知
+  - 効果: play_ready が 4→3→2→1 まで（INIT期間のみ）を burn し、最初のPLAYフレームは `redo_silence_detection_()` で取得するように変更
+  - DW3のINITノイズ対策（APUレジスタ無音化）は引き続き有効
+
+### v2.2.0 (2026-08-25)
+- マニュアル更新（表紙バージョン・JP/EN 対象バージョン・波形ドラッグ説明・SPC/GBSグレーアウト注記・JP/EN 更新履歴 v2.1.0→v2.2.0に置換）・PDF 再生成
+- exe ビルド・morokoshi220.zip リリース
+- git tag v2.2.0
+
+### v2.1.6 (2026-08-25)
 - 【DLL修正】FDS NSFが無音になる問題を修正（Cleopatra no Mahou等）
   - 根本原因: NSFrip の音楽エンジンが作業変数を $ACDC/$AD69（$A000-$AFFF）に置いていたが、gme の SRAM は $6000-$7FFF のみでそれ以外は ROM 扱いで書き込みが無視されていた
   - NSFPlay の FDS モードを参照し、FDS NSF では $8000-$DFFF のバンク切替ページを書き込み可能な `fds_wram` バッファに差し替える実装を追加
