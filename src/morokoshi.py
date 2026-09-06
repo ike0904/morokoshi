@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.3.0"
+APP_VERSION = "v2.3.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -302,6 +302,32 @@ def purge_old_cache():
             fp = os.path.join(CACHE, f)
             if now-os.path.getmtime(fp) > CACHE_DAYS*86400: os.remove(fp)
     except: pass
+
+def _file_history_path():
+    return os.path.join(CACHE, "file_history.json")
+
+def load_file_history():
+    try:
+        p = _file_history_path()
+        if os.path.exists(p):
+            with open(p, encoding='utf-8') as f:
+                data = json.load(f)
+            return [x for x in data if os.path.exists(x)][:10]
+    except:
+        pass
+    return []
+
+def add_to_file_history(path):
+    try:
+        path = os.path.abspath(path)
+        history = load_file_history()
+        history = [x for x in history if x != path]
+        history.insert(0, path)
+        history = history[:10]
+        with open(_file_history_path(), 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False)
+    except:
+        pass
 
 # ── アイコン
 _ICON_CACHE = {}
@@ -4465,6 +4491,46 @@ class TipButton(QPushButton):
         hide_tt(); super().leaveEvent(e)
 
 
+class FileHistoryPopup(QFrame):
+    """OPENボタン右クリックで表示するファイル履歴ポップアップ（最大10件）"""
+    file_selected = pyqtSignal(str)
+
+    def __init__(self, paths, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setStyleSheet(
+            f"FileHistoryPopup{{background:{BG2}; border:1px solid {BORDER};}}"
+            f"QPushButton{{background:transparent; color:{FG}; border:none; text-align:left;"
+            f" padding:5px 10px; font-size:13px;}}"
+            f"QPushButton:hover{{background:{BG3};}}")
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(0, 4, 0, 4)
+        lo.setSpacing(0)
+        if not paths:
+            lbl = QLabel("No history")
+            lbl.setStyleSheet(f"color:{FG2}; padding:5px 14px; font-size:13px;")
+            lo.addWidget(lbl)
+        else:
+            for p in paths:
+                name = os.path.basename(p)
+                btn = QPushButton(name)
+                btn.setToolTip(p)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setMinimumWidth(260)
+                btn.clicked.connect(lambda _checked, pp=p: self._select(pp))
+                lo.addWidget(btn)
+
+    def _select(self, path):
+        self.file_selected.emit(path)
+        self.close()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.RightButton:
+            self.close()
+        else:
+            super().mousePressEvent(e)
+
+
 # ════════════════════════════════════════
 # メインウィンドウ
 # ════════════════════════════════════════
@@ -4770,7 +4836,7 @@ class MainWindow(QMainWindow):
             [None,
              ("help","Help [H]","_help_btn",self._show_help),
              ("zoom","Zoom [Z]","_zoom_btn",self._toggle_zoom)],
-            [("open","Open[O]\nShift: Folder","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
+            [("open","Open[O]\nShift: Folder\nR-Click: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
              ("tempo_search","Tempo detection [T]","_tempo_btn",self._tempo_detect),
              ("reset","Reset[R]\nShift: Clear Cache","_reset_btn",
               lambda: self._do_cache_clear() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._do_reset())],
@@ -4817,6 +4883,16 @@ class MainWindow(QMainWindow):
             return _press
         self._rew_btn.mousePressEvent = _make_rew_ff_press(self._rew_btn)
         self._ff_btn.mousePressEvent  = _make_rew_ff_press(self._ff_btn)
+
+        # Open 右クリック → ファイル履歴ポップアップ
+        _open_btn_ref = self._open_btn
+        def _open_press(e, _b=_open_btn_ref):
+            hide_tt()
+            if e.button() == Qt.MouseButton.RightButton:
+                self._show_open_history()
+            else:
+                _QPB.mousePressEvent(_b, e)
+        self._open_btn.mousePressEvent = _open_press
 
         root.addWidget(main_area, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -6402,6 +6478,15 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────
     # ファイル
     # ──────────────────────────────────────
+    def _show_open_history(self):
+        history = load_file_history()
+        popup = FileHistoryPopup(history)
+        popup.file_selected.connect(self._load)
+        gp = self._open_btn.mapToGlobal(self._open_btn.rect().bottomLeft())
+        popup.move(gp.x(), gp.y() + 4)
+        popup.adjustSize()
+        popup.show()
+
     def _open(self):
         import os
         # 前回開いたファイルのフォルダ → 無ければ %USERPROFILE%\Music
@@ -6436,6 +6521,7 @@ class MainWindow(QMainWindow):
     def _load_folder(self, folder_path):
         _log(f"_load_folder: path={folder_path}")
         import os
+        add_to_file_history(folder_path)
         prev = self.engine._file_hash
         if prev: save_session(prev, self._get_state())
         fname = os.path.basename(folder_path)
@@ -6478,6 +6564,7 @@ class MainWindow(QMainWindow):
 
     def _load(self, path):
         _log(f"_load: path={path}")
+        add_to_file_history(path)
         prev=self.engine._file_hash
         if prev: save_session(prev, self._get_state())
         fname = os.path.basename(path)
