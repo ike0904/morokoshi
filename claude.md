@@ -104,7 +104,19 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.3.0 (2026-09-06) ← 最新
+### v2.4.0 (2026-09-06) ← 最新
+- マニュアル更新（表紙バージョン・JP/EN 対象バージョン・JP/EN 更新履歴 v2.3.0→v2.4.0に統合）・PDF 再生成
+- マニュアル追記: JP/EN のボタン表・ステップ1・ゲームモード「ファイルの開き方」に Shift+OPEN（フォルダ選択）と右クリック履歴の説明を追加
+- exe ビルド・morokoshi240.zip 再作成（PDF更新）
+- git tag v2.4.0
+
+### v2.3.1 (2026-09-06) ※ v2.4.0 に統合（未公開）
+- 【Python修正】OPENボタン右クリックでファイル履歴ポップアップを表示（最大10件）
+  - `add_to_file_history` / `load_file_history` 関数を追加
+  - `FileHistoryPopup` クラス追加（ウィンドウ外クリック・右クリックでクローズ）
+  - パスのツールチップをアプリ共通スタイル（show_tt）に統一・リスト下部に表示
+
+### v2.3.0 (2026-09-06) ※ v2.4.0 に統合（未公開）
 - マニュアル更新（表紙バージョン・JP/EN 対象バージョン・JP/EN 更新履歴 v2.3.0追加）・PDF 再生成
 - exe ビルド・morokoshi230.zip リリース
 - git tag v2.3.0
