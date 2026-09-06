@@ -4517,7 +4517,7 @@ class FileHistoryPopup(QFrame):
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.setMinimumWidth(260)
                 btn.clicked.connect(lambda _checked, pp=p: self._select(pp))
-                btn.enterEvent = lambda e, pp=p, b=btn: show_tt(pp, b)
+                btn.enterEvent = lambda e, pp=p: show_tt(pp, self)
                 btn.leaveEvent = lambda e: hide_tt()
                 lo.addWidget(btn)
 
