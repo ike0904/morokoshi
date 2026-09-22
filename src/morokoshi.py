@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.4.2"
+APP_VERSION = "v2.4.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -2906,6 +2906,7 @@ class WaveformWidget(QWidget):
     view_changed = pyqtSignal()  # ズーム/スクロール時に発火
     ab_drag = pyqtSignal(float)  # AB範囲ドラッグ時、移動量(全体比率)を発火（未使用）
     ab_range_set = pyqtSignal(float, float)  # ドラッグでAB範囲を設定: (start_ratio, end_ratio)
+    ab_pan = pyqtSignal(float, float)       # AB間ドラッグでA/Bを連動移動: (a_ratio, b_ratio)
     double_clicked = pyqtSignal(float)  # ダブルクリック位置(全体比率)を発火
     marker_reset_requested = pyqtSignal(int)  # マーカーの真上をダブルクリック→そのマーカー番号(MARKER_A or MARKER_B)
     seek_revert = pyqtSignal(float)  # ダブルクリック確定時、1回目クリックによるシークを取り消すための復元先比率
@@ -2919,6 +2920,7 @@ class WaveformWidget(QWidget):
         self.setFixedHeight(42); self._dragging=False
         self._drag_mode=None; self._press_x=0; self._press_view=None
         self._press_on_ab=False; self._press_r=0.0
+        self._press_ab_a=None; self._press_ab_b=None  # AB間パンドラッグ用
         self._pre_click_pos=0.0       # クリック列開始時点の再生位置比率（ダブルクリック確定時の復元用）
         self._last_press_time=0.0     # シングル/ダブルクリック列の判定用
         self._suppress_next_release_seek=False  # ダブルクリック確定後、2回目releaseのシークを抑制するフラグ
@@ -3070,6 +3072,7 @@ class WaveformWidget(QWidget):
                 lo=min(self._ab_a,self._ab_b); hi=max(self._ab_a,self._ab_b)
                 if lo<=r<=hi:
                     self._press_on_ab=True
+            self._press_ab_a=self._ab_a; self._press_ab_b=self._ab_b
             self._press_r=self._x2r(self._press_x, max(1,self.width()))
             # 現在位置線・A線・B線のいずれかの直上を掴んでいるか判定（帯ドラッグより優先）
             w=max(1,self.width())
@@ -3098,11 +3101,14 @@ class WaveformWidget(QWidget):
                     else:
                         self._drag_mode="marker_b_move"
             else:
-                # フリーエリア: 上下はズーム、左右はAB範囲設定
+                # フリーエリア: 上下はズーム、左右はAB範囲設定 or AB間パン
                 if abs(dy) > 5:
                     self._drag_mode = "zoom_drag"
                 elif abs(dx) > 5:
-                    self._drag_mode = "ab_set_drag"
+                    if self._press_on_ab and self._press_ab_a is not None and self._press_ab_b is not None:
+                        self._drag_mode = "ab_pan_drag"
+                    else:
+                        self._drag_mode = "ab_set_drag"
         if self._drag_mode=="zoom_drag":
             vlo,vhi=self._press_view
             span_base=max(0.001,vhi-vlo)
@@ -3120,6 +3126,15 @@ class WaveformWidget(QWidget):
             cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
             r1 = max(0.0, min(1.0, self._press_r))
             self.ab_range_set.emit(r1, cur_r)
+        elif self._drag_mode=="ab_pan_drag":
+            # A-B間ドラッグ: A/Bを連動パン
+            cur_r = self._x2r(e.position().x(), max(1, self.width()))
+            d = cur_r - self._press_r
+            pa = self._press_ab_a; pb = self._press_ab_b
+            if pa is not None and pb is not None:
+                lo_p = min(pa, pb); hi_p = max(pa, pb)
+                d = max(-lo_p, min(1.0 - hi_p, d))
+                self.ab_pan.emit(pa + d, pb + d)
         elif self._drag_mode=="pos_move":
             r=max(0.0,min(1.0,self._x2r(e.position().x(), max(1,self.width()))))
             self.position=r  # 見た目はすぐ追従させる
@@ -3148,6 +3163,14 @@ class WaveformWidget(QWidget):
             cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
             r1 = max(0.0, min(1.0, self._press_r))
             self.ab_range_set.emit(r1, cur_r)
+        elif self._drag_mode=="ab_pan_drag":
+            cur_r = self._x2r(e.position().x(), max(1, self.width()))
+            d = cur_r - self._press_r
+            pa = self._press_ab_a; pb = self._press_ab_b
+            if pa is not None and pb is not None:
+                lo_p = min(pa, pb); hi_p = max(pa, pb)
+                d = max(-lo_p, min(1.0 - hi_p, d))
+                self.ab_pan.emit(pa + d, pb + d)
         self._dragging=False; self._drag_mode=None
 
     def mouseDoubleClickEvent(self,e):
@@ -4973,6 +4996,7 @@ class MainWindow(QMainWindow):
         self._attach_tip(self._wf_scroll, "Drag←→: Scroll")
         self._waveform.view_changed.connect(self._sync_wf_scroll)
         self._waveform.ab_range_set.connect(self._on_ab_range_set)
+        self._waveform.ab_pan.connect(self._on_ab_pan)
         self._waveform.double_clicked.connect(self._on_wf_double_click)
         self._waveform.position_drag.connect(self._on_wf_position_drag)
         self._waveform.marker_drag.connect(self._on_wf_marker_drag)
@@ -5280,8 +5304,10 @@ class MainWindow(QMainWindow):
                 self._st("Time out of range")
                 self._refresh_marker(n)
                 return
+            delta = sec - self.engine.markers.get(n, sec)
             self.engine.markers[n]=sec
             self.engine.markers[other]=no
+            self.engine.seek(max(0.0, self.engine.current_sec()+delta))
             self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
             self._update_wf_ab()
             self._st("Markers updated")
@@ -5347,22 +5373,15 @@ class MainWindow(QMainWindow):
             new_sec=max(0.0, tl._base+steps*step)
             n=tl._n
             looping_now = self.engine.playing and (self.engine.ab_active or self.engine.ear_active)
-            # Ear Mode中: 差分を保ったまま両マーカーを連動
+            # Ear Mode中: 差分を保ったまま両マーカーを連動・現在位置も相対移動
             if self.engine.ear_active and MARKER_A in self.engine.markers and MARKER_B in self.engine.markers:
                 other = MARKER_B if n==MARKER_A else MARKER_A
                 cur_n=self.engine.markers[n]; other_v=self.engine.markers[other]
                 delta=new_sec-cur_n
-                if looping_now:
-                    lo=min(cur_n,other_v); hi=max(cur_n,other_v)
-                    cur_pos=self.engine.current_sec()
-                    new_lo=lo+delta; new_hi=hi+delta
-                    if new_lo > cur_pos:
-                        self.engine.seek(new_lo)
-                    elif new_hi < cur_pos:
-                        self.engine.seek(new_hi)
                 final_n=cur_n+delta; final_other=other_v+delta
                 if final_n < 0 or final_other < 0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                     return  # どちらかが範囲外なら動かさない
+                self.engine.seek(max(0.0, self.engine.current_sec()+delta))
                 self.engine.markers[n]=final_n
                 self.engine.markers[other]=final_other
                 self._refresh_marker(other)
@@ -5425,20 +5444,16 @@ class MainWindow(QMainWindow):
         """エディタドラッグ/ホイール中のリアルタイムプレビュー。クランプ後の値を返す"""
         if self.engine.data is None: return new_sec
         looping_now=self.engine.playing and (self.engine.ab_active or self.engine.ear_active)
-        # Ear Mode: 差分を保ったまま両マーカーを連動
+        # Ear Mode: 差分を保ったまま両マーカーを連動・現在位置も相対移動
         if self.engine.ear_active and MARKER_A in self.engine.markers and MARKER_B in self.engine.markers:
             other=MARKER_B if n==MARKER_A else MARKER_A
             cur_n=self.engine.markers.get(n, new_sec)
             other_v=self.engine.markers[other]
             delta=new_sec-cur_n
-            if looping_now:
-                lo=min(cur_n,other_v); hi=max(cur_n,other_v)
-                cur_pos=self.engine.current_sec()
-                if lo+delta>cur_pos: self.engine.seek(lo+delta)
-                elif hi+delta<cur_pos: self.engine.seek(hi+delta)
             final_n=cur_n+delta; final_other=other_v+delta
             if final_n<0 or final_other<0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                 return self.engine.markers.get(n, new_sec)
+            self.engine.seek(max(0.0, self.engine.current_sec()+delta))
             self.engine.markers[n]=final_n; self.engine.markers[other]=final_other
             self._refresh_marker(other)
             self._update_wf_ab()
@@ -7503,6 +7518,27 @@ class MainWindow(QMainWindow):
         b = max(r1, r2) * self._total
         self.engine.markers[MARKER_A] = a
         self.engine.markers[MARKER_B] = b
+        self._refresh_marker(MARKER_A)
+        self._refresh_marker(MARKER_B)
+        self._update_wf_ab()
+        # EAR MODE中: 現在位置が範囲外ならAへシーク
+        if self.engine.ear_active:
+            cur = self.engine.current_sec()
+            if cur < a or cur > b:
+                self.engine.seek(a)
+
+    def _on_ab_pan(self, r1, r2):
+        # 波形AB間ドラッグでA/Bを連動パン
+        if self._total <= 0: return
+        old_a = self.engine.markers.get(MARKER_A)
+        new_a = r1 * self._total
+        new_b = r2 * self._total
+        self.engine.markers[MARKER_A] = new_a
+        self.engine.markers[MARKER_B] = new_b
+        # EAR MODE中: 現在位置を相対移動
+        if self.engine.ear_active and old_a is not None:
+            delta_sec = new_a - old_a
+            self.engine.seek(max(0.0, self.engine.current_sec()+delta_sec))
         self._refresh_marker(MARKER_A)
         self._refresh_marker(MARKER_B)
         self._update_wf_ab()
