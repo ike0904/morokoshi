@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.4.4"
+APP_VERSION = "v2.4.5"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5617,8 +5617,9 @@ class MainWindow(QMainWindow):
         if e.button() == Qt.MouseButton.LeftButton and not ed._moved:
             if ed is self._tempo_edit and ed.isReadOnly():
                 # 読み取り専用時のみタイマー起動（編集モード中は検出しない）
+                # ダブルクリック間隔より必ず長くなるよう最低400msを保証
                 self._tempo_click_timer.start(
-                    QApplication.doubleClickInterval())
+                    max(400, QApplication.doubleClickInterval()))
 
     def _pos_leave(self, e):
         self._pos_lbl.clear_highlight()
