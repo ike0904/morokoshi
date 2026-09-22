@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.4.1"
+APP_VERSION = "v2.4.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5357,9 +5357,9 @@ class MainWindow(QMainWindow):
                     cur_pos=self.engine.current_sec()
                     new_lo=lo+delta; new_hi=hi+delta
                     if new_lo > cur_pos:
-                        delta = cur_pos-lo
+                        self.engine.seek(new_lo)
                     elif new_hi < cur_pos:
-                        delta = cur_pos-hi
+                        self.engine.seek(new_hi)
                 final_n=cur_n+delta; final_other=other_v+delta
                 if final_n < 0 or final_other < 0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                     return  # どちらかが範囲外なら動かさない
@@ -5434,8 +5434,8 @@ class MainWindow(QMainWindow):
             if looping_now:
                 lo=min(cur_n,other_v); hi=max(cur_n,other_v)
                 cur_pos=self.engine.current_sec()
-                if lo+delta>cur_pos: delta=cur_pos-lo
-                elif hi+delta<cur_pos: delta=cur_pos-hi
+                if lo+delta>cur_pos: self.engine.seek(lo+delta)
+                elif hi+delta<cur_pos: self.engine.seek(hi+delta)
             final_n=cur_n+delta; final_other=other_v+delta
             if final_n<0 or final_other<0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                 return self.engine.markers.get(n, new_sec)
