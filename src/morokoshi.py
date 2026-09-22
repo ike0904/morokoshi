@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.4.0"
+APP_VERSION = "v2.4.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4593,6 +4593,11 @@ class MainWindow(QMainWindow):
         self._ear_blink_timer.timeout.connect(self._ear_blink_tick)
         self._ear_blink_on=False  # False=通常色, True=青
 
+        # テンポ1クリック検出のディレイタイマー（ダブルクリック判定用）
+        self._tempo_click_timer=QTimer(self)
+        self._tempo_click_timer.setSingleShot(True)
+        self._tempo_click_timer.timeout.connect(self._tempo_detect)
+
         self._nsf_loading = False        # NSFトラックデコード中フラグ
         self._nsf_ch_rendering = False   # ch切替レンダリング中フラグ
         self._nsf_wf_views = {}          # {track_idx: (view_lo, view_hi)} 波形ズーム保存
@@ -5534,6 +5539,8 @@ class MainWindow(QMainWindow):
 
     def _edit_dblclick(self, e, ed):
         # 2-Click → 編集可能にして全選択。枠を黄色くハイライト
+        if ed is self._tempo_edit:
+            self._tempo_click_timer.stop()  # 1クリック検出をキャンセル
         ed.setReadOnly(False)
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:1px 4px;")
         ed.setFocus(); ed.selectAll()
@@ -5581,7 +5588,9 @@ class MainWindow(QMainWindow):
         QLineEdit.mouseReleaseEvent(ed, e)
         if e.button() == Qt.MouseButton.LeftButton and not ed._moved:
             if ed is self._tempo_edit:
-                self._tempo_detect()
+                # ダブルクリックの1打目と区別するためタイマーで遅延起動
+                self._tempo_click_timer.start(
+                    QApplication.doubleClickInterval())
 
     def _pos_leave(self, e):
         self._pos_lbl.clear_highlight()
