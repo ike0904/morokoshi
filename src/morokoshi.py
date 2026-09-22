@@ -5587,8 +5587,8 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QLineEdit
         QLineEdit.mouseReleaseEvent(ed, e)
         if e.button() == Qt.MouseButton.LeftButton and not ed._moved:
-            if ed is self._tempo_edit:
-                # ダブルクリックの1打目と区別するためタイマーで遅延起動
+            if ed is self._tempo_edit and ed.isReadOnly():
+                # 読み取り専用時のみタイマー起動（編集モード中は検出しない）
                 self._tempo_click_timer.start(
                     QApplication.doubleClickInterval())
 
