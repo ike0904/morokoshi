@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.4.3"
+APP_VERSION = "v2.4.4"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -2905,8 +2905,9 @@ class WaveformWidget(QWidget):
     seeked = pyqtSignal(float)
     view_changed = pyqtSignal()  # ズーム/スクロール時に発火
     ab_drag = pyqtSignal(float)  # AB範囲ドラッグ時、移動量(全体比率)を発火（未使用）
-    ab_range_set = pyqtSignal(float, float)  # ドラッグでAB範囲を設定: (start_ratio, end_ratio)
-    ab_pan = pyqtSignal(float, float)       # AB間ドラッグでA/Bを連動移動: (a_ratio, b_ratio)
+    ab_range_set = pyqtSignal(float, float)       # ドラッグでAB範囲を設定: (start_ratio, end_ratio)
+    ab_range_committed = pyqtSignal(float, float) # AB範囲設定の確定（mouseRelease時のみ）
+    ab_pan = pyqtSignal(float, float)             # AB間ドラッグでA/Bを連動移動: (a_ratio, b_ratio)
     double_clicked = pyqtSignal(float)  # ダブルクリック位置(全体比率)を発火
     marker_reset_requested = pyqtSignal(int)  # マーカーの真上をダブルクリック→そのマーカー番号(MARKER_A or MARKER_B)
     seek_revert = pyqtSignal(float)  # ダブルクリック確定時、1回目クリックによるシークを取り消すための復元先比率
@@ -3163,6 +3164,7 @@ class WaveformWidget(QWidget):
             cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
             r1 = max(0.0, min(1.0, self._press_r))
             self.ab_range_set.emit(r1, cur_r)
+            self.ab_range_committed.emit(r1, cur_r)
         elif self._drag_mode=="ab_pan_drag":
             cur_r = self._x2r(e.position().x(), max(1, self.width()))
             d = cur_r - self._press_r
@@ -4996,6 +4998,7 @@ class MainWindow(QMainWindow):
         self._attach_tip(self._wf_scroll, "Drag←→: Scroll")
         self._waveform.view_changed.connect(self._sync_wf_scroll)
         self._waveform.ab_range_set.connect(self._on_ab_range_set)
+        self._waveform.ab_range_committed.connect(self._on_ab_range_committed)
         self._waveform.ab_pan.connect(self._on_ab_pan)
         self._waveform.double_clicked.connect(self._on_wf_double_click)
         self._waveform.position_drag.connect(self._on_wf_position_drag)
@@ -5305,9 +5308,10 @@ class MainWindow(QMainWindow):
                 self._refresh_marker(n)
                 return
             delta = sec - self.engine.markers.get(n, sec)
+            new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=sec
             self.engine.markers[other]=no
-            self.engine.seek(max(0.0, self.engine.current_sec()+delta))
+            self.engine.seek(new_cur)
             self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
             self._update_wf_ab()
             self._st("Markers updated")
@@ -5338,6 +5342,12 @@ class MainWindow(QMainWindow):
             self._st("Time out of range")
             self._pos_lbl.setText(self._fmt(self.engine.current_sec()))  # 元に戻す
             return
+        # EAR MODE中はAB範囲内にクランプ
+        if self.engine.ear_active:
+            a=self.engine.markers.get(MARKER_A); b=self.engine.markers.get(MARKER_B)
+            if a is not None and b is not None:
+                lo=min(a,b); hi=max(a,b)
+                sec=max(lo, min(hi, sec))
         self.engine.seek(sec)
         self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(sec))
         if self._total>0: self._waveform.set_position(sec/self._total)
@@ -5381,9 +5391,11 @@ class MainWindow(QMainWindow):
                 final_n=cur_n+delta; final_other=other_v+delta
                 if final_n < 0 or final_other < 0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                     return  # どちらかが範囲外なら動かさない
-                self.engine.seek(max(0.0, self.engine.current_sec()+delta))
+                new_cur = max(0.0, self.engine.current_sec()+delta)
+                # マーカーを先に更新してからseek（コールバックが新範囲で判定するように）
                 self.engine.markers[n]=final_n
                 self.engine.markers[other]=final_other
+                self.engine.seek(new_cur)
                 self._refresh_marker(other)
                 self._update_wf_ab()
                 tl.setText(self._fmt(final_n))
@@ -5453,8 +5465,9 @@ class MainWindow(QMainWindow):
             final_n=cur_n+delta; final_other=other_v+delta
             if final_n<0 or final_other<0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                 return self.engine.markers.get(n, new_sec)
-            self.engine.seek(max(0.0, self.engine.current_sec()+delta))
+            new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=final_n; self.engine.markers[other]=final_other
+            self.engine.seek(new_cur)
             self._refresh_marker(other)
             self._update_wf_ab()
             return final_n
@@ -5697,14 +5710,11 @@ class MainWindow(QMainWindow):
         lo_lim=0.0; hi_lim=self._total if self._total>0 else max(na,nb)
         if na<lo_lim or nb<lo_lim or na>hi_lim or nb>hi_lim:
             self._st("Marker out of range"); return
+        new_cur = max(0.0, self.engine.current_sec()+delta)
         self.engine.markers[MARKER_A]=na; self.engine.markers[MARKER_B]=nb
+        self.engine.seek(new_cur)
         self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
         self._update_wf_ab()
-        if self.engine.playing:
-            lo=min(na,nb); hi=max(na,nb)
-            cur=self.engine.current_sec()
-            if not (lo<=cur<=hi):
-                self.engine.seek(lo)
 
     # ──────────────────────────────────────
     # 再生
@@ -6327,7 +6337,15 @@ class MainWindow(QMainWindow):
             self.engine.ear_active=True
             self._ear_btn.setIcon(_get_icon("ear",self.S(28),"#FFD700"))
             self._start_ear_blink()
-            self._update_wf_ab(); self._st("Ear Mode ON")
+            self._update_wf_ab()
+            # 突入時に現在位置がAB外ならAへシーク
+            a=self.engine.markers.get(MARKER_A); b=self.engine.markers.get(MARKER_B)
+            if a is not None and b is not None:
+                lo=min(a,b); hi=max(a,b)
+                cur=self.engine.current_sec()
+                if cur<lo or cur>hi:
+                    self.engine.seek(lo)
+            self._st("Ear Mode ON")
 
     def _start_ear_blink(self):
         self._ear_blink_phase=0.0
@@ -7431,6 +7449,13 @@ class MainWindow(QMainWindow):
     def _on_wf_seek(self, ratio):
         if self._total>0:
             pos=ratio*self._total
+            # EAR MODE中はAB範囲内にクランプ
+            if self.engine.ear_active:
+                a=self.engine.markers.get(MARKER_A); b=self.engine.markers.get(MARKER_B)
+                if a is not None and b is not None:
+                    lo=min(a,b); hi=max(a,b)
+                    pos=max(lo, min(hi, pos))
+                    ratio=pos/self._total
             self.engine.seek(pos)
             self._pos_lbl.setText(self._fmt(pos))
             self._waveform.set_position(ratio)
@@ -7453,20 +7478,14 @@ class MainWindow(QMainWindow):
         looping_now = self.engine.playing and (self.engine.ab_active or self.engine.ear_active)
         if self.engine.ear_active and MARKER_A in self.engine.markers and MARKER_B in self.engine.markers:
             cur_n=self.engine.markers[n]; other_v=self.engine.markers[other]
-            delta=new_sec-cur_n  # ドラッグで生じる移動量（A,B同時に同じだけ動かす）
-            if looping_now:
-                lo=min(cur_n,other_v); hi=max(cur_n,other_v)
-                cur_pos=self.engine.current_sec()
-                new_lo=lo+delta; new_hi=hi+delta
-                if new_lo > cur_pos:
-                    delta = cur_pos-lo
-                elif new_hi < cur_pos:
-                    delta = cur_pos-hi
+            delta=new_sec-cur_n
             final_n=cur_n+delta; final_other=other_v+delta
             if final_n < 0 or final_other < 0 or final_n > self._total or final_other > self._total:
                 return  # どちらかが範囲外になる場合は動かさない
+            new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=final_n
             self.engine.markers[other]=final_other
+            self.engine.seek(new_cur)
             self._refresh_marker(other)
         else:
             ov = self.engine.markers.get(other)
@@ -7521,11 +7540,16 @@ class MainWindow(QMainWindow):
         self._refresh_marker(MARKER_A)
         self._refresh_marker(MARKER_B)
         self._update_wf_ab()
-        # EAR MODE中: 現在位置が範囲外ならAへシーク
-        if self.engine.ear_active:
-            cur = self.engine.current_sec()
-            if cur < a or cur > b:
-                self.engine.seek(a)
+
+    def _on_ab_range_committed(self, r1, r2):
+        # AB範囲ドラッグ確定時（mouseRelease）のEAR MODE処理
+        if self._total <= 0: return
+        if not self.engine.ear_active: return
+        a = min(r1, r2) * self._total
+        b = max(r1, r2) * self._total
+        cur = self.engine.current_sec()
+        if cur < a or cur > b:
+            self.engine.seek(a)
 
     def _on_ab_pan(self, r1, r2):
         # 波形AB間ドラッグでA/Bを連動パン
@@ -7533,12 +7557,16 @@ class MainWindow(QMainWindow):
         old_a = self.engine.markers.get(MARKER_A)
         new_a = r1 * self._total
         new_b = r2 * self._total
-        self.engine.markers[MARKER_A] = new_a
-        self.engine.markers[MARKER_B] = new_b
-        # EAR MODE中: 現在位置を相対移動
+        # EAR MODE中: 先にcurrent計算、マーカー更新後にseek
         if self.engine.ear_active and old_a is not None:
             delta_sec = new_a - old_a
-            self.engine.seek(max(0.0, self.engine.current_sec()+delta_sec))
+            new_cur = max(0.0, self.engine.current_sec()+delta_sec)
+            self.engine.markers[MARKER_A] = new_a
+            self.engine.markers[MARKER_B] = new_b
+            self.engine.seek(new_cur)
+        else:
+            self.engine.markers[MARKER_A] = new_a
+            self.engine.markers[MARKER_B] = new_b
         self._refresh_marker(MARKER_A)
         self._refresh_marker(MARKER_B)
         self._update_wf_ab()
