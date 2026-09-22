@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.4.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.5.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v2.4.0)
+(対象バージョン: v2.5.0)
 
 ---
 
@@ -332,7 +332,8 @@ A・B両方が設定されているとき、波形の**黄色い帯を左右に�
 * **A・Bどちらかの線をドラッグ** → 通常時はそのマーカーだけが動きます（もう片方のマーカーを追い越すことはできません）。
 * **Ear Mode中にA・Bどちらかの線をドラッグ** → 区間の長さを保ったまま、A・Bが連動して動きます（黄色い帯のドラッグと同じ動き方になります）。
 
-> 💡 ABリピート再生中やEar Mode再生中は、A・Bマーカーのどちらの移動方法（黄色い帯のドラッグ／マーカー線の個別ドラッグ／左側情報エリアでのドラッグ）でも、現在再生している位置を追い越さないように移動が制限されます。停止中は自由に動かせます。  
+> 💡 ABリピート再生中は、A・Bマーカーのどちらの移動方法でも、現在再生している位置を追い越さないように移動が制限されます。停止中は自由に動かせます。
+> 💡 Ear Mode 中は、A・Bマーカーをどの方法で移動しても、**現在の再生位置が相対的に連動して動きます**。また、Ear Mode 中は波形クリックや現在時間の直接入力でも、A～B区間外へ移動することはできません。  
 > 💡 再生中に波形を拡大しておくと、再生位置が画面の右80%あたりに来たところで、波形が自動でスクロールして追従します。
 
 ---
@@ -572,7 +573,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v2.4.0**  
+**Morokoshi Time v2.5.0**  
 *Created by Ike-san*
 
 ---
@@ -594,6 +595,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v2.0.0** | 2026/8/17 | **ゲーム音楽（NSF/SPC/GBS）のスロー再生品質を大幅改善**しました。これまでは生成したWAVを引き伸ばす方式でしたが、エミュレータの内部テンポ（gme_set_tempo）を変更する方式に切り替えました。×0.1 などの超低速でも音程が正確に保たれ、音質劣化がありません。<br>**NSF/SPC/GBS のトラックごとにSpeed・Key・Fine・ABループなどの設定を独立して保存**するようになりました。別トラックに切り替えても、それぞれのトラックの設定が個別に記憶されます。 |
 | **v2.2.0** | 2026/8/25 | ゲーム音楽（NSF/SPC/GBS）の総再生時間操作を改善しました。<br>低速再生時に曲が途中で終了するバグを修正しました。<br>チャンネル切替時に曲頭の無音が省略されるバグを修正しました。<br>FDS拡張音源を使用するNSFファイルで音が出なかった問題を修正しました（DLL更新）。<br>波形エリアの左右ドラッグ操作をA-B区間の設定に変更しました。<br>再生速度の選択肢を×1/8・×1/4・×1/2・×1/1の4段階に変更しました。<br>トラック番号のホイール/ドラッグ操作方向を「下＝次のトラック」に変更しました。<br>初期表示倍率（Zoom）を2倍に変更しました。<br>その他軽微な修正を行いました。 |
 | **v2.4.0** | 2026/9/6 | NSFファイルで**曲の冒頭が約0.2秒欠ける**問題を修正しました（DLL更新）。<br>**OPENボタンを右クリック**すると最近開いたファイルの履歴を表示できるようになりました（最大10件。右クリックまたはウィンドウ外クリックでキャンセル）。 |
+| **v2.5.0** | 2026/9/22 | **Tempo欄をダブルクリックで直接入力**できるようになりました（1クリックのテンポ検出と競合しなくなりました）。<br>**Ear Mode 中のA・Bマーカー操作を改善**しました。A・Bを動かすと現在位置が常に相対的に連動して動くようになりました。また、Ear Mode 突入時に現在位置がA～B区間外にある場合は自動的にAへ移動します。Ear Mode 中は波形クリックや直接入力でもA～B区間外に出られなくなりました。<br>波形のA-B帯（黄色い部分）を左右にドラッグして区間ごとパン移動できる操作を復活させました。 |
 
 ---
 
@@ -602,7 +604,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v2.4.0)
+(Target version: v2.5.0)
 
 ---
 
@@ -923,7 +925,8 @@ The **white current-position line** and the **yellow A/B marker lines** can be g
 * **Drag an A or B line** → normally moves only that marker (cannot cross the other marker).
 * **Drag an A or B line while in Ear Mode** → moves both A and B together (same as dragging the yellow band).
 
-> 💡 While AB Repeat or Ear Mode is active, any marker movement is constrained so it cannot cross the current playback position. While stopped, markers can be moved freely.
+> 💡 While AB Repeat is active, marker movement is constrained so it cannot cross the current playback position. While stopped, markers can be moved freely.
+> 💡 In Ear Mode, **the current playback position always moves relatively when you move A or B markers**. Waveform clicks and direct time input are also clamped to the A–B range while Ear Mode is active.
 > 💡 While playing with the waveform zoomed in, the waveform auto-scrolls to follow playback when the position reaches about 80% from the left edge.
 
 ---
@@ -1161,7 +1164,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v2.4.0**
+**Morokoshi Time v2.5.0**
 *Created by Ike-san*
 
 ---
@@ -1183,3 +1186,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v2.0.0** | 2026/8/17 | **Significantly improved slow-playback quality for game music (NSF/SPC/GBS).** The previous approach stretched the rendered WAV; the new approach changes the emulator's internal tempo via gme_set_tempo. Even at extreme slow speeds like ×0.1, pitch stays accurate with no audio degradation.<br>**Speed, Key, Fine, AB loop, and other settings are now saved independently per track** for NSF/SPC/GBS. Switching tracks no longer resets your settings — each track remembers its own state. |
 | **v2.2.0** | 2026/8/25 | Improved total duration control for game music (NSF/SPC/GBS).<br>Fixed a bug where tracks stopped prematurely at slow speeds.<br>Fixed a bug where opening silence was skipped when switching channels.<br>Fixed silent playback on certain FDS expansion NSF files (DLL update).<br>Waveform left/right drag now sets the A-B range instead of scrolling.<br>Playback speed choices changed to 4 steps: ×1/8, ×1/4, ×1/2, ×1/1.<br>Track number wheel/drag direction changed to "down = next track."<br>Default display zoom changed to 2×.<br>Other minor fixes. |
 | **v2.4.0** | 2026/9/6 | Fixed a bug where the **first ~0.2 seconds of NSF tracks were cut off** (DLL update).<br>**Right-clicking the OPEN button** now shows a history of recently opened files (up to 10 entries; dismiss by right-clicking or clicking outside). |
+| **v2.5.0** | 2026/9/22 | **Tempo field can now be directly edited by double-clicking** (no longer conflicts with single-click tempo detection).<br>**Improved Ear Mode A/B marker behavior.** Moving A or B now always shifts the current playback position relatively. When entering Ear Mode, if the current position is outside the A–B range, it automatically moves to A. While in Ear Mode, seeking via waveform click or direct input is now clamped to the A–B range.<br>Restored the ability to **pan the A-B region by dragging within the yellow band** in the waveform area. |

@@ -160,7 +160,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | :---------------------- | :-------------------------------------------------------- |
 | <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。 |
 | <img src="icons/zoom.png" width="20"> **Zoom** | 画面全体の表示倍率を2倍 ⇔ 1倍で切り替えます。文字やボタンが小さくて見づらいときに使います。 |
-| <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。 |
+| <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。**Shift+クリック**でフォルダ選択ダイアログを開きます。**右クリック**で最近開いたファイルの履歴を表示します（最大10件）。 |
 | <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。 |
 | <img src="icons/reset.png" width="20"> **すべてリセット** | マーカー・速度・キー・Fine・テンポ・フィルターなどを初期状態に戻します。 |
 | **A** ボタン | **Aマーカーへ移動**します。再生中はそのまま再生を続けながら、停止中は停止したまま、再生位置だけがAマーカーの位置にジャンプします。 |
@@ -216,6 +216,8 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 > 💡 ウィンドウ内へのファイルのドラッグ＆ドロップにも対応しています。
 > 💡 初めて開くファイルは内部でWAV変換が行われるため、少し時間がかかることがあります。2回目以降は高速に開きます。  
 > 💡 前回そのファイルで作業していた場合、**再生位置・マーカー・速度・キー・Fineなどが自動的に復元**されます。  
+> 💡 **Shift+クリック**でフォルダ選択ダイアログが開き、フォルダ内のファイルを一括認識します（ゲーム音楽ファイル向け）。  
+> 💡 **右クリック**で最近開いたファイルの履歴（最大10件）を表示します。右クリックまたはウィンドウ外クリックでキャンセルできます。  
 > 💡 NSF/SPC/GBSファイルを開く場合は「6. ゲームモードの使い方」を参照してください。  
 
 ### ステップ2: 再生・一時停止と速度・キー・Fineの調整
@@ -441,7 +443,8 @@ Ear Mode中は、A・Bが常に「セットで」動きます。
 
 **単体ファイル**: 通常の **<img src="icons/open.png" width="20"> ファイルを開く** から選択できます。  
 **ZIPファイル**: ZIPをそのまま選択するだけで、中身のゲーム音楽ファイルを自動的に認識して開きます。複数のSPCファイルが入ったZIPは、それぞれの曲を切り替えながら再生できます。  
-**フォルダのドラッグ＆ドロップ**: フォルダをウィンドウにドロップすると、フォルダ内のゲーム音楽ファイル（NSF/SPC/GBS）を一括認識します。**Shift+ <img src="icons/open.png" width="20"> ファイルを開く**で、フォルダを開くダイアログウィンドウを出すことも出来ます。
+**フォルダのドラッグ＆ドロップ**: フォルダをウィンドウにドロップすると、フォルダ内のゲーム音楽ファイル（NSF/SPC/GBS）を一括認識します。**Shift+ <img src="icons/open.png" width="20"> ファイルを開く**で、フォルダを開くダイアログウィンドウを出すことも出来ます。  
+**最近開いたファイル**: **<img src="icons/open.png" width="20"> ファイルを開く**を**右クリック**すると、最近開いたファイルの履歴（最大10件）が表示されます。
 
 ### 総再生時間の拡張（ループ曲）
 
@@ -748,7 +751,7 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 | :---------------------- | :-------------------------------------------------------- |
 | <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`. |
 | <img src="icons/zoom.png" width="20"> **Zoom** | Toggles display scaling between 2× and 1×. Use when text and buttons are too small to read comfortably. |
-| <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. |
+| <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. **Shift+click** opens a folder-selection dialog. **Right-click** shows a history of recently opened files (up to 10 entries). |
 | <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. |
 | <img src="icons/reset.png" width="20"> **Reset All** | Resets markers, speed, key, Fine, tempo, filters, and more to their defaults. |
 | **A** button | **Go to A marker.** Jumps playback position to the A marker. Playback state does not change. |
@@ -804,6 +807,8 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 > 💡 You can also drag and drop a file directly onto the window.
 > 💡 The first time a file is opened it is converted to WAV internally — this may take a moment. Subsequent opens are much faster.
 > 💡 If you previously worked with this file, **playback position, markers, speed, key, Fine, and other settings are automatically restored.**
+> 💡 **Shift+click** opens a folder-selection dialog to batch-recognize game music files inside.
+> 💡 **Right-click** shows a history of recently opened files (up to 10 entries); dismiss by right-clicking or clicking outside.
 > 💡 For NSF/SPC/GBS files, see "6. Game Mode."
 
 ### Step 2: Play/Pause, Speed, Key, and Fine
@@ -1030,6 +1035,7 @@ Each audio channel is shown as a button. The number of channels depends on the f
 **Single file**: Use the standard <img src="icons/open.png" width="20"> **Open File** button.
 **ZIP file**: Select a ZIP directly; the app automatically recognizes game music files inside. A ZIP with multiple SPC files lets you switch between tracks.
 **Folder drag & drop**: Drop a folder onto the window to batch-recognize all game music files (NSF/SPC/GBS) inside. You can also **hold Shift and click** <img src="icons/open.png" width="20"> **Open File** to open a folder-selection dialog.
+**Recent files**: **Right-click** <img src="icons/open.png" width="20"> **Open File** to show a history of recently opened files (up to 10 entries).
 
 ### Extending Total Playback Time (Looping Tracks)
 
