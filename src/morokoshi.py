@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.4.5"
+APP_VERSION = "v2.4.6"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5311,7 +5311,7 @@ class MainWindow(QMainWindow):
             new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=sec
             self.engine.markers[other]=no
-            self.engine.seek(new_cur)
+            self._seek_update(new_cur)
             self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
             self._update_wf_ab()
             self._st("Markers updated")
@@ -5334,6 +5334,13 @@ class MainWindow(QMainWindow):
         self._refresh_marker(n)
         if n in (MARKER_A, MARKER_B): self._update_wf_ab()
         self._st(f"Marker {'A' if n==MARKER_A else 'B' if n==MARKER_B else n} = {self._fmt(sec)}")
+
+    def _seek_update(self, sec):
+        """seekと波形・時間表示の即時更新を同時に行う（ドラッグ中の遅延解消用）"""
+        self.engine.seek(sec)
+        if self._total > 0:
+            self._pos_lbl.setText(self._fmt(sec))
+            self._waveform.set_position(sec / self._total)
 
     def _set_current_time(self, sec):
         """直接入力で現在時刻（再生位置）を設定（楽曲時間を超えたらエラー、元の値のまま）"""
@@ -5395,7 +5402,7 @@ class MainWindow(QMainWindow):
                 # マーカーを先に更新してからseek（コールバックが新範囲で判定するように）
                 self.engine.markers[n]=final_n
                 self.engine.markers[other]=final_other
-                self.engine.seek(new_cur)
+                self._seek_update(new_cur)
                 self._refresh_marker(other)
                 self._update_wf_ab()
                 tl.setText(self._fmt(final_n))
@@ -5467,7 +5474,7 @@ class MainWindow(QMainWindow):
                 return self.engine.markers.get(n, new_sec)
             new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=final_n; self.engine.markers[other]=final_other
-            self.engine.seek(new_cur)
+            self._seek_update(new_cur)
             self._refresh_marker(other)
             self._update_wf_ab()
             return final_n
@@ -5713,7 +5720,7 @@ class MainWindow(QMainWindow):
             self._st("Marker out of range"); return
         new_cur = max(0.0, self.engine.current_sec()+delta)
         self.engine.markers[MARKER_A]=na; self.engine.markers[MARKER_B]=nb
-        self.engine.seek(new_cur)
+        self._seek_update(new_cur)
         self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
         self._update_wf_ab()
 
@@ -7486,7 +7493,7 @@ class MainWindow(QMainWindow):
             new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=final_n
             self.engine.markers[other]=final_other
-            self.engine.seek(new_cur)
+            self._seek_update(new_cur)
             self._refresh_marker(other)
         else:
             ov = self.engine.markers.get(other)
@@ -7564,7 +7571,7 @@ class MainWindow(QMainWindow):
             new_cur = max(0.0, self.engine.current_sec()+delta_sec)
             self.engine.markers[MARKER_A] = new_a
             self.engine.markers[MARKER_B] = new_b
-            self.engine.seek(new_cur)
+            self._seek_update(new_cur)
         else:
             self.engine.markers[MARKER_A] = new_a
             self.engine.markers[MARKER_B] = new_b
