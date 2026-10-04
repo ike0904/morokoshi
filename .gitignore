@@ -8,3 +8,4 @@ __pycache__/
 tmp/
 src/__pycache__/
 *.exe
+token.txt
