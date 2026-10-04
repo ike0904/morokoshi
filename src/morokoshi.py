@@ -4605,14 +4605,23 @@ class WaveformScrollBar(QScrollBar):
         self._press_vhi = 1.0
         self.setMouseTracking(True)
 
+    def _handle_rect(self):
+        """スタイルシートのmin-widthを考慮した実際のサムのrectを返す。"""
+        from PyQt6.QtWidgets import QStyle, QStyleOptionSlider
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+        return self.style().subControlRect(
+            QStyle.ComplexControl.CC_ScrollBar,
+            opt,
+            QStyle.SubControl.SC_ScrollBarSlider,
+            self
+        )
+
     def _hit_edge(self, x):
-        wf = self._wf
-        w = max(1, self.width())
-        lo_px = wf._view_lo * w
-        hi_px = wf._view_hi * w
+        r = self._handle_rect()
         tol = self._edge_tol
-        if abs(x - lo_px) <= tol: return 'left'
-        if abs(x - hi_px) <= tol: return 'right'
+        if abs(x - r.left()) <= tol: return 'left'
+        if abs(x - r.right()) <= tol: return 'right'
         return None
 
     def mousePressEvent(self, e):
