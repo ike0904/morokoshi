@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.5.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.6.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v2.5.0)
+(対象バージョン: v2.6.0)
 
 ---
 
@@ -161,7 +161,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。 |
 | <img src="icons/zoom.png" width="20"> **Zoom** | 画面全体の表示倍率を2倍 ⇔ 1倍で切り替えます。文字やボタンが小さくて見づらいときに使います。 |
 | <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。**Shift+クリック**でフォルダ選択ダイアログを開きます。**右クリック**で最近開いたファイルの履歴を表示します（最大10件）。 |
-| <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。 |
+| <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。検出中はアイコンが**赤**になります。**Shift+クリック**でタップテンポ（アイコンが**青**）になります。 |
 | <img src="icons/reset.png" width="20"> **すべてリセット** | マーカー・速度・キー・Fine・テンポ・フィルターなどを初期状態に戻します。 |
 | **A** ボタン | **Aマーカーへ移動**します。再生中はそのまま再生を続けながら、停止中は停止したまま、再生位置だけがAマーカーの位置にジャンプします。 |
 | <img src="icons/ear.png" width="20"> **Ear Mode（耳マーク）** | 耳コピ用の特別なリピートモード（詳細は後述）。ONのときアイコンが**黄色**になります。 |
@@ -247,8 +247,17 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 > 💡 逆に **Rew/FFを直接変更**した場合は、`Tempo = 60 × Beat × Bar ÷ Rew/FF` でTempoが逆算されます。「ちょうど3秒戻りたい」といった秒数指定にも対応できます。Beat・Barの値は変わりません。Tempoが30〜300の範囲外になる場合はエラーになり、変更前の値に戻ります。  
 > 💡 **Rew/FF欄をシングルクリック**すると、A<->B 間の秒数がそのままコピーされ、Tempoが自動逆算されます。設定済みのA-B区間をRew/FF幅として即座に採用できます。  
 > 💡 **Tempo欄をシングルクリック**しても、テンポ検出アイコンをクリックしたのと同じ動作になります。  
-> 💡 テンポ検出は再生を一度止めてから行われます。検出中はテンポ関連の入力欄が一時的にグレーになります。  
+> 💡 テンポ検出は再生を一度止めてから行われます。検出中はテンポ関連の入力欄が一時的にグレーになり、テンポ検出アイコンが**赤**になります。  
 > 💡 テンポ検出は完全ではなく、誤った値を出力する場合があることをご了承ください。
+
+**■ タップテンポ**
+曲に合わせて拍をタップして、テンポを手動で求めることもできます。
+
+1. **Beat**（拍子）を **2以上** に設定します（Beat=1 ではタップテンポは使えません）。
+2. **Shift+T**、テンポ検出アイコンの **Shift+クリック**、またはテンキーの **Enter+8** で、曲に合わせて拍をタップします。タップテンポ中はテンポ検出アイコンが**青**になります。
+3. **Beat の数だけタップ**すると、タップ間隔の平均から Tempo が自動計算されます。続けてタップすると、その都度 Tempo が更新されます。
+
+> 💡 タップ間隔が **2秒** を超えるか、タップ以外のキー操作をすると、タップテンポは自動的に終了します。
 
 ### ステップ4: A・Bマーカーを設定してリピートする
 
@@ -305,6 +314,15 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 
 * 波形の下にある**スクロールバーをドラッグ**する。
 * **Shift+マウスホイール**を回す。
+
+**■ スクロールバーの端をドラッグして拡大・縮小する**
+スクロールバーのつまみの**左端・右端**にカーソルを合わせると、カーソルが **↔** に変わります。そのまま左右にドラッグすると、反対側の端を固定したまま表示範囲（ズーム幅）を自由に調整できます。
+
+> 💡 つまみが最小の幅に達した後もドラッグを続けると、つまみの見た目はそのままで、波形だけがさらに拡大されます。  
+> 💡 再生中は、現在の再生位置が画面外に出ないよう、左端のドラッグでは再生位置が表示範囲の**左20%**、右端のドラッグでは**右80%**に達したところで拡大が止まります。
+
+**■ 右クリックでA・Bマーカーをリセットする**
+波形エリアを**右クリック**すると、A・B両方のマーカーがリセットされます。
 
 **■ ダブルクリックでマーカーをセットする**
 波形を**ダブルクリック**すると、その位置にマーカーがセットされます。状況に応じて、セットされるマーカーが自動で選ばれます。
@@ -519,6 +537,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **Shift+B** | **Enter+6** | Bマーカーをセット |
 | **O** | **7** | ファイルを開く |
 | **T** | **8** | テンポ検出 |
+| **Shift+T** | **Enter+8** | タップテンポ（Beat 2以上） |
 | **R** | **9** | すべてリセット |
 | **Shift+R** | **Enter+9** | キャッシュクリア |
 | **H** | **／**（スラッシュ） | Help（取扱説明書を開く） |
@@ -573,7 +592,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v2.5.0**  
+**Morokoshi Time v2.6.0**  
 *Created by Ike-san*
 
 ---
@@ -596,6 +615,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v2.2.0** | 2026/8/25 | ゲーム音楽（NSF/SPC/GBS）の総再生時間操作を改善しました。<br>低速再生時に曲が途中で終了するバグを修正しました。<br>チャンネル切替時に曲頭の無音が省略されるバグを修正しました。<br>FDS拡張音源を使用するNSFファイルで音が出なかった問題を修正しました（DLL更新）。<br>波形エリアの左右ドラッグ操作をA-B区間の設定に変更しました。<br>再生速度の選択肢を×1/8・×1/4・×1/2・×1/1の4段階に変更しました。<br>トラック番号のホイール/ドラッグ操作方向を「下＝次のトラック」に変更しました。<br>初期表示倍率（Zoom）を2倍に変更しました。<br>その他軽微な修正を行いました。 |
 | **v2.4.0** | 2026/9/6 | NSFファイルで**曲の冒頭が約0.2秒欠ける**問題を修正しました（DLL更新）。<br>**OPENボタンを右クリック**すると最近開いたファイルの履歴を表示できるようになりました（最大10件。右クリックまたはウィンドウ外クリックでキャンセル）。 |
 | **v2.5.0** | 2026/9/22 | **Tempo欄をダブルクリックで直接入力**できるようになりました（1クリックのテンポ検出と競合しなくなりました）。<br>**Ear Mode 中のA・Bマーカー操作を改善**しました。A・Bを動かすと現在位置が常に相対的に連動して動くようになりました。また、Ear Mode 突入時に現在位置がA～B区間外にある場合は自動的にAへ移動します。Ear Mode 中は波形クリックや直接入力でもA～B区間外に出られなくなりました。<br>波形のA-B帯（黄色い部分）を左右にドラッグして区間ごとパン移動できる操作を復活させました。 |
+| **v2.6.0** | 2026/10/4 | **タップテンポ**機能を追加しました（Shift+T / テンポ検出アイコンのShift+クリック / テンキーEnter+8）。<br>テンポ検出中はテンポ検出アイコンが赤、タップテンポ中は青で表示されるようになりました。<br>**スクロールバーの端をドラッグ**して表示範囲（ズーム幅）を調整できるようになりました。再生中は再生位置が画面外に出ないよう制限されます。<br>波形エリアの**右クリックでA・B両方のマーカーをリセット**できるようになりました。 |
 
 ---
 
@@ -604,7 +624,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v2.5.0)
+(Target version: v2.6.0)
 
 ---
 
@@ -754,7 +774,7 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 | <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`. |
 | <img src="icons/zoom.png" width="20"> **Zoom** | Toggles display scaling between 2× and 1×. Use when text and buttons are too small to read comfortably. |
 | <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. **Shift+click** opens a folder-selection dialog. **Right-click** shows a history of recently opened files (up to 10 entries). |
-| <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. |
+| <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. The icon turns **red** during detection. **Shift+click** for Tap Tempo (the icon turns **blue**). |
 | <img src="icons/reset.png" width="20"> **Reset All** | Resets markers, speed, key, Fine, tempo, filters, and more to their defaults. |
 | **A** button | **Go to A marker.** Jumps playback position to the A marker. Playback state does not change. |
 | <img src="icons/ear.png" width="20"> **Ear Mode (ear icon)** | Activates Ear Mode — a special transcription-focused repeat mode (details below). Icon turns **yellow** when ON. |
@@ -840,8 +860,17 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 > 💡 You can also **set Rew/FF directly** to specify an exact number of seconds; Tempo is back-calculated as `Tempo = 60 × Beat × Bar ÷ Rew/FF`. Beat and Bar are unchanged. If the resulting Tempo would be outside 30–300, the change is rejected.
 > 💡 **Single-click the Rew/FF field** to copy the A<->B duration directly — Tempo is back-calculated automatically. Instantly use your A-B region as the Rew/FF distance.  
 > 💡 **Single-click the Tempo field** to trigger tempo detection — same as clicking the Detect Tempo icon.  
-> 💡 Tempo detection briefly pauses playback. Tempo-related fields turn grey during detection.
+> 💡 Tempo detection briefly pauses playback. Tempo-related fields turn grey and the Detect Tempo icon turns **red** during detection.
 > 💡 Tempo detection is an estimate and may return incorrect values for complex or variable-tempo songs.
+
+**■ Tap Tempo**
+You can also find the tempo manually by tapping along with the beat.
+
+1. Set **Beat** to **2 or more** (Tap Tempo is unavailable when Beat=1).
+2. Tap along with the beat using **Shift+T**, **Shift+click** on the Detect Tempo icon, or numpad **Enter+8**. The Detect Tempo icon turns **blue** while Tap Tempo is active.
+3. After **as many taps as the Beat value**, Tempo is calculated automatically from the average tap interval. Keep tapping to update Tempo each time.
+
+> 💡 Tap Tempo ends automatically if more than **2 seconds** pass between taps, or if you press any key other than a tap key.
 
 ### Step 4: Setting A/B Markers and Repeating
 
@@ -899,6 +928,15 @@ When zoomed in, you can scroll using any of these methods:
 
 * **Drag the scroll bar** at the bottom of the waveform.
 * **Shift+mouse wheel**.
+
+**■ Zooming by dragging the scroll bar edges**
+Hover over the **left or right edge** of the scroll bar thumb and the cursor changes to **↔**. Drag left/right to freely adjust the visible range (zoom width) while the opposite edge stays fixed.
+
+> 💡 If you keep dragging after the thumb reaches its minimum width, the thumb stays put and only the waveform zooms in further.  
+> 💡 During playback, zooming stops so that the current position stays on screen: at **20% from the left** when dragging the left edge, and at **80% from the left** when dragging the right edge.
+
+**■ Right-click to reset the A and B markers**
+**Right-click** in the waveform area to reset both the A and B markers.
 
 **■ Double-clicking to set markers**
 **Double-click** in the waveform to set a marker at that position. Which marker is set is determined automatically:
@@ -1112,6 +1150,7 @@ In addition to standard shortcuts, "Morokoshi Time" provides **hidden numpad sho
 | **Shift+B** | **Enter+6** | Set B marker |
 | **O** | **7** | Open file |
 | **T** | **8** | Detect tempo |
+| **Shift+T** | **Enter+8** | Tap Tempo (Beat 2 or more) |
 | **R** | **9** | Reset all |
 | **Shift+R** | **Enter+9** | Clear cache |
 | **H** | **/** (slash) | Help (open user manual) |
@@ -1164,7 +1203,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v2.5.0**
+**Morokoshi Time v2.6.0**
 *Created by Ike-san*
 
 ---
@@ -1187,3 +1226,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v2.2.0** | 2026/8/25 | Improved total duration control for game music (NSF/SPC/GBS).<br>Fixed a bug where tracks stopped prematurely at slow speeds.<br>Fixed a bug where opening silence was skipped when switching channels.<br>Fixed silent playback on certain FDS expansion NSF files (DLL update).<br>Waveform left/right drag now sets the A-B range instead of scrolling.<br>Playback speed choices changed to 4 steps: ×1/8, ×1/4, ×1/2, ×1/1.<br>Track number wheel/drag direction changed to "down = next track."<br>Default display zoom changed to 2×.<br>Other minor fixes. |
 | **v2.4.0** | 2026/9/6 | Fixed a bug where the **first ~0.2 seconds of NSF tracks were cut off** (DLL update).<br>**Right-clicking the OPEN button** now shows a history of recently opened files (up to 10 entries; dismiss by right-clicking or clicking outside). |
 | **v2.5.0** | 2026/9/22 | **Tempo field can now be directly edited by double-clicking** (no longer conflicts with single-click tempo detection).<br>**Improved Ear Mode A/B marker behavior.** Moving A or B now always shifts the current playback position relatively. When entering Ear Mode, if the current position is outside the A–B range, it automatically moves to A. While in Ear Mode, seeking via waveform click or direct input is now clamped to the A–B range.<br>Restored the ability to **pan the A-B region by dragging within the yellow band** in the waveform area. |
+| **v2.6.0** | 2026/10/4 | Added **Tap Tempo** (Shift+T / Shift+click on the Detect Tempo icon / numpad Enter+8).<br>The Detect Tempo icon now turns red during tempo detection and blue during Tap Tempo.<br>**Drag the scroll bar edges** to adjust the visible range (zoom width). During playback, zooming is limited so the playback position stays on screen.<br>**Right-click the waveform area to reset both A and B markers.** |
