@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.5.0"
+APP_VERSION = "v2.5.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4622,6 +4622,12 @@ class MainWindow(QMainWindow):
         self._tempo_click_timer=QTimer(self)
         self._tempo_click_timer.setSingleShot(True)
         self._tempo_click_timer.timeout.connect(self._tempo_detect)
+        # タップテンポ状態
+        self._tap_tempo_mode = False
+        self._tap_times = []
+        self._tap_timeout_timer = QTimer(self)
+        self._tap_timeout_timer.setSingleShot(True)
+        self._tap_timeout_timer.timeout.connect(self._tap_tempo_timeout)
 
         self._nsf_loading = False        # NSFトラックデコード中フラグ
         self._nsf_ch_rendering = False   # ch切替レンダリング中フラグ
@@ -4868,7 +4874,7 @@ class MainWindow(QMainWindow):
              ("help","Help [H]","_help_btn",self._show_help),
              ("zoom","Zoom [Z]","_zoom_btn",self._toggle_zoom)],
             [("open","Open[O]\nShift: Folder\nR-Click: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
-             ("tempo_search","Tempo detection [T]","_tempo_btn",self._tempo_detect),
+             ("tempo_search","Tempo detection [T]\nShift: Tap tempo [Shift+T]","_tempo_btn",self._tempo_btn_action),
              ("reset","Reset[R]\nShift: Clear Cache","_reset_btn",
               lambda: self._do_cache_clear() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._do_reset())],
             [self._wrap_small_btn(self._btn_marker_a),
@@ -6083,6 +6089,61 @@ class MainWindow(QMainWindow):
                     w.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid {BORDER}; padding:1px 4px;")
             else:
                 w.setStyleSheet(f"color:{FG2}; background:{BG}; border:1px solid {BORDER}; padding:1px 4px;")
+        if enabled:
+            _b = getattr(self, "_tempo_btn", None)
+            if _b is not None and not self._tap_tempo_mode:
+                _b.setIcon(_get_icon("tempo_search", self.S(28), FG))
+
+    def _tempo_btn_action(self):
+        """テンポボタンクリック: Shift=タップテンポ, 通常=テンポ検出"""
+        if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier:
+            self._tap_tempo_enter_or_tap()
+        else:
+            if self._tap_tempo_mode: self._tap_tempo_exit()
+            self._tempo_detect()
+
+    def _tap_tempo_enter_or_tap(self):
+        """タップテンポ: 未入状態なら入りかつ初回タップ、入り済みなら追加タップ。"""
+        if self.engine.data is None: self._st("Load a file first"); return
+        if self._beat <= 1:
+            self._st("Tap tempo: set Beat to 2 or more"); return
+        now = time.time()
+        if self._tap_tempo_mode:
+            self._tap_times.append(now)
+            self._tap_timeout_timer.start(2000)
+            self._tap_tempo_calc()
+        else:
+            self._tap_tempo_mode = True
+            self._tap_times = [now]
+            self._tap_timeout_timer.start(2000)
+            _b = getattr(self, "_tempo_btn", None)
+            if _b is not None:
+                _b.setIcon(_get_icon("tempo_search", self.S(28), "#4499FF"))
+            self._st("Tap tempo: tap on the beat...")
+
+    def _tap_tempo_calc(self):
+        n = self._beat
+        times = self._tap_times[-n:] if len(self._tap_times) > n else self._tap_times
+        if len(times) < 2: return
+        intervals = [times[i+1] - times[i] for i in range(len(times)-1)]
+        bpm = 60.0 / (sum(intervals) / len(intervals))
+        bpm = max(30.0, min(300.0, bpm))
+        self._tempo_edit.setText(f"{bpm:.1f}")
+        self._tempo = bpm
+        self._update_rewff()
+        self._st(f"Tap tempo: {bpm:.1f} BPM ({len(self._tap_times)} taps)")
+
+    def _tap_tempo_timeout(self):
+        if self._tap_tempo_mode: self._tap_tempo_exit()
+
+    def _tap_tempo_exit(self):
+        if not self._tap_tempo_mode: return
+        self._tap_tempo_mode = False
+        self._tap_times = []
+        self._tap_timeout_timer.stop()
+        _b = getattr(self, "_tempo_btn", None)
+        if _b is not None:
+            _b.setIcon(_get_icon("tempo_search", self.S(28), FG))
 
     def _tempo_detect(self):
         if self.engine.data is None: self._st("Load a file first"); return
@@ -6094,6 +6155,9 @@ class MainWindow(QMainWindow):
             self._pos_lbl.setText(self._fmt(cur))
         self._st("Detecting tempo...")
         self._set_tempo_inputs_enabled(False)  # 検出中はグレーアウト
+        _b = getattr(self, "_tempo_btn", None)
+        if _b is not None:
+            _b.setIcon(_get_icon("tempo_search", self.S(28), "#FF4040"))
         ctr=self.engine.current_sec()
         def worker():
             t=self.engine.estimate_tempo(ctr)
@@ -7701,6 +7765,15 @@ class MainWindow(QMainWindow):
         shift=bool(e.modifiers()&Qt.KeyboardModifier.ShiftModifier)
         ctrl =bool(e.modifiers()&Qt.KeyboardModifier.ControlModifier)
         vk=e.nativeVirtualKey()
+        _kp_mod=bool(e.modifiers() & Qt.KeyboardModifier.KeypadModifier)
+
+        # タップテンポモード中: タップ操作以外のキーで離脱
+        if self._tap_tempo_mode and not e.isAutoRepeat():
+            _is_tap = (shift and vk == 84)  # Shift+T
+            _is_kp8 = (_kp_mod and key == K.Key_8)  # テンキー8（Enter+8含む）
+            _is_kp_enter = (_kp_mod and key in (K.Key_Enter, K.Key_Return))
+            if not _is_tap and not _is_kp8 and not _is_kp_enter:
+                self._tap_tempo_exit()
 
         # キー押下中フラッシュ（自動リピートでなければ）
         if not e.isAutoRepeat():
@@ -7748,6 +7821,7 @@ class MainWindow(QMainWindow):
                     _b=getattr(self,"_reset_btn",None)
                     if _b is not None: self._flash_off(_b)
                 return True
+            if vk==84: self._tap_tempo_enter_or_tap(); return True  # Shift+T → タップテンポ
             if key==K.Key_Space: self._seek_to_start(); return True  # Shift+Space → 先頭リセット
             # NSFモード: Shift+←/→ で曲切り替え, Shift+[,][.] で10曲ずつ
             nsf_s=self.engine._nsf
@@ -7931,7 +8005,13 @@ class MainWindow(QMainWindow):
                         _b=getattr(self,"_open_btn",None)
                         if _b is not None: self._flash_off(_b)
                 return True
-            if key==K.Key_8: self._tempo_detect(); return True
+            if key==K.Key_8:
+                if enter_recent:
+                    self._kp_enter_time=0.0
+                    self._tap_tempo_enter_or_tap()
+                else:
+                    self._tempo_detect()
+                return True
             if key==K.Key_9:
                 if enter_recent:
                     self._kp_enter_time=0.0
