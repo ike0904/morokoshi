@@ -4628,6 +4628,7 @@ class MainWindow(QMainWindow):
         self._tap_timeout_timer = QTimer(self)
         self._tap_timeout_timer.setSingleShot(True)
         self._tap_timeout_timer.timeout.connect(self._tap_tempo_timeout)
+        self._tempo_detecting = False  # テンポ検出中フラグ（赤アイコン表示用）
 
         self._nsf_loading = False        # NSFトラックデコード中フラグ
         self._nsf_ch_rendering = False   # ch切替レンダリング中フラグ
@@ -4874,7 +4875,7 @@ class MainWindow(QMainWindow):
              ("help","Help [H]","_help_btn",self._show_help),
              ("zoom","Zoom [Z]","_zoom_btn",self._toggle_zoom)],
             [("open","Open[O]\nShift: Folder\nR-Click: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
-             ("tempo_search","Tempo detection [T]\nShift: Tap tempo [Shift+T]","_tempo_btn",self._tempo_btn_action),
+             ("tempo_search","Tempo detection [T]\nShift: Tap tempo","_tempo_btn",self._tempo_btn_action),
              ("reset","Reset[R]\nShift: Clear Cache","_reset_btn",
               lambda: self._do_cache_clear() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._do_reset())],
             [self._wrap_small_btn(self._btn_marker_a),
@@ -5217,12 +5218,12 @@ class MainWindow(QMainWindow):
         if flash:
             # 押下中は黄色、離したら通常色に戻す
             b.pressed.connect(lambda nm=name, bb=b: bb.setIcon(_get_icon(nm,ICO_IMG,"#FFD700")))
-            b.released.connect(lambda nm=name, bb=b: bb.setIcon(_get_icon(nm,ICO_IMG,FG)))
+            b.released.connect(lambda nm=name, bb=b, _win=self: bb.setIcon(_get_icon(nm,ICO_IMG,_win._get_btn_base_color(bb))))
             if slot:
                 # モーダルダイアログ等でreleasedが取りこぼされても確実に戻す
-                def _wrapped(checked=False, _slot=slot, nm=name, bb=b):
+                def _wrapped(checked=False, _slot=slot, nm=name, bb=b, _win=self):
                     try: _slot()
-                    finally: bb.setIcon(_get_icon(nm,ICO_IMG,FG))
+                    finally: bb.setIcon(_get_icon(nm,ICO_IMG,_win._get_btn_base_color(bb)))
                 b.clicked.connect(_wrapped)
         else:
             if slot: b.clicked.connect(slot)
@@ -6090,6 +6091,7 @@ class MainWindow(QMainWindow):
             else:
                 w.setStyleSheet(f"color:{FG2}; background:{BG}; border:1px solid {BORDER}; padding:1px 4px;")
         if enabled:
+            self._tempo_detecting = False
             _b = getattr(self, "_tempo_btn", None)
             if _b is not None and not self._tap_tempo_mode:
                 _b.setIcon(_get_icon("tempo_search", self.S(28), FG))
@@ -6111,7 +6113,11 @@ class MainWindow(QMainWindow):
         if self._tap_tempo_mode:
             self._tap_times.append(now)
             self._tap_timeout_timer.start(2000)
-            self._tap_tempo_calc()
+            if len(self._tap_times) >= self._beat:
+                self._tap_tempo_calc()
+            else:
+                remain = self._beat - len(self._tap_times)
+                self._st(f"Tap tempo: {len(self._tap_times)} taps ({remain} more...)")
         else:
             self._tap_tempo_mode = True
             self._tap_times = [now]
@@ -6119,14 +6125,14 @@ class MainWindow(QMainWindow):
             _b = getattr(self, "_tempo_btn", None)
             if _b is not None:
                 _b.setIcon(_get_icon("tempo_search", self.S(28), "#4499FF"))
-            self._st("Tap tempo: tap on the beat...")
+            remain = self._beat - 1
+            self._st(f"Tap tempo: 1 tap ({remain} more...)")
 
     def _tap_tempo_calc(self):
-        n = self._beat
-        times = self._tap_times[-n:] if len(self._tap_times) > n else self._tap_times
-        if len(times) < 2: return
-        intervals = [times[i+1] - times[i] for i in range(len(times)-1)]
-        bpm = 60.0 / (sum(intervals) / len(intervals))
+        if len(self._tap_times) < 2: return
+        total_time = self._tap_times[-1] - self._tap_times[0]
+        n_intervals = len(self._tap_times) - 1
+        bpm = 60.0 / (total_time / n_intervals)
         bpm = max(30.0, min(300.0, bpm))
         self._tempo_edit.setText(f"{bpm:.1f}")
         self._tempo = bpm
@@ -6154,6 +6160,7 @@ class MainWindow(QMainWindow):
             self.engine.seek(cur)  # _src_pos と _played_orig を現在位置で一致させ固定
             self._pos_lbl.setText(self._fmt(cur))
         self._st("Detecting tempo...")
+        self._tempo_detecting = True
         self._set_tempo_inputs_enabled(False)  # 検出中はグレーアウト
         _b = getattr(self, "_tempo_btn", None)
         if _b is not None:
@@ -7749,6 +7756,13 @@ class MainWindow(QMainWindow):
             nm=getattr(btn,"_icon_name",None)
             if nm: btn.setIcon(_get_icon(nm,self.S(28),"#FFD700"))
 
+    def _get_btn_base_color(self, btn):
+        _tb = getattr(self, "_tempo_btn", None)
+        if btn is _tb:
+            if self._tap_tempo_mode: return "#4499FF"
+            if self._tempo_detecting: return "#FF4040"
+        return FG
+
     def _flash_off(self, btn):
         if btn is None: return
         inner=getattr(btn,"_inner_btn",None)
@@ -7758,7 +7772,7 @@ class MainWindow(QMainWindow):
             btn.setDown(False)
         else:
             nm=getattr(btn,"_icon_name",None)
-            if nm: btn.setIcon(_get_icon(nm,self.S(28),FG))
+            if nm: btn.setIcon(_get_icon(nm,self.S(28),self._get_btn_base_color(btn)))
 
     def _handle_key(self, e):
         key=e.key(); K=Qt.Key
