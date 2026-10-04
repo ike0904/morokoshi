@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.5.2"
+APP_VERSION = "v2.5.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4590,6 +4590,8 @@ class DividerRow(QWidget):
         lo.addWidget(line)
         lo.addStretch(1)
 
+WF_SB_RES = 100000  # 波形スクロールバーの分解能（細かいズームでもサム位置が丸めでずれないよう高めに）
+
 class WaveformScrollBar(QScrollBar):
     """端ドラッグでズーム幅を調整できるスクロールバー。"""
     zoom_resize = pyqtSignal(float, float)  # (new_view_lo, new_view_hi)
@@ -4604,21 +4606,54 @@ class WaveformScrollBar(QScrollBar):
         self._press_x = 0.0
         self._press_vlo = 0.0
         self._press_vhi = 1.0
+        self._anchor_px = 0.0
+        self._limit_by_pos = False
         self.setMouseTracking(True)
 
-    def _visual_handle_px(self):
-        """stylesheetのmin-widthを考慮したサムの実際の表示位置 (lo_px, hi_px) を返す。
+    def _view_to_px(self, lo, hi):
+        """表示範囲 (lo, hi) → サムの表示位置 (lo_px, hi_px)。stylesheetのmin-widthを考慮。
         QStyleOptionSlider/subControlRectはCSSのmin-widthを反映しないため手動計算する。"""
         w = float(max(1, self.width()))
-        mn = self.minimum(); mx = self.maximum(); ps = self.pageStep()
-        total = mx - mn + ps
-        if total <= 0:
+        span = hi - lo
+        if span >= 1.0:
             return 0.0, w
-        logical_len = ps / total * w
-        actual_len = max(logical_len, float(self._min_thumb_px))
-        available = max(0.0, w - actual_len)
-        lo = (self.value() - mn) / max(1, mx - mn) * available if mx > mn else 0.0
-        return lo, lo + actual_len
+        m = min(float(self._min_thumb_px), w)
+        length = max(span * w, m)
+        lo_px = lo / max(1e-9, 1.0 - span) * (w - length)
+        return lo_px, lo_px + length
+
+    def _visual_handle_px(self):
+        wf = self._wf
+        return self._view_to_px(wf._view_lo, wf._view_hi)
+
+    def _place(self, span):
+        """反対側のサム端の表示位置(_anchor_px)を固定したまま、幅spanの表示範囲 (lo, hi) を求める。
+        サムがmin-widthに達した後は、サムの見た目を動かさずに表示範囲だけを縮める。"""
+        w = float(max(1, self.width()))
+        m = min(float(self._min_thumb_px), w)
+        a = self._anchor_px
+        if span * w >= m:
+            # 比例領域: サム端の位置 = 表示端 × 幅
+            if self._resize_mode == 'left':
+                hi = a / w; lo = hi - span
+            else:
+                lo = a / w; hi = lo + span
+        else:
+            # min-width領域: サム左端 = lo/(1-span) × (w-m)
+            thumb_lo = (a - m) if self._resize_mode == 'left' else a
+            c = thumb_lo / (w - m) if w > m else 0.0
+            c = max(0.0, min(1.0, c))
+            lo = c * (1.0 - span); hi = lo + span
+        if lo < 0.0: lo = 0.0
+        if hi > 1.0: hi = 1.0
+        return lo, hi
+
+    def _pos_ok(self, lo, hi):
+        """再生中の現在位置が、左端ドラッグなら左20%より右、右端ドラッグなら右80%より左にあるか"""
+        p = self._wf.position; sp = hi - lo
+        if self._resize_mode == 'left':
+            return p >= lo + sp * 0.2
+        return p <= lo + sp * 0.8
 
     def _hit_edge(self, x):
         lo_px, hi_px = self._visual_handle_px()
@@ -4636,6 +4671,10 @@ class WaveformScrollBar(QScrollBar):
                 self._press_x = e.position().x()
                 self._press_vlo = wf._view_lo
                 self._press_vhi = wf._view_hi
+                lo_px, hi_px = self._view_to_px(wf._view_lo, wf._view_hi)
+                self._anchor_px = hi_px if side == 'left' else lo_px
+                # 再生中かつ押下時点で条件を満たしている場合のみ、現在位置による拡縮制限を行う
+                self._limit_by_pos = bool(wf._is_playing) and self._pos_ok(wf._view_lo, wf._view_hi)
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
                 e.accept()
                 return
@@ -4645,13 +4684,22 @@ class WaveformScrollBar(QScrollBar):
         if self._resize_mode:
             dx = e.position().x() - self._press_x
             dr = dx / max(1, self.width())
-            vlo = self._press_vlo; vhi = self._press_vhi
+            press_span = self._press_vhi - self._press_vlo
             if self._resize_mode == 'left':
-                new_lo = max(0.0, min(vhi - self._min_span, vlo + dr))
-                self.zoom_resize.emit(new_lo, vhi)
+                span = press_span - dr
             else:
-                new_hi = min(1.0, max(vlo + self._min_span, vhi + dr))
-                self.zoom_resize.emit(vlo, new_hi)
+                span = press_span + dr
+            span = max(self._min_span, min(1.0, span))
+            lo, hi = self._place(span)
+            if self._limit_by_pos and not self._pos_ok(lo, hi):
+                # 条件を満たす境界のspanを二分探索（bad=span側, good=押下時span側）
+                bad, good = span, press_span
+                for _ in range(40):
+                    mid = (bad + good) * 0.5
+                    if self._pos_ok(*self._place(mid)): good = mid
+                    else: bad = mid
+                lo, hi = self._place(good)
+            self.zoom_resize.emit(lo, hi)
         else:
             side = self._hit_edge(e.position().x())
             self.setCursor(Qt.CursorShape.SizeHorCursor if side else Qt.CursorShape.ArrowCursor)
@@ -5079,7 +5127,8 @@ class MainWindow(QMainWindow):
         wf_lo.addWidget(self._waveform)
         self._wf_scroll=WaveformScrollBar(self._waveform, edge_tol=self.S(8), min_thumb_px=self.S(20))
         self._wf_scroll.setFixedHeight(self.S(12))
-        self._wf_scroll.setRange(0,0); self._wf_scroll.setPageStep(1000)
+        self._wf_scroll.setRange(0,0); self._wf_scroll.setPageStep(WF_SB_RES)
+        self._wf_scroll.setSingleStep(WF_SB_RES//1000)
         self._wf_scroll.setStyleSheet(
             f"QScrollBar:horizontal{{height:{self.S(12)}px;background:{BG2};border:none;}}"
             f"QScrollBar::handle:horizontal{{background:{BG3};border-radius:4px;min-width:{self.S(20)}px;}}"
@@ -7760,7 +7809,7 @@ class MainWindow(QMainWindow):
         wf=self._waveform
         span=wf._vspan()
         if span>=1.0: return
-        lo=(value/1000.0)
+        lo=(value/float(WF_SB_RES))
         lo=max(0.0, min(1.0-span, lo))
         wf._view_lo=lo; wf._view_hi=lo+span
         wf._last_manual=time.time()  # 手動操作として追従を一時抑制
@@ -7784,9 +7833,9 @@ class MainWindow(QMainWindow):
         if span>=1.0:
             sb.setRange(0,0)
         else:
-            sb.setRange(0, int(1000*(1.0-span)))
-            sb.setPageStep(int(1000*span))
-            sb.setValue(int(wf._view_lo*1000))
+            sb.setRange(0, round(WF_SB_RES*(1.0-span)))
+            sb.setPageStep(max(1, round(WF_SB_RES*span)))
+            sb.setValue(round(wf._view_lo*WF_SB_RES))
         sb.blockSignals(False)
 
     # ──────────────────────────────────────
