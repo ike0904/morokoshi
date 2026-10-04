@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.5.1"
+APP_VERSION = "v2.5.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4594,34 +4594,37 @@ class WaveformScrollBar(QScrollBar):
     """端ドラッグでズーム幅を調整できるスクロールバー。"""
     zoom_resize = pyqtSignal(float, float)  # (new_view_lo, new_view_hi)
 
-    def __init__(self, wf, edge_tol=8, min_span=0.005):
+    def __init__(self, wf, edge_tol=8, min_span=0.005, min_thumb_px=20):
         super().__init__(Qt.Orientation.Horizontal)
         self._wf = wf
         self._edge_tol = edge_tol
         self._min_span = min_span
+        self._min_thumb_px = min_thumb_px  # stylesheetのmin-widthと合わせる
         self._resize_mode = None  # 'left' or 'right'
         self._press_x = 0.0
         self._press_vlo = 0.0
         self._press_vhi = 1.0
         self.setMouseTracking(True)
 
-    def _handle_rect(self):
-        """スタイルシートのmin-widthを考慮した実際のサムのrectを返す。"""
-        from PyQt6.QtWidgets import QStyle, QStyleOptionSlider
-        opt = QStyleOptionSlider()
-        self.initStyleOption(opt)
-        return self.style().subControlRect(
-            QStyle.ComplexControl.CC_ScrollBar,
-            opt,
-            QStyle.SubControl.SC_ScrollBarSlider,
-            self
-        )
+    def _visual_handle_px(self):
+        """stylesheetのmin-widthを考慮したサムの実際の表示位置 (lo_px, hi_px) を返す。
+        QStyleOptionSlider/subControlRectはCSSのmin-widthを反映しないため手動計算する。"""
+        w = float(max(1, self.width()))
+        mn = self.minimum(); mx = self.maximum(); ps = self.pageStep()
+        total = mx - mn + ps
+        if total <= 0:
+            return 0.0, w
+        logical_len = ps / total * w
+        actual_len = max(logical_len, float(self._min_thumb_px))
+        available = max(0.0, w - actual_len)
+        lo = (self.value() - mn) / max(1, mx - mn) * available if mx > mn else 0.0
+        return lo, lo + actual_len
 
     def _hit_edge(self, x):
-        r = self._handle_rect()
+        lo_px, hi_px = self._visual_handle_px()
         tol = self._edge_tol
-        if abs(x - r.left()) <= tol: return 'left'
-        if abs(x - r.right()) <= tol: return 'right'
+        if abs(x - lo_px) <= tol: return 'left'
+        if abs(x - hi_px) <= tol: return 'right'
         return None
 
     def mousePressEvent(self, e):
@@ -5074,7 +5077,7 @@ class MainWindow(QMainWindow):
         self._waveform.marker_reset_requested.connect(self._reset_marker)
         self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset\nR-Click: Reset A & B")
         wf_lo.addWidget(self._waveform)
-        self._wf_scroll=WaveformScrollBar(self._waveform, edge_tol=self.S(8))
+        self._wf_scroll=WaveformScrollBar(self._waveform, edge_tol=self.S(8), min_thumb_px=self.S(20))
         self._wf_scroll.setFixedHeight(self.S(12))
         self._wf_scroll.setRange(0,0); self._wf_scroll.setPageStep(1000)
         self._wf_scroll.setStyleSheet(
