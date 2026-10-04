@@ -38,7 +38,7 @@ def _fast_stretch(mono, sr, spd, semi):
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSlider, QLineEdit, QFrame, QSizePolicy,
-    QFileDialog, QStackedWidget
+    QFileDialog, QStackedWidget, QScrollBar
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, pyqtSlot, QPointF
 from PyQt6.QtGui import (
@@ -4590,6 +4590,75 @@ class DividerRow(QWidget):
         lo.addWidget(line)
         lo.addStretch(1)
 
+class WaveformScrollBar(QScrollBar):
+    """端ドラッグでズーム幅を調整できるスクロールバー。"""
+    zoom_resize = pyqtSignal(float, float)  # (new_view_lo, new_view_hi)
+
+    def __init__(self, wf, edge_tol=8, min_span=0.005):
+        super().__init__(Qt.Orientation.Horizontal)
+        self._wf = wf
+        self._edge_tol = edge_tol
+        self._min_span = min_span
+        self._resize_mode = None  # 'left' or 'right'
+        self._press_x = 0.0
+        self._press_vlo = 0.0
+        self._press_vhi = 1.0
+        self.setMouseTracking(True)
+
+    def _hit_edge(self, x):
+        wf = self._wf
+        w = max(1, self.width())
+        lo_px = wf._view_lo * w
+        hi_px = wf._view_hi * w
+        tol = self._edge_tol
+        if abs(x - lo_px) <= tol: return 'left'
+        if abs(x - hi_px) <= tol: return 'right'
+        return None
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            side = self._hit_edge(e.position().x())
+            if side:
+                wf = self._wf
+                self._resize_mode = side
+                self._press_x = e.position().x()
+                self._press_vlo = wf._view_lo
+                self._press_vhi = wf._view_hi
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+                e.accept()
+                return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._resize_mode:
+            dx = e.position().x() - self._press_x
+            dr = dx / max(1, self.width())
+            vlo = self._press_vlo; vhi = self._press_vhi
+            if self._resize_mode == 'left':
+                new_lo = max(0.0, min(vhi - self._min_span, vlo + dr))
+                self.zoom_resize.emit(new_lo, vhi)
+            else:
+                new_hi = min(1.0, max(vlo + self._min_span, vhi + dr))
+                self.zoom_resize.emit(vlo, new_hi)
+        else:
+            side = self._hit_edge(e.position().x())
+            self.setCursor(Qt.CursorShape.SizeHorCursor if side else Qt.CursorShape.ArrowCursor)
+            super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if self._resize_mode:
+            self._resize_mode = None
+            self.unsetCursor()
+            e.accept()
+            return
+        super().mouseReleaseEvent(e)
+
+    def leaveEvent(self, e):
+        if not self._resize_mode:
+            self.unsetCursor()
+        super().leaveEvent(e)
+
+
 class MainWindow(QMainWindow):
     _tick_sig   = pyqtSignal(float, float)
     _status_sig = pyqtSignal(str)
@@ -4996,8 +5065,7 @@ class MainWindow(QMainWindow):
         self._waveform.marker_reset_requested.connect(self._reset_marker)
         self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset\nR-Click: Reset A & B")
         wf_lo.addWidget(self._waveform)
-        from PyQt6.QtWidgets import QScrollBar
-        self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
+        self._wf_scroll=WaveformScrollBar(self._waveform, edge_tol=self.S(8))
         self._wf_scroll.setFixedHeight(self.S(12))
         self._wf_scroll.setRange(0,0); self._wf_scroll.setPageStep(1000)
         self._wf_scroll.setStyleSheet(
@@ -5006,7 +5074,8 @@ class MainWindow(QMainWindow):
             f"QScrollBar::handle:horizontal:hover{{background:{FG2};}}"
             f"QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{{width:0px;}}")
         self._wf_scroll.valueChanged.connect(self._on_wf_scroll)
-        self._attach_tip(self._wf_scroll, "Drag←→: Scroll")
+        self._wf_scroll.zoom_resize.connect(self._on_sb_zoom_resize)
+        self._attach_tip(self._wf_scroll, "Drag←→: Scroll\nDrag edge ←→: Zoom")
         self._waveform.view_changed.connect(self._sync_wf_scroll)
         self._waveform.ab_range_set.connect(self._on_ab_range_set)
         self._waveform.ab_range_committed.connect(self._on_ab_range_committed)
@@ -7685,6 +7754,14 @@ class MainWindow(QMainWindow):
         wf._last_manual=time.time()  # 手動操作として追従を一時抑制
         _log(f"WF scrollbar: value={value} span={span:.4f} view=[{lo:.4f},{lo+span:.4f}] playing={self.engine.playing}")
         wf.update()
+
+    def _on_sb_zoom_resize(self, vlo, vhi):
+        """スクロールバー端ドラッグ → ズーム幅変更"""
+        wf = self._waveform
+        wf._view_lo = vlo; wf._view_hi = vhi
+        wf._last_manual = time.time()
+        wf.update()
+        wf.view_changed.emit()
 
     def _sync_wf_scroll(self):
         # 波形の表示範囲 → スクロールバーに反映
