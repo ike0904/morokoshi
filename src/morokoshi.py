@@ -3052,6 +3052,10 @@ class WaveformWidget(QWidget):
         if focused is not None: focused.clearFocus()
         w=self.window()
         if w: w.setFocus()
+        if e.button()==Qt.MouseButton.RightButton:
+            self.marker_reset_requested.emit(MARKER_A)
+            self.marker_reset_requested.emit(MARKER_B)
+            return
         if e.button()==Qt.MouseButton.LeftButton:
             self._dragging=True
             self._press_x=e.position().x()
@@ -4990,7 +4994,7 @@ class MainWindow(QMainWindow):
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset")
+        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset\nR-Click: Reset A & B")
         wf_lo.addWidget(self._waveform)
         from PyQt6.QtWidgets import QScrollBar
         self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
