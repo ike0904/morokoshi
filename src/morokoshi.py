@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.1"
+APP_VERSION = "v2.6.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4014,8 +4014,7 @@ class SpectrumLabelsWidget(QWidget):
 
 # ════════════════════════════════════════
 # 波形上部の時間目盛り（タイムルーラー）
-# 通常は波形の表示範囲に合わせた再生時間の目盛りを表示し、
-# スペアナにマウスオーバー中だけ周波数ラベルに切り替える
+# 波形の表示範囲に合わせた再生時間の目盛りを表示する
 # ════════════════════════════════════════
 # 数字ラベル間隔の候補(秒)と、それぞれの短い目盛り線の間隔(秒)
 TIME_RULER_STEPS = [(0.1,None),(0.2,0.1),(0.5,0.1),(1,0.5),(2,1),(5,1),(10,1),(15,5),
@@ -4027,14 +4026,8 @@ class TimeRulerWidget(SpectrumLabelsWidget):
     def __init__(self, wf, parent=None):
         super().__init__(parent)
         self._wf=wf
-        self._freq_mode=False
         self._last_view=None
         wf._ruler=self
-
-    def set_freq_mode(self, on):
-        on=bool(on)
-        if on!=self._freq_mode:
-            self._freq_mode=on; self.update()
 
     def sync_view(self):
         # 波形の表示範囲・曲長が変わった時だけ再描画する
@@ -4061,8 +4054,6 @@ class TimeRulerWidget(SpectrumLabelsWidget):
         return best
 
     def paintEvent(self, e):
-        if self._freq_mode:
-            super().paintEvent(e); return
         p=QPainter(self)
         w=self.width(); h=self.height()
         p.fillRect(0,0,w,h, QColor(BG))
@@ -4117,7 +4108,6 @@ class FilterOverlayWidget(QWidget):
         self._dragging=False
         self._drag_start_idx=None
         self._hovering=False  # マウスがこのエリア上にあるか
-        self.on_hover_changed=None  # ホバー状態の通知先（時間目盛り⇔周波数ラベルの切替用）
         self.on_range_changed=None  # callback(lo_idx, hi_idx)
         self.setMouseTracking(True)
         self.hide()
@@ -4138,8 +4128,6 @@ class FilterOverlayWidget(QWidget):
             self.show(); self.raise_()
         else:
             self.hide()
-        if self.on_hover_changed is not None:
-            self.on_hover_changed(self._hovering)
 
     def range(self):
         return (self._lo, self._hi)
@@ -5169,12 +5157,16 @@ class MainWindow(QMainWindow):
         self._mode_stack=QStackedWidget(); self._mode_stack.setFixedHeight(self.S(55))
         self._mode_stack.setStyleSheet(f"background:{BG};")
 
-        # ページ0: スペクトラムアナライザー（周波数ラベルは波形上部の時間目盛り行と兼用）
+        # ページ0: スペクトラムアナライザー + ラベル行
         spec_area=QWidget(); spec_area.setStyleSheet(f"background:{BG};")
         spec_lo=QVBoxLayout(spec_area); spec_lo.setContentsMargins(0,0,0,0); spec_lo.setSpacing(0)
         self._spectrum=SpectrumWidget()
-        self._spectrum.setFixedHeight(self.S(55))
+        self._spectrum.setFixedHeight(self.S(42))
         spec_lo.addWidget(self._spectrum)
+        self._spectrum_labels=SpectrumLabelsWidget()
+        self._spectrum_labels.set_font_px(self.S(8))
+        self._spectrum_labels.setFixedHeight(self.S(13))
+        spec_lo.addWidget(self._spectrum_labels)
         self._mode_stack.addWidget(spec_area)   # index 0
 
         # ページ1: NSFパネル
@@ -5208,8 +5200,6 @@ class MainWindow(QMainWindow):
         def _spectrum_enter(e, fo=self._filter_overlay):
             fo._hovering=True; fo._update_visibility()
         self._spectrum.enterEvent=_spectrum_enter
-        # 時間目盛り⇔周波数ラベルの切替（スペアナにマウスオーバー中のみ周波数ラベル）
-        self._filter_overlay.on_hover_changed=lambda on: self._time_ruler.set_freq_mode(on)
 
         # ── 波形エリア
         wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(36)); wf_area.setStyleSheet(f"background:{BG};")
