@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.6"
+APP_VERSION = "v2.6.7"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4886,7 +4886,7 @@ class MainWindow(QMainWindow):
         self._nsf_ch_render_done_sig.connect(self._on_nsf_ch_render_done)
 
         self.setWindowTitle(f"Morokoshi Time {APP_VERSION}  by Ike-san")
-        self.setFixedSize(self.S(375), self.S(318))
+        self.setFixedSize(self.S(375), self.S(322))
         self.setAcceptDrops(True)
         self._build_ui()
         self.setFocus()
@@ -5202,7 +5202,7 @@ class MainWindow(QMainWindow):
         self._spectrum.enterEvent=_spectrum_enter
 
         # ── 波形エリア
-        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(32)+self.S(15)); wf_area.setStyleSheet(f"background:{BG};")
+        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(32)+self.S(19)); wf_area.setStyleSheet(f"background:{BG};")
         wf_lo=QVBoxLayout(wf_area); wf_lo.setContentsMargins(0,0,0,0); wf_lo.setSpacing(0)
         self._waveform=WaveformWidget(); self._waveform.seeked.connect(self._on_wf_seek)
         # 波形上部の時間目盛り行（全モード共通）
@@ -5300,9 +5300,10 @@ class MainWindow(QMainWindow):
 
 
         # ── メッセージバー（右端に音量バー）
-        msg_row=QWidget(); msg_row.setFixedHeight(self.S(15)); msg_row.setStyleSheet(f"background:{BG};")
-        # 左端をSpeed/Key行と同じ2px、右端も同じ2px余白に
-        msg_lo=QHBoxLayout(msg_row); msg_lo.setContentsMargins(self.S(2),0,self.S(8),0); msg_lo.setSpacing(self.S(4))
+        msg_row=QWidget(); msg_row.setFixedHeight(self.S(19)); msg_row.setStyleSheet(f"background:{BG};")
+        # 左端をSpeed/Key行と同じ2px、右端も同じ2px余白に。
+        # 中身は上寄せ（上15pxに収め、下にウィンドウ下端までの余白4pxを取る）
+        msg_lo=QHBoxLayout(msg_row); msg_lo.setContentsMargins(self.S(2),0,self.S(8),self.S(4)); msg_lo.setSpacing(self.S(4))
         self._msg=QLabel("Drop a file or click Open to load")
         self._msg.setStyleSheet(f"color:{FG2}; background:{BG}; padding:1px 0px; font-size:{self.S(11)}px;")
         self._msg.setMaximumWidth(self.S(230))  # 音量バーに被らないよう制限
@@ -6768,7 +6769,7 @@ class MainWindow(QMainWindow):
         pos = self.engine.current_sec()
         # 旧UIを破棄して作り直し
         old=self.centralWidget()
-        self.setFixedSize(self.S(375), self.S(318))
+        self.setFixedSize(self.S(375), self.S(322))
         self._build_ui()
         if old is not None:
             old.deleteLater()
