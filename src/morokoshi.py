@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.4"
+APP_VERSION = "v2.6.5"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4886,7 +4886,7 @@ class MainWindow(QMainWindow):
         self._nsf_ch_render_done_sig.connect(self._on_nsf_ch_render_done)
 
         self.setWindowTitle(f"Morokoshi Time {APP_VERSION}  by Ike-san")
-        self.setFixedSize(self.S(375), self.S(322))
+        self.setFixedSize(self.S(375), self.S(318))
         self.setAcceptDrops(True)
         self._build_ui()
         self.setFocus()
@@ -5202,7 +5202,7 @@ class MainWindow(QMainWindow):
         self._spectrum.enterEvent=_spectrum_enter
 
         # ── 波形エリア
-        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(32)+self.S(19)); wf_area.setStyleSheet(f"background:{BG};")
+        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(32)+self.S(15)); wf_area.setStyleSheet(f"background:{BG};")
         wf_lo=QVBoxLayout(wf_area); wf_lo.setContentsMargins(0,0,0,0); wf_lo.setSpacing(0)
         self._waveform=WaveformWidget(); self._waveform.seeked.connect(self._on_wf_seek)
         # 波形上部の時間目盛り行（全モード共通）
@@ -5268,7 +5268,7 @@ class MainWindow(QMainWindow):
             f"QSlider::groove:horizontal{{height:{self.S(4)}px;background:{BG3};}}"
             f"QSlider::handle:horizontal{{width:{self.S(12)}px;height:{self.S(12)}px;margin:-{self.S(4)}px 0;background:{FG};border-radius:{self.S(6)}px;}}")
         self._vol_slider.valueChanged.connect(lambda v: (setattr(self.engine,'volume',v/100.0), self._vol_pct.setText(f"{v}%"), self._on_volume_changed(v)))
-        self._vol_pct=QLabel("100%"); self._vol_pct.setStyleSheet(f"color:{FG2};"); self._vol_pct.setFixedWidth(self.S(40))
+        self._vol_pct=QLabel("100%"); self._vol_pct.setStyleSheet(f"color:{FG2}; padding:1px 0px; font-size:{self.S(11)}px;");  # メッセージと同じフォント self._vol_pct.setFixedWidth(self.S(40))
         self._vol_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         # 右クリックで100%に戻す
         def _vol_reset(e):
@@ -5299,7 +5299,7 @@ class MainWindow(QMainWindow):
 
 
         # ── メッセージバー（右端に音量バー）
-        msg_row=QWidget(); msg_row.setFixedHeight(self.S(19)); msg_row.setStyleSheet(f"background:{BG};")
+        msg_row=QWidget(); msg_row.setFixedHeight(self.S(15)); msg_row.setStyleSheet(f"background:{BG};")
         # 左端をSpeed/Key行と同じ2px、右端も同じ2px余白に
         msg_lo=QHBoxLayout(msg_row); msg_lo.setContentsMargins(self.S(2),0,self.S(8),0); msg_lo.setSpacing(self.S(4))
         self._msg=QLabel("Drop a file or click Open to load")
@@ -5309,13 +5309,6 @@ class MainWindow(QMainWindow):
         msg_lo.addStretch()
         msg_lo.addWidget(self._vol_slider)
         msg_lo.addWidget(self._vol_pct)
-        # 音量%の文字ベースラインを、メッセージ（フォントが小さい側）のベースラインに合わせる
-        self._msg.ensurePolished(); self._vol_pct.ensurePolished()
-        _fm_m=self._msg.fontMetrics(); _fm_v=self._vol_pct.fontMetrics()
-        _msg_pad=1  # self._msgのpadding上下
-        _msg_base=_msg_pad+(self.S(19)-_msg_pad*2-_fm_m.height())//2+_fm_m.ascent()
-        self._vol_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        self._vol_pct.setContentsMargins(0, max(0, _msg_base-_fm_v.ascent()), 0, 0)
         # Show ffmpeg path on hover (only before any file is loaded)
         def _msg_enter(e, ww=self):
             if ww.engine._file_hash is None:
@@ -6774,7 +6767,7 @@ class MainWindow(QMainWindow):
         pos = self.engine.current_sec()
         # 旧UIを破棄して作り直し
         old=self.centralWidget()
-        self.setFixedSize(self.S(375), self.S(322))
+        self.setFixedSize(self.S(375), self.S(318))
         self._build_ui()
         if old is not None:
             old.deleteLater()
