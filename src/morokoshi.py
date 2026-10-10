@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.8"
+APP_VERSION = "v2.6.9"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4886,7 +4886,7 @@ class MainWindow(QMainWindow):
         self._nsf_ch_render_done_sig.connect(self._on_nsf_ch_render_done)
 
         self.setWindowTitle(f"Morokoshi Time {APP_VERSION}  by Ike-san")
-        self.setFixedSize(self.S(375), self.S(316))
+        self.setFixedSize(self.S(375), self.S(318))
         self.setAcceptDrops(True)
         self._build_ui()
         self.setFocus()
@@ -5202,7 +5202,7 @@ class MainWindow(QMainWindow):
         self._spectrum.enterEvent=_spectrum_enter
 
         # ── 波形エリア
-        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(26)+self.S(19)); wf_area.setStyleSheet(f"background:{BG};")
+        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(28)+self.S(19)); wf_area.setStyleSheet(f"background:{BG};")
         wf_lo=QVBoxLayout(wf_area); wf_lo.setContentsMargins(0,0,0,0); wf_lo.setSpacing(0)
         self._waveform=WaveformWidget(); self._waveform.seeked.connect(self._on_wf_seek)
         # 波形上部の時間目盛り行（全モード共通）
@@ -5238,7 +5238,7 @@ class MainWindow(QMainWindow):
         wf_lo.addWidget(self._wf_scroll)
 
         # 時間行
-        time_row=QWidget(); time_row.setFixedHeight(self.S(26)); time_row.setStyleSheet(f"background:{BG};")
+        time_row=QWidget(); time_row.setFixedHeight(self.S(28)); time_row.setStyleSheet(f"background:{BG};")
         time_lo=QHBoxLayout(time_row); time_lo.setContentsMargins(0,0,0,0); time_lo.setSpacing(self.S(4))
         self._pos_lbl=TimeLabel("00:00.0"); self._pos_lbl.setFixedSize(self.S(64),self.S(22))
         self._pos_lbl.setCursor(Qt.CursorShape.SizeVerCursor)
@@ -5293,11 +5293,11 @@ class MainWindow(QMainWindow):
         self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Back to Start",
             lambda: self._seek_to_start() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._pp(),
             flash=False)
-        # 再生ボタンはアイコン下の透明部分を削って枠を32x26に。
+        # 再生ボタンはアイコン下の透明部分を削って枠を32x28に。
         # padding-topでアイコンの位置は32x32の時と同じ（上端から2px）に保つ
-        self._play_btn.setFixedSize(self.S(32), self.S(26))
+        self._play_btn.setFixedSize(self.S(32), self.S(28))
         self._play_btn.setStyleSheet(
-            f"QPushButton{{background:transparent; border:none; border-radius:4px; padding-top:{self.S(6)}px;}}"
+            f"QPushButton{{background:transparent; border:none; border-radius:4px; padding-top:{self.S(4)}px;}}"
             f"QPushButton:hover{{background:{BG2};}}")
         time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignTop)
         time_lo.addStretch()
@@ -6775,7 +6775,7 @@ class MainWindow(QMainWindow):
         pos = self.engine.current_sec()
         # 旧UIを破棄して作り直し
         old=self.centralWidget()
-        self.setFixedSize(self.S(375), self.S(316))
+        self.setFixedSize(self.S(375), self.S(318))
         self._build_ui()
         if old is not None:
             old.deleteLater()
