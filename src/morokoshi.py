@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.10"
+APP_VERSION = "v2.6.11"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5120,7 +5120,9 @@ class MainWindow(QMainWindow):
                     _name,_tip,_attr,_slot=_cell
                     # AB Repeatはトグル式なのでフラッシュ除外
                     _b=self._mk_icon_btn(_name,_tip,_slot, flash=(_name not in ("ab_repeat","ear")))
-                    _rlo.addWidget(_b)
+                    # 枠はアイコン上下の透明部分を4pxずつ削った32x24。32x32の透明枠の中央に置き、位置は従来通り
+                    _b.setFixedSize(self.S(32),self.S(24))
+                    _rlo.addWidget(self._wrap_small_btn(_b))
                     if _attr: setattr(self,_attr,_b)
             _rlo.addStretch()
             icon_lo.addWidget(_rw)
