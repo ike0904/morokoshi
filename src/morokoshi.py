@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.3"
+APP_VERSION = "v2.6.4"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4886,7 +4886,7 @@ class MainWindow(QMainWindow):
         self._nsf_ch_render_done_sig.connect(self._on_nsf_ch_render_done)
 
         self.setWindowTitle(f"Morokoshi Time {APP_VERSION}  by Ike-san")
-        self.setFixedSize(self.S(375), self.S(326))
+        self.setFixedSize(self.S(375), self.S(322))
         self.setAcceptDrops(True)
         self._build_ui()
         self.setFocus()
@@ -5202,7 +5202,7 @@ class MainWindow(QMainWindow):
         self._spectrum.enterEvent=_spectrum_enter
 
         # ── 波形エリア
-        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(36)); wf_area.setStyleSheet(f"background:{BG};")
+        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(32)+self.S(19)); wf_area.setStyleSheet(f"background:{BG};")
         wf_lo=QVBoxLayout(wf_area); wf_lo.setContentsMargins(0,0,0,0); wf_lo.setSpacing(0)
         self._waveform=WaveformWidget(); self._waveform.seeked.connect(self._on_wf_seek)
         # 波形上部の時間目盛り行（全モード共通）
@@ -5296,7 +5296,6 @@ class MainWindow(QMainWindow):
         time_lo.addStretch()
         time_lo.addWidget(_mk_lbl_wrap(self._dur_lbl, self.S(64)))
         wf_lo.addWidget(time_row)
-        root.addWidget(wf_area)
 
 
         # ── メッセージバー（右端に音量バー）
@@ -5337,7 +5336,9 @@ class MainWindow(QMainWindow):
             hide_tt()
         self._msg.enterEvent = _msg_enter
         self._msg.leaveEvent = _msg_leave
-        root.addWidget(msg_row)
+        # 時間行（再生ボタン）との間に行間スキマを入れないよう、波形エリア内(spacing 0)に置く
+        wf_lo.addWidget(msg_row)
+        root.addWidget(wf_area)
 
         # 音量の初期値を反映
         try:
@@ -6773,7 +6774,7 @@ class MainWindow(QMainWindow):
         pos = self.engine.current_sec()
         # 旧UIを破棄して作り直し
         old=self.centralWidget()
-        self.setFixedSize(self.S(375), self.S(326))
+        self.setFixedSize(self.S(375), self.S(322))
         self._build_ui()
         if old is not None:
             old.deleteLater()
