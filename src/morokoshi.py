@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.0"
+APP_VERSION = "v2.6.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -2929,10 +2929,15 @@ class WaveformWidget(QWidget):
         self._total=0.0
         self._last_manual=0.0  # 最後に手動でズーム/スクロールした時刻
         self._is_playing=False  # 再生中フラグ（拡大方針の切替用）
+        self._ruler=None  # TimeRulerWidget（表示範囲が変わったら再描画を依頼する）
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
 
     def set_total(self, total): self._total=total
+
+    def _min_span(self):
+        """ズームの拡大上限: 波形エリアの左端〜右端が1秒になるまで（曲全体に対する比率）"""
+        return min(1.0, 1.0/self._total) if self._total>0 else 0.005
 
     def reset_view(self):
         self._view_lo=0.0; self._view_hi=1.0; self.update(); self.view_changed.emit()
@@ -2998,6 +3003,8 @@ class WaveformWidget(QWidget):
         if wf is None: p.end(); return
         n=len(wf); cy=h/2
         lo=self._view_lo; span=self._vspan()
+        if self._ruler is not None:
+            self._ruler.sync_view()
         px=self._r2x(self.position, w)
         i0=max(0, int(lo*n)-1); i1=min(n, int(self._view_hi*n)+2)
         idxs_all=list(range(i0,i1))
@@ -3118,7 +3125,7 @@ class WaveformWidget(QWidget):
             vlo,vhi=self._press_view
             span_base=max(0.001,vhi-vlo)
             factor=0.85**(-dy/8.0)  # 上ドラッグ(dy<0)でズームイン
-            new_span=max(0.005,min(1.0,span_base*factor))
+            new_span=max(self._min_span(),min(1.0,span_base*factor))
             frac=(self._press_r-vlo)/span_base
             lo=self._press_r-frac*new_span; hi=lo+new_span
             if lo<0: lo=0; hi=new_span
@@ -3219,7 +3226,7 @@ class WaveformWidget(QWidget):
             cursor_r=self._x2r(e.position().x(), w)
             span=self._vspan()
             factor=0.85 if delta>0 else (1/0.85)  # 上で拡大
-            new_span=max(0.005, min(1.0, span*factor))
+            new_span=max(self._min_span(), min(1.0, span*factor))
             # カーソル位置の比率を保つ
             frac=(cursor_r-self._view_lo)/span
             lo=cursor_r-frac*new_span
@@ -4006,6 +4013,94 @@ class SpectrumLabelsWidget(QWidget):
         p.end()
 
 # ════════════════════════════════════════
+# 波形上部の時間目盛り（タイムルーラー）
+# 通常は波形の表示範囲に合わせた再生時間の目盛りを表示し、
+# スペアナにマウスオーバー中だけ周波数ラベルに切り替える
+# ════════════════════════════════════════
+# 数字ラベル間隔の候補(秒)と、それぞれの短い目盛り線の間隔(秒)
+TIME_RULER_STEPS = [(0.1,None),(0.2,0.1),(0.5,0.1),(1,0.5),(2,1),(5,1),(10,1),(15,5),
+                    (30,5),(60,10),(120,30),(300,60),(600,60),(1200,300)]
+TIME_RULER_TARGET_LABELS = 4    # 画面内の数字ラベル数の目標
+TIME_RULER_MIN_MINOR_PX = 6     # 短い目盛り線の最小間隔(px)。これ未満なら短い線を省く
+
+class TimeRulerWidget(SpectrumLabelsWidget):
+    def __init__(self, wf, parent=None):
+        super().__init__(parent)
+        self._wf=wf
+        self._freq_mode=False
+        self._last_view=None
+        wf._ruler=self
+
+    def set_freq_mode(self, on):
+        on=bool(on)
+        if on!=self._freq_mode:
+            self._freq_mode=on; self.update()
+
+    def sync_view(self):
+        # 波形の表示範囲・曲長が変わった時だけ再描画する
+        wf=self._wf
+        key=(wf._view_lo, wf._view_hi, wf._total, wf.waveform is None)
+        if key!=self._last_view:
+            self._last_view=key; self.update()
+
+    @staticmethod
+    def _fmt_time(t):
+        # 分は上限なし(最大99:59)、秒は2桁。小数部が0の時は ".0" を付けない
+        tenths=int(round(t*10))
+        m=tenths//600; sec=(tenths%600)//10; d=tenths%10
+        return f"{m}:{sec:02d}" + (f".{d}" if d else "")
+
+    @staticmethod
+    def _pick_step(dur):
+        # 数字ラベル数が目標値に最も近くなる間隔を選ぶ（対数距離で比較）
+        best=None; best_d=None
+        for step,minor in TIME_RULER_STEPS:
+            d=abs(math.log(max(1e-9, dur/step)/TIME_RULER_TARGET_LABELS))
+            if best_d is None or d<best_d:
+                best=(step,minor); best_d=d
+        return best
+
+    def paintEvent(self, e):
+        if self._freq_mode:
+            super().paintEvent(e); return
+        p=QPainter(self)
+        w=self.width(); h=self.height()
+        p.fillRect(0,0,w,h, QColor(BG))
+        wf=self._wf; total=wf._total
+        if wf.waveform is None or total<=0 or w<=0:
+            p.end(); return
+        t_lo=wf._view_lo*total; t_hi=wf._view_hi*total
+        dur=max(1e-6, t_hi-t_lo)
+        step,minor=self._pick_step(dur)
+        def t2x(t): return (t-t_lo)/dur*w
+        # 短い目盛り線
+        if minor and minor/dur*w>=TIME_RULER_MIN_MINOR_PX:
+            mc=QColor(FG2); mc.setAlpha(110)
+            p.setPen(QPen(mc,1))
+            k=math.ceil(t_lo/minor-1e-9)
+            while k*minor<=t_hi+1e-9:
+                x=int(round(t2x(k*minor)))
+                p.drawLine(x, h-max(2,int(h*0.25)), x, h)
+                k+=1
+        # 長い目盛り線と数字ラベル
+        f=self.font(); f.setPixelSize(max(6,int(self._font_px)))
+        p.setFont(f)
+        fm=p.fontMetrics()
+        p.setPen(QPen(QColor(FG2),1))
+        k=math.ceil(t_lo/step-1e-9)
+        while k*step<=t_hi+1e-9:
+            t=k*step
+            x=int(round(t2x(t)))
+            p.drawLine(x, int(h*0.4), x, h)
+            txt=self._fmt_time(t)
+            tw=fm.horizontalAdvance(txt)
+            if x+2+tw<=w:  # 右端からはみ出す数字は描かない
+                p.drawText(x+2, 0, tw+1, h,
+                           Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop, txt)
+            k+=1
+        p.end()
+
+# ════════════════════════════════════════
 # フィルター(HPF/LPF) オーバーレイ（スペアナの上に重ねて表示。
 # グライコ表示領域(スペアナと同じ範囲)にマウスオーバーした時だけ表示する）
 # ════════════════════════════════════════
@@ -4022,6 +4117,7 @@ class FilterOverlayWidget(QWidget):
         self._dragging=False
         self._drag_start_idx=None
         self._hovering=False  # マウスがこのエリア上にあるか
+        self.on_hover_changed=None  # ホバー状態の通知先（時間目盛り⇔周波数ラベルの切替用）
         self.on_range_changed=None  # callback(lo_idx, hi_idx)
         self.setMouseTracking(True)
         self.hide()
@@ -4042,6 +4138,8 @@ class FilterOverlayWidget(QWidget):
             self.show(); self.raise_()
         else:
             self.hide()
+        if self.on_hover_changed is not None:
+            self.on_hover_changed(self._hovering)
 
     def range(self):
         return (self._lo, self._hi)
@@ -4689,7 +4787,7 @@ class WaveformScrollBar(QScrollBar):
                 span = press_span - dr
             else:
                 span = press_span + dr
-            span = max(self._min_span, min(1.0, span))
+            span = max(self._wf._min_span(), min(1.0, span))
             lo, hi = self._place(span)
             if self._limit_by_pos and not self._pos_ok(lo, hi):
                 # 条件を満たす境界のspanを二分探索（bad=span側, good=押下時span側）
@@ -4800,7 +4898,7 @@ class MainWindow(QMainWindow):
         self._nsf_ch_render_done_sig.connect(self._on_nsf_ch_render_done)
 
         self.setWindowTitle(f"Morokoshi Time {APP_VERSION}  by Ike-san")
-        self.setFixedSize(self.S(375), self.S(313))
+        self.setFixedSize(self.S(375), self.S(326))
         self.setAcceptDrops(True)
         self._build_ui()
         self.setFocus()
@@ -5071,16 +5169,12 @@ class MainWindow(QMainWindow):
         self._mode_stack=QStackedWidget(); self._mode_stack.setFixedHeight(self.S(55))
         self._mode_stack.setStyleSheet(f"background:{BG};")
 
-        # ページ0: スペクトラムアナライザー + ラベル行
+        # ページ0: スペクトラムアナライザー（周波数ラベルは波形上部の時間目盛り行と兼用）
         spec_area=QWidget(); spec_area.setStyleSheet(f"background:{BG};")
         spec_lo=QVBoxLayout(spec_area); spec_lo.setContentsMargins(0,0,0,0); spec_lo.setSpacing(0)
         self._spectrum=SpectrumWidget()
-        self._spectrum.setFixedHeight(self.S(42))
+        self._spectrum.setFixedHeight(self.S(55))
         spec_lo.addWidget(self._spectrum)
-        self._spectrum_labels=SpectrumLabelsWidget()
-        self._spectrum_labels.set_font_px(self.S(8))
-        self._spectrum_labels.setFixedHeight(self.S(13))
-        spec_lo.addWidget(self._spectrum_labels)
         self._mode_stack.addWidget(spec_area)   # index 0
 
         # ページ1: NSFパネル
@@ -5114,11 +5208,18 @@ class MainWindow(QMainWindow):
         def _spectrum_enter(e, fo=self._filter_overlay):
             fo._hovering=True; fo._update_visibility()
         self._spectrum.enterEvent=_spectrum_enter
+        # 時間目盛り⇔周波数ラベルの切替（スペアナにマウスオーバー中のみ周波数ラベル）
+        self._filter_overlay.on_hover_changed=lambda on: self._time_ruler.set_freq_mode(on)
 
         # ── 波形エリア
-        wf_area=QWidget(); wf_area.setFixedHeight(self.S(42)+self.S(12)+self.S(36)); wf_area.setStyleSheet(f"background:{BG};")
+        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(36)); wf_area.setStyleSheet(f"background:{BG};")
         wf_lo=QVBoxLayout(wf_area); wf_lo.setContentsMargins(0,0,0,0); wf_lo.setSpacing(0)
         self._waveform=WaveformWidget(); self._waveform.seeked.connect(self._on_wf_seek)
+        # 波形上部の時間目盛り行（全モード共通）
+        self._time_ruler=TimeRulerWidget(self._waveform)
+        self._time_ruler.set_font_px(self.S(8))
+        self._time_ruler.setFixedHeight(self.S(13))
+        wf_lo.addWidget(self._time_ruler)
         self._waveform.seek_revert.connect(self._on_wf_seek)  # ダブルクリック確定時、1回目クリックのシークを取り消す
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
@@ -6675,7 +6776,7 @@ class MainWindow(QMainWindow):
         pos = self.engine.current_sec()
         # 旧UIを破棄して作り直し
         old=self.centralWidget()
-        self.setFixedSize(self.S(375), self.S(313))
+        self.setFixedSize(self.S(375), self.S(326))
         self._build_ui()
         if old is not None:
             old.deleteLater()
