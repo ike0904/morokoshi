@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.9"
+APP_VERSION = "v2.6.10"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5293,13 +5293,10 @@ class MainWindow(QMainWindow):
         self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Back to Start",
             lambda: self._seek_to_start() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._pp(),
             flash=False)
-        # 再生ボタンはアイコン下の透明部分を削って枠を32x28に。
-        # padding-topでアイコンの位置は32x32の時と同じ（上端から2px）に保つ
-        self._play_btn.setFixedSize(self.S(32), self.S(28))
-        self._play_btn.setStyleSheet(
-            f"QPushButton{{background:transparent; border:none; border-radius:4px; padding-top:{self.S(4)}px;}}"
-            f"QPushButton:hover{{background:{BG2};}}")
-        time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignTop)
+        # 再生ボタンはアイコン上下の透明部分を4pxずつ削って枠を32x24に。
+        # 時間行(28px)の下寄せに置くことで、アイコンの位置は32x32の時と同じ（行の上端から2px）に保つ
+        self._play_btn.setFixedSize(self.S(32), self.S(24))
+        time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignBottom)
         time_lo.addStretch()
         time_lo.addWidget(_mk_lbl_wrap(self._dur_lbl, self.S(64)))
         wf_lo.addWidget(time_row)
