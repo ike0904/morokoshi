@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.5"
+APP_VERSION = "v2.6.6"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5268,7 +5268,8 @@ class MainWindow(QMainWindow):
             f"QSlider::groove:horizontal{{height:{self.S(4)}px;background:{BG3};}}"
             f"QSlider::handle:horizontal{{width:{self.S(12)}px;height:{self.S(12)}px;margin:-{self.S(4)}px 0;background:{FG};border-radius:{self.S(6)}px;}}")
         self._vol_slider.valueChanged.connect(lambda v: (setattr(self.engine,'volume',v/100.0), self._vol_pct.setText(f"{v}%"), self._on_volume_changed(v)))
-        self._vol_pct=QLabel("100%"); self._vol_pct.setStyleSheet(f"color:{FG2}; padding:1px 0px; font-size:{self.S(11)}px;");  # メッセージと同じフォント self._vol_pct.setFixedWidth(self.S(40))
+        self._vol_pct=QLabel("100%"); self._vol_pct.setStyleSheet(f"color:{FG2}; padding:1px 0px; font-size:{self.S(11)}px;")  # メッセージと同じフォント
+        self._vol_pct.setFixedWidth(self.S(40))  # 桁数で幅が変わって音量バーがずれないよう固定
         self._vol_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         # 右クリックで100%に戻す
         def _vol_reset(e):
