@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.6.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.7.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v2.6.0)
+(対象バージョン: v2.7.0)
 
 ---
 
@@ -184,8 +184,9 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 ### 中央下の波形エリア
 
 * 曲全体の波形が表示されます。再生済みの部分は明るい色になります。
+* 波形のすぐ上に**時間目盛り**が表示されます。拡大・スクロールに合わせて、「1:10」のような時刻の数字が画面内に3～5個程度になるよう、目盛りの間隔（0.1秒～20分）が自動で切り替わります。ゲームモード（NSF/SPC/GBS）でも表示されます。
 * AマーカーとBマーカーの両方が設定されていると、その間が**黄色い帯**で表示されます。
-* **マウスホイール**または**上下ドラッグ**で**拡大・縮小**できます。
+* **マウスホイール**または**上下ドラッグ**で**拡大・縮小**できます。最大で、画面の左端から右端までが**1秒**になるまで拡大できます。
 * 波形を**左右にドラッグ**すると、**A・Bマーカーの範囲をドラッグ操作で設定**できます。左右スクロールは下部のバーをドラッグするか、**Shift+ホイール**で行います。
 * 現在位置の**白い線**、A・Bマーカーの**黄色い線**は、いずれも直接ドラッグして動かせます（詳しくは「4. 基本的な使い方 ステップ5」）。
 
@@ -305,6 +306,9 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 
 **■ 拡大・縮小する（ズーム）**
 波形の上で**マウスホイールを回す**か、**上下にドラッグ**すると、カーソル位置を中心に拡大・縮小します。細かい部分を聴き取りたいときに、波形を拡大すると見やすくなります。
+
+> 💡 拡大できるのは、画面の左端から右端までが**1秒**になるところまでです（曲の長さに関係なく同じ）。  
+> 💡 波形の上の**時間目盛り**は、拡大率に応じて目盛りの間隔が自動で変わります。小数点以下は、必要なときだけ「1:10.5」のように表示されます。
 
 **■ 波形ドラッグでA-B区間を設定する**
 波形を**左右にドラッグ**すると、ドラッグ開始位置と終了位置に**AマーカーとBマーカーがセット**されます。A・B区間を素早く視覚的に設定したいときに便利です。
@@ -592,7 +596,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v2.6.0**  
+**Morokoshi Time v2.7.0**  
 *Created by Ike-san*
 
 ---
@@ -616,6 +620,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v2.4.0** | 2026/9/6 | NSFファイルで**曲の冒頭が約0.2秒欠ける**問題を修正しました（DLL更新）。<br>**OPENボタンを右クリック**すると最近開いたファイルの履歴を表示できるようになりました（最大10件。右クリックまたはウィンドウ外クリックでキャンセル）。 |
 | **v2.5.0** | 2026/9/22 | **Tempo欄をダブルクリックで直接入力**できるようになりました（1クリックのテンポ検出と競合しなくなりました）。<br>**Ear Mode 中のA・Bマーカー操作を改善**しました。A・Bを動かすと現在位置が常に相対的に連動して動くようになりました。また、Ear Mode 突入時に現在位置がA～B区間外にある場合は自動的にAへ移動します。Ear Mode 中は波形クリックや直接入力でもA～B区間外に出られなくなりました。<br>波形のA-B帯（黄色い部分）を左右にドラッグして区間ごとパン移動できる操作を復活させました。 |
 | **v2.6.0** | 2026/10/4 | **タップテンポ**機能を追加しました（Shift+T / テンポ検出アイコンのShift+クリック / テンキーEnter+8）。<br>テンポ検出中はテンポ検出アイコンが赤、タップテンポ中は青で表示されるようになりました。<br>**スクロールバーの端をドラッグ**して表示範囲（ズーム幅）を調整できるようになりました。再生中は再生位置が画面外に出ないよう制限されます。<br>波形エリアの**右クリックでA・B両方のマーカーをリセット**できるようになりました。 |
+| **v2.7.0** | 2026/10/10 | 波形の上に**時間目盛り**を追加しました。拡大率に応じて目盛りの間隔が自動で切り替わります。ゲームモードでも表示されます。<br>波形の拡大上限を「画面の幅が**1秒**になるまで」に変更しました。<br>**フィルター使用中に再生が途切れる・もたつく**問題を修正しました（フィルター処理を大幅に高速化）。<br>その他軽微な修正を行いました。 |
 
 ---
 
@@ -624,7 +629,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v2.6.0)
+(Target version: v2.7.0)
 
 ---
 
@@ -797,8 +802,9 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 ### Waveform Area (Center-Bottom)
 
 * Displays the entire waveform of the loaded file. The already-played portion appears in a brighter color.
+* A **time ruler** is shown just above the waveform. As you zoom or scroll, the tick interval (0.1 s to 20 min) switches automatically so that about 3–5 time labels such as "1:10" appear on screen. It is also shown in Game Mode (NSF/SPC/GBS).
 * When both A and B markers are set, the region between them is highlighted in **yellow**.
-* **Mouse wheel** or **drag up/down** to **zoom in/out** (centered on the cursor).
+* **Mouse wheel** or **drag up/down** to **zoom in/out** (centered on the cursor). You can zoom in until the visible width is **1 second**.
 * **Drag left/right on the waveform** to **set the A and B markers** at the drag start and end points. To scroll, drag the scroll bar at the bottom or use **Shift+wheel**.
 * The **white current-position line** and the **yellow A/B marker lines** can all be dragged directly (see "Step 5" for details).
 
@@ -919,6 +925,9 @@ The waveform area lets you navigate and set markers visually and intuitively.
 
 **■ Zooming in/out**
 **Scroll the mouse wheel** or **drag up/down** over the waveform to zoom in or out, centered on the cursor. Zooming in makes fine sections easier to see and hear.
+
+> 💡 You can zoom in until the waveform area spans **1 second** from left to right (regardless of the song length).  
+> 💡 The tick interval of the **time ruler** above the waveform changes automatically with the zoom level. Decimals are shown only when needed, e.g. "1:10.5".
 
 **■ Setting the A-B range by dragging the waveform**
 **Drag left/right on the waveform** to set the A and B markers at the drag start and end positions. This is a quick way to define a repeat region visually.
@@ -1203,7 +1212,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v2.6.0**
+**Morokoshi Time v2.7.0**
 *Created by Ike-san*
 
 ---
@@ -1227,3 +1236,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v2.4.0** | 2026/9/6 | Fixed a bug where the **first ~0.2 seconds of NSF tracks were cut off** (DLL update).<br>**Right-clicking the OPEN button** now shows a history of recently opened files (up to 10 entries; dismiss by right-clicking or clicking outside). |
 | **v2.5.0** | 2026/9/22 | **Tempo field can now be directly edited by double-clicking** (no longer conflicts with single-click tempo detection).<br>**Improved Ear Mode A/B marker behavior.** Moving A or B now always shifts the current playback position relatively. When entering Ear Mode, if the current position is outside the A–B range, it automatically moves to A. While in Ear Mode, seeking via waveform click or direct input is now clamped to the A–B range.<br>Restored the ability to **pan the A-B region by dragging within the yellow band** in the waveform area. |
 | **v2.6.0** | 2026/10/4 | Added **Tap Tempo** (Shift+T / Shift+click on the Detect Tempo icon / numpad Enter+8).<br>The Detect Tempo icon now turns red during tempo detection and blue during Tap Tempo.<br>**Drag the scroll bar edges** to adjust the visible range (zoom width). During playback, zooming is limited so the playback position stays on screen.<br>**Right-click the waveform area to reset both A and B markers.** |
+| **v2.7.0** | 2026/10/10 | Added a **time ruler** above the waveform. The tick interval switches automatically with the zoom level. It is also shown in Game Mode.<br>The maximum zoom is now "until the visible width is **1 second**".<br>Fixed **choppy / lagging playback while the filter is in use** (filter processing is now much faster).<br>Other minor fixes. |
