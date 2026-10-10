@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.13"
+APP_VERSION = "v2.6.14"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -171,42 +171,19 @@ def _butter_sos(fc, btype, fs):
     return sos
 
 
-def _sosfilt(sos, x, axis=0, zi=None):
-    """SOSフィルターを適用する（直接II転置形）。
-    sos: (n_sec, 6), x: ndarray, axis: フィルター軸
-    zi: (n_sec, 2, ...) 初期状態。戻り値: (y, zf)"""
-    x = np.asarray(x, dtype=np.float64)
-    n_sec = sos.shape[0]
-    # 軸を先頭に移動
-    x = np.moveaxis(x, axis, 0)
-    shape_rest = x.shape[1:]
-    n = x.shape[0]
-
-    if zi is None:
-        zi = np.zeros((n_sec, 2) + shape_rest, dtype=np.float64)
-    else:
-        zi = np.array(zi, dtype=np.float64)
-
-    y = x.copy()
-    zf = np.zeros_like(zi)
-
-    for s in range(n_sec):
-        b0, b1, b2, _, a1, a2 = sos[s]
-        z0 = zi[s, 0]
-        z1 = zi[s, 1]
-        out = np.empty_like(y)
-        for n_i in range(n):
-            xn = y[n_i]
-            yn = b0 * xn + z0
-            z0 = b1 * xn - a1 * yn + z1
-            z1 = b2 * xn - a2 * yn
-            out[n_i] = yn
-        y = out
-        zf[s, 0] = z0
-        zf[s, 1] = z1
-
-    y = np.moveaxis(y, 0, axis)
-    return y, zf
+def _filter_ir(sos, fs, tol_db=-120.0):
+    """SOSフィルターのインパルス応答を周波数応答から求める（再生時のFFT畳み込み用）。
+    応答の残りエネルギーが tol_db を下回った所で打ち切る（それ以降は聴感上無音）。
+    戻り値: 1次元float64配列"""
+    nfft = 1 << 17  # 44.1kHzで約3秒。最も低いカットオフ(40Hz)でも十分に減衰する長さ
+    f = np.fft.rfftfreq(nfft, 1.0/fs)
+    _, H = _sosfreqz(sos, f, fs)
+    h = np.fft.irfft(H, nfft)
+    tail = np.cumsum((h*h)[::-1])[::-1]  # 各位置以降の残りエネルギー
+    thr = tail[0] * (10.0 ** (tol_db/10.0))
+    idx = np.nonzero(tail < thr)[0]
+    L = int(idx[0]) if len(idx) else nfft
+    return h[:max(1, L)].copy()
 
 
 def _sosfreqz(sos, worN, fs):
@@ -1278,7 +1255,7 @@ class AudioEngine:
         # フィルター(HPF/LPF)用: 通過域のバンド範囲とフィルタ状態
         self.filter_lo_idx=0
         self.filter_hi_idx=len(FILTER_BANDS_HZ)-1
-        self._filter_zi=None
+        self._filter_tail=None
         self._filter_sos_cache_key=None
         self._filter_sos_cache=None
 
@@ -1333,7 +1310,7 @@ class AudioEngine:
             self._out_buf=np.zeros((0,2),dtype=np.float32)
             self._mem=ConvCache()
             self.filter_lo_idx=0; self.filter_hi_idx=len(FILTER_BANDS_HZ)-1
-            self._filter_zi=None; self._filter_sos_cache_key=None; self._filter_sos_cache=None
+            self._filter_tail=None; self._filter_sos_cache_key=None; self._filter_sos_cache=None
         with self._rt_lock:
             self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
@@ -1441,7 +1418,7 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
         with self._rt_lock:
             self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
@@ -1770,7 +1747,7 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
         with self._rt_lock:
             self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
@@ -1833,7 +1810,7 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
         with self._rt_lock:
             self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
@@ -1921,7 +1898,7 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
         with self._rt_lock:
             self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
@@ -2036,7 +2013,7 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
         with self._rt_lock:
             self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
@@ -2147,7 +2124,7 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
         with self._rt_lock:
             self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
@@ -2648,30 +2625,58 @@ class AudioEngine:
         全域選択(フィルター無し)の時は何もせず素通し（負荷・誤差を避ける）"""
         if stereo_chunk.shape[0]==0:
             return stereo_chunk
-        lo=self.filter_lo_idx; hi=self.filter_hi_idx
-        key=(lo,hi)
-        if key!=self._filter_sos_cache_key:
-            sr=self.sr if self.sr else 44100
-            self._filter_sos_cache=_build_filter_sos(lo,hi,sr)
-            self._filter_sos_cache_key=key
-        sos=self._filter_sos_cache
-        if sos is None:
+        if (self.filter_lo_idx,self.filter_hi_idx,self.sr)!=self._filter_sos_cache_key:
+            self._filter_prepare()  # 通常はset_filter_range側(UIスレッド)で準備済み
+        if self._filter_sos_cache is None:
+            if self._filter_tail is not None:
+                # フィルター解除直後: 直前までの余韻だけ足し込んで終える
+                out=self._filter_add_tail(stereo_chunk.astype(np.float64), stereo_chunk.shape[0]).astype(np.float32)
+                if not np.any(self._filter_tail): self._filter_tail=None
+                return out
             return stereo_chunk
-        nch=stereo_chunk.shape[1] if stereo_chunk.ndim>1 else 1
-        if (self._filter_zi is None) or (self._filter_zi.shape[0]!=sos.shape[0]) or (self._filter_zi.shape[2]!=nch):
-            self._filter_zi=np.zeros((sos.shape[0],2,nch),dtype=np.float64)
-        filtered,self._filter_zi=_sosfilt(sos, stereo_chunk.astype(np.float64), axis=0, zi=self._filter_zi)
-        return filtered.astype(np.float32)
+        # FFT畳み込み(overlap-add)。1サンプルずつのIIR計算はPythonでは遅く、
+        # バンドパス時に音声出力が間に合わなくなるため、インパルス応答との畳み込みで処理する
+        ir=self._filter_sos_cache["ir"]
+        n=stereo_chunk.shape[0]; L=len(ir)
+        nfft=1<<int(np.ceil(np.log2(n+L-1)))
+        Hs=self._filter_sos_cache["H"]
+        if nfft not in Hs:
+            Hs[nfft]=np.fft.rfft(ir, nfft)
+        y=np.fft.irfft(np.fft.rfft(stereo_chunk.astype(np.float64), nfft, axis=0)*Hs[nfft][:,None], nfft, axis=0)[:n+L-1]
+        return self._filter_add_tail(y, n).astype(np.float32)
+
+    def _filter_add_tail(self, y, n):
+        """前ブロックの余韻(tail)を先頭に足し込み、先頭nフレームを返す。残りは次ブロックへの余韻として保持"""
+        tail=self._filter_tail
+        if tail is not None and len(tail):
+            if len(tail)>len(y):
+                y=np.concatenate([y, np.zeros((len(tail)-len(y), y.shape[1]))])
+            y[:len(tail)]+=tail
+        self._filter_tail=y[n:]
+        return y[:n]
+
+    def _filter_prepare(self, lo=None, hi=None):
+        """帯域に応じたインパルス応答を用意する（数十msかかるため、音声コールバック外で呼ぶのが基本）"""
+        if lo is None: lo=self.filter_lo_idx
+        if hi is None: hi=self.filter_hi_idx
+        sr=self.sr if self.sr else 44100
+        sos=_build_filter_sos(lo,hi,sr)
+        # インパルス応答と、FFTサイズごとの周波数応答(遅延計算)を保持
+        cache=None if sos is None else {"ir":_filter_ir(sos, sr), "H":{}}
+        self._filter_sos_cache=cache
+        self._filter_sos_cache_key=(lo,hi,self.sr)
 
     def set_filter_range(self, lo_idx, hi_idx):
         n=len(FILTER_BANDS_HZ)
         lo_idx=max(0,min(n-1,int(lo_idx))); hi_idx=max(0,min(n-1,int(hi_idx)))
         if lo_idx>hi_idx: lo_idx,hi_idx=hi_idx,lo_idx
+        if (lo_idx,hi_idx,self.sr)!=self._filter_sos_cache_key:
+            self._filter_prepare(lo_idx, hi_idx)  # 帯域を切り替える前に準備しておく
         self.filter_lo_idx=lo_idx; self.filter_hi_idx=hi_idx
 
     def reset_filter(self):
         self.filter_lo_idx=0; self.filter_hi_idx=len(FILTER_BANDS_HZ)-1
-        self._filter_zi=None
+        self._filter_tail=None
         self._filter_sos_cache_key=None; self._filter_sos_cache=None
 
     def play(self, seek_sec=None):
@@ -2807,7 +2812,7 @@ class AudioEngine:
         self._stop.set(); self.playing=False
         self._feeder_eof=False
         self._vis_latest=np.zeros(2048,dtype=np.float32)
-        self._filter_zi=None
+        self._filter_tail=None
         if self._stream:
             try: self._stream.stop(); self._stream.close()
             except: pass
