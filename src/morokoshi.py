@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.6.2"
+APP_VERSION = "v2.6.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5310,6 +5310,13 @@ class MainWindow(QMainWindow):
         msg_lo.addStretch()
         msg_lo.addWidget(self._vol_slider)
         msg_lo.addWidget(self._vol_pct)
+        # 音量%の文字ベースラインを、メッセージ（フォントが小さい側）のベースラインに合わせる
+        self._msg.ensurePolished(); self._vol_pct.ensurePolished()
+        _fm_m=self._msg.fontMetrics(); _fm_v=self._vol_pct.fontMetrics()
+        _msg_pad=1  # self._msgのpadding上下
+        _msg_base=_msg_pad+(self.S(19)-_msg_pad*2-_fm_m.height())//2+_fm_m.ascent()
+        self._vol_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        self._vol_pct.setContentsMargins(0, max(0, _msg_base-_fm_v.ascent()), 0, 0)
         # Show ffmpeg path on hover (only before any file is loaded)
         def _msg_enter(e, ww=self):
             if ww.engine._file_hash is None:
