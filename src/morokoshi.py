@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.7"
+APP_VERSION = "v2.7.8"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QStackedWidget, QScrollBar,
     QDialog, QGridLayout, QSpinBox, QComboBox, QCheckBox, QAbstractSpinBox
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, pyqtSlot, QPointF, QEvent
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, pyqtSlot, QPointF, QEvent, QAbstractNativeEventFilter
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QPixmap, QImage, QFont,
     QPainterPath, QIcon, QCursor
@@ -4793,6 +4793,38 @@ class Nsf2MidDialog(QDialog):
         hide_tt(); super().done(r)
 
 
+class _MaxToZoomFilter(QAbstractNativeEventFilter):
+    """メインウィンドウの最大化ボタン・タイトルバーのダブルクリックを、最大化が始まる前に握りつぶして Zoom 切り替えにする。
+    （一度最大化させてから戻す方式だと、ウィンドウが一瞬画面左上へ移動し最大化アニメーションも見えてしまうため）
+    最大化ボタンの WM_SYSCOMMAND は SendMessage で直接届きフィルターを通らないため、
+    その元になるキュー経由のマウスメッセージ（非クライアント領域のクリック）で判定する"""
+    WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCLBUTTONDBLCLK, WM_SYSCOMMAND = 0x00A1, 0x00A2, 0x00A3, 0x0112
+    HTCAPTION, HTMAXBUTTON, SC_MAXIMIZE = 2, 9, 0xF030
+    def __init__(self, win, hwnd):
+        # hwnd はウィンドウ表示後に取得して渡す（フィルター内で winId() 等の Qt 呼び出しをすると再帰・クラッシュするため）
+        super().__init__(); self._win = win; self._hwnd = hwnd
+    def nativeEventFilter(self, event_type, message):
+        try:
+            if message is None or bytes(event_type) != b"windows_generic_MSG":
+                return False, 0
+            from ctypes import wintypes as _w
+            msg = _w.MSG.from_address(int(message))
+            w = self._win
+            if w is None or msg.hWnd != self._hwnd:
+                return False, 0
+            m, wp = msg.message, msg.wParam
+            if ((m in (self.WM_NCLBUTTONDOWN, self.WM_NCLBUTTONDBLCLK) and wp == self.HTMAXBUTTON)
+                    or (m == self.WM_NCLBUTTONDBLCLK and wp == self.HTCAPTION)
+                    or (m == self.WM_SYSCOMMAND and (wp & 0xFFF0) == self.SC_MAXIMIZE)):
+                QTimer.singleShot(0, w._toggle_zoom)
+                return True, 0
+            if m == self.WM_NCLBUTTONUP and wp == self.HTMAXBUTTON:
+                return True, 0
+        except Exception:
+            pass
+        return False, 0
+
+
 class TipButton(QPushButton):
     def __init__(self, tip="", parent=None):
         super().__init__(parent); self._tip=tip
@@ -6970,7 +7002,7 @@ class MainWindow(QMainWindow):
     # ウィンドウ枠の最大化ボタン → Zoom 切り替え
     # ──────────────────────────────────────
     def _enable_max_button(self):
-        """固定サイズのためQtが外す最大化ボタンを有効化する（押下はnativeEventでZoomに置き換え）"""
+        """固定サイズのためQtが外す最大化ボタンを有効化する（押下は _MaxToZoomFilter で Zoom に置き換え）"""
         if sys.platform!="win32": return
         try:
             import ctypes as _ctm
@@ -6989,8 +7021,7 @@ class MainWindow(QMainWindow):
         self._enable_max_button()
 
     def changeEvent(self, e):
-        # 最大化ボタン/タイトルバーのダブルクリックで最大化された場合は、通常状態に戻してZoom切り替えにする
-        # （nativeEventのオーバーライドはPyQt6でクラッシュするため、状態変化で検出する）
+        # 保険: _MaxToZoomFilter をすり抜けて最大化された場合（Win+↑ など）は、通常状態に戻してZoom切り替えにする
         if e.type()==QEvent.Type.WindowStateChange and (self.windowState() & Qt.WindowState.WindowMaximized):
             self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMaximized)
             QTimer.singleShot(0, self._toggle_zoom)
@@ -8844,6 +8875,9 @@ def main():
         win.setWindowIcon(_app_icon)
     app.installEventFilter(win)
     win.show()
+    # 最大化ボタン → Zoom（最大化前に横取り）。参照を保持しないと GC で外れる
+    win._max_filter = _MaxToZoomFilter(win, int(win.winId()))
+    app.installNativeEventFilter(win._max_filter)
 
     if len(sys.argv)>1 and os.path.exists(sys.argv[1]):
         QTimer.singleShot(500, lambda: win._load(sys.argv[1]))
