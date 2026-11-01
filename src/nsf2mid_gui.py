@@ -818,7 +818,9 @@ class MainWindow(QMainWindow):
         self.ed_drummap = add("ドラム割当", QLineEdit(), 'ドラム割当の上書き（--drum-map）。例 "3:0=42,12:0=36,DMC:E000:129:15=38"')
         self.ck_tail = check("リバーブ余韻を残す", "余韻もノート長に含める（--keep-tail）")
         self.ck_noquant = check("クオンタイズしない", "グリッドへのスナップをしない（--no-quantize）")
-        self.ck_notridrums = check("三角波ドラムを音符のまま残す", "--no-tri-drums")
+        self.ck_notridrums = check("下降音ドラムを音符のまま残す",
+                                   "1〜3ch の短く音程が下がる音（三角波キック・矩形波タム）を MIDI ch 11〜13 に分けず、"
+                                   "各 ch の音符のまま残す（--no-drop-drums）")
         self.ck_dump = check("ダンプも出力（writes / frames / tracker）", "--dump")
 
         orow = QHBoxLayout()
@@ -850,7 +852,7 @@ class MainWindow(QMainWindow):
         if self.ed_drummap.text().strip():
             a += ["--drum-map", self.ed_drummap.text().strip()]
         for c, flag in ((self.ck_tail, "--keep-tail"),
-                        (self.ck_noquant, "--no-quantize"), (self.ck_notridrums, "--no-tri-drums"),
+                        (self.ck_noquant, "--no-quantize"), (self.ck_notridrums, "--no-drop-drums"),
                         (self.ck_dump, "--dump")):
             if c.isChecked():
                 a.append(flag)

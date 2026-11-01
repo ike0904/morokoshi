@@ -10,7 +10,7 @@ Usage:
     python nsf2mid.py                (GUI)
     python nsf2mid.py FILE.nsf|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
                       [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
-                      [--loops N] [--no-loop] [--no-tri-drums] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
+                      [--loops N] [--no-loop] [--no-drop-drums] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
 
 バージョン履歴:
   v0.1.11 (2026-10-04) - 初版〜Phase 3: 6502 エミュレータ・APU レジスタログ・ノート抽出・テンポ/拍子検出・MIDI 出力・
@@ -22,9 +22,11 @@ Usage:
   v0.1.18 (2026-11-01) - --mid-out: 指定パスに .mid のみ出力 (morokoshi 統合用。notes.csv / ダンプは出さない)
   v0.1.19 (2026-11-01) - --tempo auto/half/double (自動検出したテンポを区間ごとに半分/2倍)・--loops 0 でループ検出なし。
                          GUI: 「1 拍の行数」→「テンポ」(自動/半分/2倍)、「ループ検出をしない」を廃止 (ループ回数 0 で代用)
+  v0.1.20 (2026-11-01) - 下降音ドラム: 三角波キックに加え矩形波 (1ch/2ch) のタムも検出。元の音程のまま MIDI ch 11/12/13
+                         (1ch/2ch/3ch) に出力 (三角波は従来 ch 10 の GM 36/45)。--no-tri-drums → --no-drop-drums (旧名も可)
 """
 
-APP_VERSION = "v0.1.19"
+APP_VERSION = "v0.1.20"
 
 import argparse
 import csv
@@ -39,8 +41,8 @@ from apu_state import APUState, note_name  # noqa: E402
 from notes import extract_notes, tempo_onsets  # noqa: E402
 from tempo import detect_tempo_map, TickMap  # noqa: E402
 from midi import Track, write_smf  # noqa: E402
-from drums import (noise_hits, dmc_hits, split_triangle_drums, parse_drum_map,  # noqa: E402
-                   summarize, GM_NAMES)
+from drums import (noise_hits, dmc_hits, split_drop_drums, parse_drum_map,  # noqa: E402
+                   summarize, GM_NAMES, DROP_DRUM_CHANNELS)
 from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
 
 PPQ = 480
@@ -220,7 +222,23 @@ def vol_to_velocity(v):
 # Track names avoid real instrument names: notation software (Sibelius) picks instruments from the
 # track name, and "Triangle" became the percussion triangle (moved into the percussion section).
 TRACK_NAMES = {"P1": "Ch1 Pulse", "P2": "Ch2 Pulse", "TRI": "Ch3 Wave"}
-DRUM_TRACKS = (("NOI", "Ch4 Noise drums"), ("DMC", "Ch5 DPCM drums"), ("TRI", "Ch3 Wave drums"))
+DRUM_TRACKS = (("NOI", "Ch4 Noise drums"), ("DMC", "Ch5 DPCM drums"), ("P1", "Ch1 Pulse drums"),
+               ("P2", "Ch2 Pulse drums"), ("TRI", "Ch3 Wave drums"))
+# Pitch-drop drums keep their pitch, so they get their own (non-percussion) MIDI channels 11-13
+DROP_DRUM_CH = {"P1": 10, "P2": 11, "TRI": 12}
+
+
+def with_pulse_drops(notes, drums):
+    """notes with the pulse pitch-drop drums put back.
+
+    Tempo / meter / loop detection see the pulse toms as notes, as before v0.1.20.
+    (Triangle drums were never part of those inputs, so they stay out.)"""
+    out = dict(notes)
+    for ch in ("P1", "P2"):
+        extra = [d.note for d in drums if d.src == ch]
+        if extra:
+            out[ch] = sorted(notes[ch] + extra, key=lambda n: n.start)
+    return out
 
 
 def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, programs):
@@ -264,7 +282,10 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
         tr = Track(name)
         for d in hits:
             st, en = span(d.start, d.end)
-            tr.note(st, en, 9, d.gm, d.vel)
+            if src in DROP_DRUM_CH:
+                tr.note(st, en, DROP_DRUM_CH[src], max(0, min(127, d.note.pitch + transpose.get(src, 0))), d.vel)
+            else:
+                tr.note(st, en, 9, d.gm, d.vel)
         tracks.append(tr)
     return tracks
 
@@ -283,8 +304,13 @@ def write_notes_csv(path, notes, drums, tmap, transpose):
                     "note", "midi", "peak_vol", "cue", "start_tick", "end_tick", "vols"])
         for _, ch, n in rows:
             if ch.startswith("DRUM_"):
+                if n.note is not None:  # pitch-drop drum: original pitch
+                    p = n.note.pitch + transpose.get(n.src, 0)
+                    name, num = note_name(p), p
+                else:
+                    name, num = GM_NAMES.get(n.gm, str(n.gm)), n.gm
                 w.writerow([ch, n.start, n.end, n.end, n.end - n.start, 0,
-                            GM_NAMES.get(n.gm, str(n.gm)), n.gm, n.vel, n.info,
+                            name, num, n.vel, n.info,
                             tmap(n.start) if tmap else "", tmap(n.end) if tmap else "", ""])
                 continue
             out_pitch = n.pitch + transpose.get(ch, 0)
@@ -298,12 +324,15 @@ def analyze(player, n_frames, args, drum_map):
     """Replay the register log and extract notes / drums / loop."""
     frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz)
     notes, stats = extract_notes(frames, keep_tail=args.keep_tail)
-    notes["TRI"], tri_drums = split_triangle_drums(notes["TRI"], not args.no_tri_drums)
+    drop_drums = []
+    for ch in DROP_DRUM_CHANNELS:
+        notes[ch], hits = split_drop_drums(notes[ch], ch, not args.no_drop_drums)
+        drop_drums += hits
     drums = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
-    drums += tri_drums
+    drums += drop_drums
     drums.sort(key=lambda d: d.start)
-    events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in notes.items()}
-    events["DRUM"] = [(d.start, (d.src, d.kind)) for d in drums]
+    events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in with_pulse_drops(notes, drums).items()}
+    events["DRUM"] = [(d.start, (d.src, d.kind)) for d in drums if d.src not in ("P1", "P2")]
     loop = None if args.no_loop else detect_loop(events)
     return frames, notes, stats, drums, events, loop
 
@@ -341,7 +370,8 @@ def build_parser():
                          '(default: none)')
     ap.add_argument("--triplets", choices=("auto", "on", "off"), default="auto",
                     help="prefer triplet feel: auto = detect (default), on = always, off = never (binary)")
-    ap.add_argument("--no-tri-drums", action="store_true", help="keep triangle glide drums as triangle notes")
+    ap.add_argument("--no-drop-drums", "--no-tri-drums", dest="no_drop_drums", action="store_true",
+                    help="keep pitch-drop drums (triangle kicks, pulse toms) as notes of their channel")
     ap.add_argument("--drum-map", default="",
                     help='override drum notes, e.g. "3:0=42,12:0=36,DMC:E000:129:15=38" '
                          "(noise: periodIdx:mode, DPCM: DMC:addrHex:len:rate)")
@@ -454,11 +484,18 @@ def convert(args, should_stop=None):
     if in_range:
         print("Drums (source, kind, hits -> GM note):")
         for src, kind, cnt, gm, info in summarize(in_range):
-            print(f"  {src:3} {str(kind):28} {cnt:4} -> {gm:3} {GM_NAMES.get(gm, ''):16} ({info})")
+            if src in DROP_DRUM_CH:
+                print(f"  {src:3} {'pitch-drop drum':28} {cnt:4} -> MIDI ch {DROP_DRUM_CH[src] + 1}, original pitch "
+                      f"(e.g. {info})")
+            else:
+                print(f"  {src:3} {str(kind):28} {cnt:4} -> {gm:3} {GM_NAMES.get(gm, ''):16} ({info})")
+        full = with_pulse_drops(notes, drums)
+    else:
+        full = notes
 
-    onsets = [o for o in tempo_onsets(notes, frames) if o < end_frame]
+    onsets = [o for o in tempo_onsets(full, frames) if o < end_frame]
     onsets += [d.start for d in in_range if d.src == "DMC"]
-    chan_notes = {ch: {n.start: n.pitch for n in notes[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
+    chan_notes = {ch: {n.start: n.pitch for n in full[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
                   for ch in ("P1", "P2", "TRI")}
     tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
                              args.tempo)
@@ -475,7 +512,7 @@ def convert(args, should_stop=None):
         meters = [tuple(int(x) for x in m.split("/")) if m.strip() not in ("", "-") else None
                   for m in args.time_sig.split(",")] if args.time_sig else None
         tmap = TickMap(tempo, PPQ, not args.no_quantize, frame_rate, onsets,
-                       {ch: [n for n in lst if n.start < end_frame] for ch, lst in notes.items()}, meters)
+                       {ch: [n for n in lst if n.start < end_frame] for ch, lst in full.items()}, meters)
         for sg in tempo["segments"]:
             print(f"  from {sg.start / frame_rate:7.2f} s: {sg.bpm:7.2f} BPM  "
                   f"(unit {sg.unit:.4g} frames x {sg.rows} rows/beat, fit {sg.score * 100:.1f}%)  "

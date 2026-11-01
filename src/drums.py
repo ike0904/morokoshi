@@ -1,7 +1,8 @@
 """
-Drum extraction (Phase 3): noise channel, DPCM samples and triangle "drums".
+Drum extraction (Phase 3): noise channel, DPCM samples and pitch-drop "drums" (P1 / P2 / TRI).
 
-All hits are mapped to General MIDI percussion (MIDI channel 10).
+Noise and DPCM hits are mapped to General MIDI percussion (MIDI channel 10).
+Pitch-drop drums keep their original pitch and go to their own MIDI channels (11-13).
 
 Noise
   Hit start: hi reg ($400F) write while audible, silence -> sound, or a volume
@@ -20,9 +21,11 @@ DPCM
     otherwise : hi-hat (short) / open hi-hat
   Looping samples are treated as tonal samples and skipped.
 
-Triangle drums
-  Short triangle notes (<= TRI_DRUM_MAX frames) whose pitch falls by
-  >= TRI_DRUM_DROP semitones (the classic "triangle kick") become kick drums.
+Pitch-drop drums (v0.1.20: also on the pulse channels)
+  Short notes (<= TRI_DRUM_MAX frames) whose pitch falls by >= TRI_DRUM_DROP
+  semitones: the classic "triangle kick", and pulse toms (e.g. Balloon Fight,
+  Wrecking Crew: 4 frames, one octave down). They keep their pitch; the gm
+  field (36 / 45) is only a hint for the console report.
 """
 
 from apu_state import DMC_RATE_NTSC
@@ -41,16 +44,17 @@ TRI_DRUM_DROP = 5.0
 
 
 class DrumHit:
-    __slots__ = ("src", "start", "end", "gm", "vel", "kind", "info")
+    __slots__ = ("src", "start", "end", "gm", "vel", "kind", "info", "note")
 
-    def __init__(self, src, start, end, gm, vel, kind, info=""):
-        self.src = src          # "NOI" / "DMC" / "TRI"
+    def __init__(self, src, start, end, gm, vel, kind, info="", note=None):
+        self.src = src          # "NOI" / "DMC" / "P1" / "P2" / "TRI" (the last three: pitch-drop drums)
         self.start = start
         self.end = end
         self.gm = gm
         self.vel = vel
         self.kind = kind        # key used for remapping / reporting
         self.info = info
+        self.note = note        # pitch-drop drums: the original Note (pitch, peak volume)
 
 
 def _vel(v):
@@ -181,19 +185,23 @@ def dmc_hits(frames, samples, cpu_hz, drum_map=None):
     return hits
 
 
-# --------------------------------------------------------------- triangle
-def split_triangle_drums(tri_notes, enabled=True):
-    """Return (tonal_notes, drum_hits)."""
+# --------------------------------------------------------------- pitch-drop drums
+DROP_DRUM_CHANNELS = ("P1", "P2", "TRI")
+
+
+def split_drop_drums(ch_notes, src, enabled=True):
+    """Split one channel (P1 / P2 / TRI) into (tonal_notes, drum_hits)."""
     if not enabled:
-        return tri_notes, []
+        return ch_notes, []
     tonal, hits = [], []
-    for n in tri_notes:
+    for n in ch_notes:
         length = n.end - n.start
         ps = [p for p in n.pitches if p is not None]
         if ps and length <= TRI_DRUM_MAX and ps[0] - min(ps) >= TRI_DRUM_DROP:
             gm = 36 if min(ps) < 60 else 45
-            hits.append(DrumHit("TRI", n.start, n.end, gm, 110, ("TRI",),
-                                f"glide {ps[0]:.0f}->{min(ps):.0f}"))
+            vel = 110 if src == "TRI" else _vel(n.peak)
+            hits.append(DrumHit(src, n.start, n.end, gm, vel, (src,),
+                                f"glide {ps[0]:.0f}->{min(ps):.0f}", n))
         else:
             tonal.append(n)
     return tonal, hits
