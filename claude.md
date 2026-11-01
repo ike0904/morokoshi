@@ -104,7 +104,22 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.6 (2026-11-01) ← 最新（プロンプト直接指示: nsf2mid 統合）
+### v2.7.7 (2026-11-01) ← 最新（プロンプト直接指示）
+- Speed の直接入力を拡張（_parse_speed）: 整数は分母とみなす（"1"→×1/1, "2"→×1/2, "4"→×1/4, "8"→×1/8）、
+  "1/2" "x1/2" "×1/4" "x2"(→×1/2) "0.5" も変換し、最寄りの段階に丸める。編集欄の表示も "1/2" 形式に
+  （DragLabel に parse / edit_fmt 引数を追加。Speed 以外は従来どおり）
+- Save のツールチップを "Save [S]" のみに（ファイル形式の行を削除）
+- MIDI 保存: 保存ダイアログのファイルの種類で MIDI を選んだ瞬間に、保存ダイアログの右横にオプションパネルを表示
+  （OK/Cancel 無し、確定は保存ダイアログの保存ボタン。他の種類に戻すと隠れる）
+  - QFileDialog.getSaveFileName → QFileDialog インスタンス＋filterSelected に変更（ネイティブダイアログのまま）
+  - パネルは保存ダイアログの子ウィンドウにする（親が別だと Qt のモーダル判定で入力がブロックされることを実験で確認）
+  - 保存ダイアログの位置は自プロセスの #32770 ウィンドウから取得。右に入らなければ左に表示
+  - MIDI を選んだ場合は拡張子を .mid にそろえる。種類を変えずにファイル名へ .mid を直接入力した場合は従来のオプションダイアログ（OK/Cancel 付き）を表示
+  - 拍子の書式が不正だと入力中から枠を赤表示し、保存時は中止してステータスに表示
+- 確認: Speed 入力の変換表、ネイティブ保存ダイアログ表示中にパネル表示・チェックボックス操作ができることをスクリーンショットで確認
+- APP_VERSION v2.7.7
+
+### v2.7.6 (2026-11-01)（プロンプト直接指示: nsf2mid 統合）
 - Save に MIDI (*.mid) を追加（NSF・NESM 形式のときのみ選択肢に出る。NSFe は nsf2mid 非対応のため出さない）
   - mid を選ぶとオプションダイアログ（Loops / Max seconds / Rows per beat / Time signature / Triplets / Drum map /
     No loop detection / Keep reverb tails / No quantize / Keep triangle drums as notes / Defaults）を表示。出力フォルダ・ダンプは無し

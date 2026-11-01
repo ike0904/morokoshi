@@ -104,7 +104,24 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.5 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.7.6 (2026-11-01) ← 最新（プロンプト直接指示: nsf2mid 統合）
+- Save に MIDI (*.mid) を追加（NSF・NESM 形式のときのみ選択肢に出る。NSFe は nsf2mid 非対応のため出さない）
+  - mid を選ぶとオプションダイアログ（Loops / Max seconds / Rows per beat / Time signature / Triplets / Drum map /
+    No loop detection / Keep reverb tails / No quantize / Keep triangle drums as notes / Defaults）を表示。出力フォルダ・ダンプは無し
+  - 現在のトラック（cur_track+1）を別スレッドで変換し、.mid のみ保存。ステータスバーに経過秒、Esc で中止
+  - 拍子の書式が不正なら OK で閉じずに枠を赤表示。変換ログ（nsf2mid の出力）は morokoshi.log に記録
+  - オプションは settings.json の "nsf2mid" キーに保存（save_global_settings を既存キー保持のマージ書き込みに変更）
+- nsf2mid の変換モジュールを src/nsf2mid_core/ にコピーして取り込み（GUI・player は除外）
+  - 同期スクリプト tools/sync_nsf2mid.py を新規作成。nsf2mid を改修したら `python tools/sync_nsf2mid.py` で反映。
+    取り込んだバージョン・コミットは src/nsf2mid_core/SOURCE.txt に記録。nsf2mid_core 内は直接編集しない
+  - nsf2mid 側に --mid-out（指定パスに .mid のみ出力）を追加（nsf2mid v0.1.18）
+- morokoshi.spec: pathex に nsf2mid_core、hiddenimports に nsf2mid を追加。
+  あわせて datas / icon が旧パス（..\icon\morokoshi.ico、v2.7.1 で削除済み）のままだったのを ICON_PATH に修正（このままだとビルド失敗していた）
+- 確認: Dragon Warrior (EMU).zophar.zip の track 2/3 を MIDI 保存、中止、不正オプション、settings.json の既存キー保持、
+  ダイアログ表示（1x/2x）、スクラッチ領域への試験ビルドで nsf2mid 系 9 モジュールが同梱されることを確認
+- APP_VERSION v2.7.6
+
+### v2.7.5 (2026-11-01)（プロンプト直接指示）
 - トラック番号のツールチップが「>」ボタンに重なる不具合を修正
   - 原因1: ツールチップをトラック番号欄の右隣（＝「>」ボタンの位置）に表示していた
   - 原因2: NsfPanel の _track_leave で hide_tt を呼んでおらず、マウスが離れてもツールチップが残っていた（SpcPanel は呼んでいた）

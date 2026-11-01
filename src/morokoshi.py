@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.6"
+APP_VERSION = "v2.7.7"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -70,6 +70,21 @@ def _fmt_speed(v):
         if abs(v - sv) < 0.005:
             return _SPEED_LABELS.get(sv, f"×{sv}")
     return f"×{v}"
+
+def _parse_speed(txt):
+    """Speed の直接入力を倍率に変換する（最寄りの SPEED_VALUES に丸めるのは呼び出し側）。
+    "1/2" "x1/2" → 0.5、整数 "2" "x2" → 1/2（分母とみなす）、小数 "0.5" → 0.5。不正なら ValueError"""
+    t = txt.strip().replace("×", "").replace(" ", "").lstrip("xX*")
+    if "/" in t:
+        a, b = t.split("/", 1)
+        v = float(a) / float(b)
+    elif t.isdigit():
+        v = 1.0 / int(t)
+    else:
+        v = float(t)
+    if not v > 0:
+        raise ValueError(txt)
+    return v
 
 
 # ── キャッシュ
@@ -4465,7 +4480,10 @@ class DragLabel(QLabel):
     value_changed = pyqtSignal(float)   # 確定値: リリース / タイマー / commit
     value_preview = pyqtSignal(float)   # 即時表示用: ドラッグ中・ホイール各ステップ
     value_edited_invalid = pyqtSignal()
-    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, values=None, lazy=False, parent=None):
+    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, values=None, lazy=False,
+                 parse=None, edit_fmt=None, parent=None):
+        self._parse=parse or float       # 直接入力の文字列 → 値
+        self._edit_fmt=edit_fmt          # 値 → 直接入力欄の表示（None = 既定）
         super().__init__(text, parent)
         self.step=step; self.lo=lo; self.hi=hi
         self.big_step=big_step if big_step is not None else step
@@ -4536,7 +4554,8 @@ class DragLabel(QLabel):
         from PyQt6.QtWidgets import QLineEdit
         if getattr(self,"_editor",None) is not None: return
         ed=QLineEdit(self)
-        ed.setText(self.text().replace("×","").replace("x","").replace("+","").replace("±",""))
+        ed.setText(self._edit_fmt(self._val) if self._edit_fmt else
+                   self.text().replace("×","").replace("x","").replace("+","").replace("±",""))
         ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
         ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
@@ -4544,6 +4563,7 @@ class DragLabel(QLabel):
         ed.setFocus(); ed.selectAll()
         self._editor=ed
         def _fmt(v):
+            if self._edit_fmt: return self._edit_fmt(v)
             if self.values: return str(v)
             if float(self.step).is_integer(): return str(int(round(v)))
             dp=max(0, -int(math.floor(math.log10(self.step))))
@@ -4553,7 +4573,7 @@ class DragLabel(QLabel):
             txt=self._editor.text().strip()
             self._editor.deleteLater(); self._editor=None
             try:
-                v=float(txt)
+                v=self._parse(txt)
             except:
                 self.value_edited_invalid.emit(); return
             if self.values:
@@ -4565,7 +4585,7 @@ class DragLabel(QLabel):
         def ed_press(ev):
             if ev.button()==Qt.MouseButton.LeftButton:
                 _dy0[0]=ev.position().y()
-                try: _base[0]=float(ed.text().strip())
+                try: _base[0]=self._parse(ed.text().strip())
                 except: _base[0]=self._val
             QLineEdit.mousePressEvent(ed, ev)
         def ed_move(ev):
@@ -4587,7 +4607,7 @@ class DragLabel(QLabel):
             ev.accept()
         def on_wheel(ev):
             txt=ed.text().strip()
-            try: v=float(txt)
+            try: v=self._parse(txt)
             except: self.value_edited_invalid.emit(); ev.ignore(); return
             if self.values:
                 idx=min(range(len(self.values)), key=lambda i: abs(self.values[i]-v))
@@ -4651,11 +4671,18 @@ def _attach_tt(w, text):
     w.leaveEvent = leave
 
 class Nsf2MidDialog(QDialog):
-    """Save で MIDI を選んだときのオプション（nsf2mid の変換オプション。出力フォルダ・ダンプは無し）"""
-    def __init__(self, opts, scale=1.0, parent=None):
+    """Save で MIDI を選んだときのオプション（nsf2mid の変換オプション。出力フォルダ・ダンプは無し）
+    buttons=False: 保存ダイアログ横に出すパネル（OK/Cancel 無し、確定は保存ダイアログ側）
+    buttons=True : 単独のモーダルダイアログ（ファイル名に .mid を直接入力した場合など）"""
+    def __init__(self, opts, scale=1.0, parent=None, buttons=True):
         super().__init__(parent)
-        self.setWindowTitle("MIDI options (nsf2mid)")
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowTitle("MIDI options")
+        if buttons:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        else:
+            # 閉じるボタン無しのツールウィンドウ（保存ダイアログが閉じると一緒に消える）
+            self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.CustomizeWindowHint
+                                | Qt.WindowType.WindowTitleHint)
         S = lambda px: int(round(px*scale))
         fs = S(13)
         self.setStyleSheet(
@@ -4714,14 +4741,27 @@ class Nsf2MidDialog(QDialog):
         self.ck_notridrums = check("Keep triangle drums as notes", "Do not convert triangle glides to kick drums")
         bl = QHBoxLayout(); bl.setSpacing(S(6))
         b_def = QPushButton("Defaults"); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
-        b_ok = QPushButton("OK"); b_ok.clicked.connect(self.accept); b_ok.setDefault(True)
-        b_cancel = QPushButton("Cancel"); b_cancel.clicked.connect(self.reject)
-        for b in (b_def, b_ok, b_cancel): b.setAutoDefault(False)
-        b_ok.setDefault(True)
-        bl.addWidget(b_def); bl.addStretch(1); bl.addWidget(b_ok); bl.addWidget(b_cancel)
+        b_def.setAutoDefault(False)
+        bl.addWidget(b_def); bl.addStretch(1)
+        if buttons:
+            b_ok = QPushButton("OK"); b_ok.clicked.connect(self.accept)
+            b_cancel = QPushButton("Cancel"); b_cancel.clicked.connect(self.reject)
+            for b in (b_ok, b_cancel): b.setAutoDefault(False)
+            b_ok.setDefault(True)
+            bl.addWidget(b_ok); bl.addWidget(b_cancel)
         g.addLayout(bl, self._r, 0, 1, 2)
         g.setColumnMinimumWidth(1, S(150))
+        self.ed_timesig.textChanged.connect(lambda _: self._mark_timesig())
         self._apply(opts)
+
+    def timesig_ok(self):
+        import re
+        ts=self.ed_timesig.text().strip()
+        return not ts or bool(re.fullmatch(r"\s*(-|\d+/\d+)(\s*,\s*(-|\d+/\d+))*\s*", ts))
+
+    def _mark_timesig(self):
+        # 拍子の書式（例 "6/8,4/4"、"-" = 自動）が不正なら枠を赤くする
+        self.ed_timesig.setStyleSheet("" if self.timesig_ok() else "border:1px solid #E04040;")
 
     def _apply(self, o):
         self.sp_loops.setValue(int(o["loops"]))
@@ -4744,13 +4784,9 @@ class Nsf2MidDialog(QDialog):
                 "no_quantize": self.ck_noquant.isChecked(), "no_tri_drums": self.ck_notridrums.isChecked()}
 
     def accept(self):
-        # 拍子の書式チェック（例 "6/8,4/4"、"-" = 自動）。不正なら閉じずに枠を赤くする
-        import re
-        ts=self.ed_timesig.text().strip()
-        if ts and not re.fullmatch(r"\s*(-|\d+/\d+)(\s*,\s*(-|\d+/\d+))*\s*", ts):
-            self.ed_timesig.setStyleSheet("border:1px solid #E04040;")
-            self.ed_timesig.setFocus(); return
-        self.ed_timesig.setStyleSheet("")
+        # 拍子の書式が不正なら閉じない
+        if not self.timesig_ok():
+            self._mark_timesig(); self.ed_timesig.setFocus(); return
         super().accept()
 
     def done(self, r):
@@ -5229,7 +5265,8 @@ class MainWindow(QMainWindow):
         mid_vlo.addWidget(mk_row("Bar   ", self._bar_edit))
         mid_vlo.addWidget(DividerRow(BORDER, self.S(5)))
 
-        self._spd_lbl=DragLabel("×1/1", default=1.0, values=SPEED_VALUES, lazy=True)
+        self._spd_lbl=DragLabel("×1/1", default=1.0, values=SPEED_VALUES, lazy=True,
+                                parse=_parse_speed, edit_fmt=lambda v: _fmt_speed(v).replace("×",""))
         self._spd_lbl.set_value(1.0); self._spd_lbl.setFixedWidth(VAL_W); self._spd_lbl.setFixedHeight(self.S(22))
         self._spd_lbl.value_changed.connect(self._on_spd)
         self._spd_lbl.value_preview.connect(lambda v: self._spd_lbl.setText(_fmt_speed(v)))
@@ -5256,7 +5293,7 @@ class MainWindow(QMainWindow):
         icon_grid = [
             [None,
              ("help","Help [H]","_help_btn",self._show_help),
-             ("save","Save [S]\nWAV / MP3 / M4A","_save_btn",self._save_audio)],
+             ("save","Save [S]","_save_btn",self._save_audio)],
             [("open","Open[O]\nShift: Folder\nR-Click: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
              ("tempo_search","Tempo detection [T]\nShift: Tap tempo","_tempo_btn",self._tempo_btn_action),
              ("reset","Reset[R]\nShift: Clear Cache","_reset_btn",
@@ -6992,18 +7029,39 @@ class MainWindow(QMainWindow):
             start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
         # MIDI は NSF（NESM 形式）のときのみ（nsf2mid は NSFe 非対応）
         mid_ok=eng._nsf is not None and eng._nsf.fmt=="NESM"
-        path,flt=QFileDialog.getSaveFileName(self,"Save Audio",
-            os.path.join(start_dir, self._save_default_name()+".wav"),
+        dlg=QFileDialog(self,"Save Audio",os.path.join(start_dir, self._save_default_name()+".wav"),
             "WAV (*.wav);;MP3 (*.mp3);;M4A (*.m4a)"+(";;MIDI (*.mid)" if mid_ok else ""))
-        if not path: return
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        # ファイルの種類で MIDI を選んだら、保存ダイアログの横にオプションパネルを出す。
+        # パネルは保存ダイアログの子にする（子でないと保存ダイアログのモーダル中に操作できない）
+        panel=[None]
+        def on_filter(f):
+            if not f.startswith("MIDI"):
+                if panel[0] is not None: panel[0].hide()
+                hide_tt(); return
+            if panel[0] is None:
+                panel[0]=Nsf2MidDialog(_nsf2mid_opts(), self._scale, dlg, buttons=False)
+            panel[0].adjustSize()
+            self._place_beside_save_dialog(panel[0], "Save Audio")
+            panel[0].show(); panel[0].raise_()
+        if mid_ok: dlg.filterSelected.connect(on_filter)
+        ok=dlg.exec()==QFileDialog.DialogCode.Accepted
+        hide_tt()
+        if panel[0] is not None: panel[0].hide()
+        if not ok or not dlg.selectedFiles(): return
+        path=dlg.selectedFiles()[0]; flt=dlg.selectedNameFilter()
         ext=os.path.splitext(path)[1].lower().lstrip(".")
-        if ext not in (("wav","mp3","m4a","mid") if mid_ok else ("wav","mp3","m4a")):
-            ext=("mp3" if flt.startswith("MP3") else "m4a" if flt.startswith("M4A")
-                 else "mid" if flt.startswith("MIDI") else "wav")
+        if mid_ok and flt.startswith("MIDI"):
+            # MIDI を選んだ場合は拡張子を .mid にそろえる
+            if ext!="mid":
+                if ext in ("wav","mp3","m4a"): path=os.path.splitext(path)[0]
+                path+=".mid"; ext="mid"
+        elif ext not in (("wav","mp3","m4a","mid") if mid_ok else ("wav","mp3","m4a")):
+            ext="mp3" if flt.startswith("MP3") else "m4a" if flt.startswith("M4A") else "wav"
             path+="."+ext
         self._last_save_folder=os.path.dirname(path)
         if ext=="mid":
-            self._save_midi(path); return
+            self._save_midi(path, panel[0]); return
         # 再生中の状態（Speed/Key/Fine）を保存開始時点で確定。フィルターは反映しない
         with eng._lock:
             data=eng.data; sr=eng.sr
@@ -7049,14 +7107,49 @@ class MainWindow(QMainWindow):
                 except Exception: pass
             self._saving=False
 
-    def _save_midi(self, path):
-        """NSF の現在のトラックを nsf2mid で MIDI に変換して保存（オプションダイアログを表示）"""
+    def _place_beside_save_dialog(self, w, title):
+        """ネイティブの保存ダイアログ（自プロセスの #32770 ウィンドウ）の右横に w を置く。
+        右に入らなければ左、見つからなければメインウィンドウの右横"""
+        x=y=None
+        try:
+            import ctypes as _c
+            from ctypes import wintypes as _w
+            u=_c.windll.user32; pid=os.getpid(); found=[]
+            proc=_c.WINFUNCTYPE(_w.BOOL,_w.HWND,_w.LPARAM)
+            def cb(h,_):
+                p=_w.DWORD(); u.GetWindowThreadProcessId(h,_c.byref(p))
+                if p.value==pid and u.IsWindowVisible(h):
+                    c=_c.create_unicode_buffer(32); u.GetClassNameW(h,c,32)
+                    t=_c.create_unicode_buffer(256); u.GetWindowTextW(h,t,256)
+                    if c.value=="#32770" and t.value==title: found.append(h)
+                return True
+            u.EnumWindows(proc(cb),0)
+            if found:
+                r=_w.RECT(); u.GetWindowRect(found[0],_c.byref(r))
+                dpr=(w.screen() or QApplication.primaryScreen()).devicePixelRatio()
+                x=int(r.right/dpr)+4; y=int(r.top/dpr)
+                scr=QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+                ag=scr.availableGeometry()
+                if x+w.frameGeometry().width()>ag.right():
+                    x=max(ag.left(), int(r.left/dpr)-w.frameGeometry().width()-4)
+        except Exception:
+            x=y=None
+        if x is None:
+            g=self.frameGeometry(); x=g.right()+4; y=g.top()
+        w.move(x,y)
+
+    def _save_midi(self, path, panel=None):
+        """NSF の現在のトラックを nsf2mid で MIDI に変換して保存。
+        panel: 保存ダイアログ横のオプションパネル。無ければ（.mid を直接入力した場合）オプションダイアログを出す"""
         nsf=self.engine._nsf
         if nsf is None: return
-        dlg=Nsf2MidDialog(_nsf2mid_opts(), self._scale, self)
-        if dlg.exec()!=QDialog.DialogCode.Accepted:
-            self._st("MIDI save cancelled"); return
-        opts=dlg.values()
+        if panel is None:
+            panel=Nsf2MidDialog(_nsf2mid_opts(), self._scale, self)
+            if panel.exec()!=QDialog.DialogCode.Accepted:
+                self._st("MIDI save cancelled"); return
+        elif not panel.timesig_ok():
+            self._st("MIDI save cancelled: invalid time signature"); return
+        opts=panel.values()
         _update_settings(nsf2mid=opts)
         self._saving=True; self._mid_stop=False
         threading.Thread(target=self._save_midi_th,
