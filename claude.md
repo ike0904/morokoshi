@@ -104,7 +104,19 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.2 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.3 (2026-11-01) ← 最新（プロンプト直接指示）
+- MIDI options の「Rows per beat」を「Tempo」（Auto / Half / Double）に変更
+  - nsf2mid 本体を v0.1.19 に改修（--tempo auto/half/double・--loops 0 = ループ検出なし、GUI も同じ仕様）し、
+    tools/sync_nsf2mid.py で nsf2mid_core に同期。自動検出の結果を区間ごとに半分/2倍にするので、区間・3連・シャッフルの検出はそのまま
+  - Loops=0 は nsf2mid に --loops 0 をそのまま渡す（v2.8.2 の --loops 1 --no-loop から変更）。旧設定の rows は無視（Tempo = Auto）
+  - 確認: オプション画面の引数生成、Castlevania 2 を Loops=0・Tempo=Half で変換（56 BPM、ループ検出なし）
+- マニュアル（md のみ。PDF は次の正式ビルド時）: 一般公開しない nsf2mid の名前をすべて削除
+  - 「姉妹ツール nsf2mid と同じ変換エンジン」・末尾の nsf2mid 案内・更新履歴 v2.8.0 の記載を削除（JP/EN）
+  - Drum map の書き方を nsf2mid マニュアル参照から、本マニュアル内の「Drum map の書き方」節に移した
+  - オプション表: Rows per beat → Tempo、No loop detection を削除し Loops に「0 = ループ検出なし」を追記、対処表も合わせて修正
+- APP_VERSION v2.8.3
+
+### v2.8.2 (2026-11-01)（プロンプト直接指示）
 - MIDI options の「No loop detection」を廃止し、Loops=0 で同じ動作（ループ検出なしで Max seconds 分を変換）に
   - Loops の範囲を 0〜16 に、ツールチップに「0: no loop detection」を追記
   - nsf2mid には Loops=0 のとき --loops 1 --no-loop を渡す

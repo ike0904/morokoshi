@@ -104,7 +104,17 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.1 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.2 (2026-11-01) ← 最新（プロンプト直接指示）
+- MIDI options の「No loop detection」を廃止し、Loops=0 で同じ動作（ループ検出なしで Max seconds 分を変換）に
+  - Loops の範囲を 0〜16 に、ツールチップに「0: no loop detection」を追記
+  - nsf2mid には Loops=0 のとき --loops 1 --no-loop を渡す
+  - 旧設定で no_loop=True が保存されていた場合は Loops=0 として読み込む
+  - マニュアルの該当記述は次の公開バージョンで更新する（今回は未変更）
+- マニュアル PDF: MIDI options 表の「既定値」列が狭く「（空欄）」が2行になっていたのを修正（JP/EN とも列幅を調整）。
+  指示により v2.8.0 のまま PDF を再生成（57 ページ）、dist/morokoshi280 の PDF・zip を差し替え
+- APP_VERSION v2.8.2
+
+### v2.8.1 (2026-11-01)（プロンプト直接指示）
 - NSF の曲頭ノイズ再発を修正（一部chをミュート/ソロにした時、曲頭約20〜50msに他chの音が漏れる。例: Dragon Warrior の 005 で ch2 ソロ）
   - 原因: libgme の start_track は無音検出のため曲頭を先読み生成しており、その時点ではミュート前なので全ch入り。
     v2.7.3 で gme_clear_blip_buffer を外したため、この先読み分がそのまま出ていた

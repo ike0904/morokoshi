@@ -9,7 +9,7 @@ Phase 4: GUI (nsf2mid_gui.py). Started when no arguments are given.
 Usage:
     python nsf2mid.py                (GUI)
     python nsf2mid.py FILE.nsf|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
-                      [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N]
+                      [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
                       [--loops N] [--no-loop] [--no-tri-drums] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
 
 バージョン履歴:
@@ -20,9 +20,11 @@ Usage:
   v0.1.17 (2026-10-18) - NSF 入りの zip を直接読み込み・3 連ノリ検出 (--triplets)・GUI 改善 (前後の曲ボタン、開くアイコン＋履歴、
                          全チェック、ショートカット)・簡易再生の 5 秒無音停止を廃止
   v0.1.18 (2026-11-01) - --mid-out: 指定パスに .mid のみ出力 (morokoshi 統合用。notes.csv / ダンプは出さない)
+  v0.1.19 (2026-11-01) - --tempo auto/half/double (自動検出したテンポを区間ごとに半分/2倍)・--loops 0 でループ検出なし。
+                         GUI: 「1 拍の行数」→「テンポ」(自動/半分/2倍)、「ループ検出をしない」を廃止 (ループ回数 0 で代用)
 """
 
-APP_VERSION = "v0.1.18"
+APP_VERSION = "v0.1.19"
 
 import argparse
 import csv
@@ -325,7 +327,10 @@ def build_parser():
     ap.add_argument("--no-quantize", action="store_true", help="do not snap notes to the detected grid")
     ap.add_argument("--unit", type=float, default=None, help="override grid unit (frames per row)")
     ap.add_argument("--rows-per-beat", type=int, default=None, help="override rows per beat (e.g. 4 = 16th rows)")
-    ap.add_argument("--loops", type=int, default=1, help="how many times to write the loop body (default 1)")
+    ap.add_argument("--tempo", choices=("auto", "half", "double"), default="auto",
+                    help="auto = detected tempo (default), half / double = halve / double the detected tempo")
+    ap.add_argument("--loops", type=int, default=1,
+                    help="how many times to write the loop body (default 1, 0 = no loop detection)")
     ap.add_argument("--no-loop", action="store_true", help="disable loop detection (emulate --seconds fully)")
     ap.add_argument("--time-sig", default="",
                     help='time signature per tempo segment, e.g. "6/8,4/4" ("-" = auto)')
@@ -349,6 +354,8 @@ def convert(args, should_stop=None):
     Progress is printed to stdout. should_stop() is polled between emulation chunks;
     returning True raises Cancelled. Returns (exit code, list of output files).
     """
+    if args.loops <= 0:  # --loops 0 = no loop detection (same as --no-loop)
+        args.no_loop = True
     drum_map = parse_drum_map(args.drum_map)
     transpose = {"TRI": 12 * args.tri_octave}
     programs = dict(MIDI_PROG)
@@ -453,7 +460,8 @@ def convert(args, should_stop=None):
     onsets += [d.start for d in in_range if d.src == "DMC"]
     chan_notes = {ch: {n.start: n.pitch for n in notes[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
                   for ch in ("P1", "P2", "TRI")}
-    tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets)
+    tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
+                             args.tempo)
     tmap = None
     if tempo is None:
         print("\nTempo: not enough notes to detect")
@@ -461,6 +469,9 @@ def convert(args, should_stop=None):
         g = tempo["global"]
         print(f"\nTempo: grid unit {g['unit']:g} frames (fit {g['score'] * 100:.1f}%), "
               f"{'shuffle (long-short on a straight grid)' if tempo.get('shuffle') else 'triplet feel (3 notes per beat)' if tempo.get('triplet') else 'ternary (triplet/shuffle)' if tempo['ternary'] else 'binary'}")
+        if tempo.get("tempo_kept"):
+            print(f"  Tempo double: {tempo['tempo_kept']} segment(s) kept as detected "
+                  "(odd rows per beat cannot be halved)")
         meters = [tuple(int(x) for x in m.split("/")) if m.strip() not in ("", "-") else None
                   for m in args.time_sig.split(",")] if args.time_sig else None
         tmap = TickMap(tempo, PPQ, not args.no_quantize, frame_rate, onsets,

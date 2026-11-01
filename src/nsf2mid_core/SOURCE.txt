@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.18
-commit:  f9ad6bd 2026-11-01 v0.1.18: --mid-out (write only the .mid to a given path, for morokoshi integration)
+version: v0.1.19
+commit:  f97acae 2026-11-01 v0.1.19: --tempo auto/half/double (scale detected tempo per segment), --loops 0 = no loop detection; GUI: Tempo (auto/half/double) replaces rows per beat, drop the no-loop checkbox
 files:   apu_state.py, cpu6502.py, drums.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
