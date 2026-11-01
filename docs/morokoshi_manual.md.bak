@@ -257,7 +257,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 曲に合わせて拍をタップして、テンポを手動で求めることもできます。
 
 1. **Beat**（拍子）を **2以上** に設定します（Beat=1 ではタップテンポは使えません）。
-2. **Shift+T**、テンポ検出アイコンの **Shift+クリック**、またはテンキーの **Enter+8** で、曲に合わせて拍をタップします。タップテンポ中はテンポ検出アイコンが**青**になります。
+2. **Shift+T**、テンポ検出アイコンの **Shift+クリック**、またはテンキーの **Enter+8** で、曲に合わせて拍をタップします。タップテンポ中はテンポ検出アイコンが**青**になります。テンキーの場合、2 回目以降は **8** だけでタップできます。
 3. **Beat の数だけタップ**すると、タップ間隔の平均から Tempo が自動計算されます。続けてタップすると、その都度 Tempo が更新されます。
 
 > 💡 タップ間隔が **2秒** を超えるか、タップ以外のキー操作をすると、タップテンポは自動的に終了します。
@@ -628,7 +628,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **.** | （対応無し） | 次の曲（ゲームモード時のみ） |
 | **Shift+.** | （対応無し） | 10曲次へ（ゲームモード時のみ） |
 
-> 💡 テンキーのEnterを使用する操作をする場合、テンキーEnterを押した直後（1.5秒以内）に次のキーを押してください。  
+> 💡 テンキーのEnterを使用する操作をする場合、テンキーEnterを押しながら、または押した直後（1.5秒以内）に次のキーを押してください。  
 > 💡 時間やテンポなどを**直接入力している最中は、ショートカットは無効**になります（入力の邪魔をしません）。  
 > 💡 **キーボードの種類による差異**: JISキーボードの最上段は13キー（ch12=`^`、ch13=`¥`）。USキーボードは最上段が12キーしかないため ch12=`=`、ch13=`\`（Enterキーの上）に割り当てられます。
 
@@ -947,7 +947,7 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 You can also find the tempo manually by tapping along with the beat.
 
 1. Set **Beat** to **2 or more** (Tap Tempo is unavailable when Beat=1).
-2. Tap along with the beat using **Shift+T**, **Shift+click** on the Detect Tempo icon, or numpad **Enter+8**. The Detect Tempo icon turns **blue** while Tap Tempo is active.
+2. Tap along with the beat using **Shift+T**, **Shift+click** on the Detect Tempo icon, or numpad **Enter+8**. The Detect Tempo icon turns **blue** while Tap Tempo is active. With the numpad, you can keep tapping with **8** alone after the first tap.
 3. After **as many taps as the Beat value**, Tempo is calculated automatically from the average tap interval. Keep tapping to update Tempo each time.
 
 > 💡 Tap Tempo ends automatically if more than **2 seconds** pass between taps, or if you press any key other than a tap key.
@@ -1318,7 +1318,7 @@ In addition to standard shortcuts, "Morokoshi Time" provides **hidden numpad sho
 | **.** | (none) | Next track (Game Mode only) |
 | **Shift+.** | (none) | Go forward 10 tracks (Game Mode only) |
 
-> 💡 For numpad Enter combinations: press numpad Enter first, then press the second key within 1.5 seconds.  
+> 💡 For numpad Enter combinations: hold numpad Enter while pressing the second key, or press the second key within 1.5 seconds after numpad Enter.  
 > 💡 **Shortcuts are disabled while typing in a text field** — entering a value will not accidentally trigger shortcuts.  
 > 💡 **Key layout note**: On a US keyboard, the top row has 12 typeable keys (`1`–`=`); channel 12 maps to `=`. Channel 13 maps to `\` (the key above Enter, not in the number row). On a JIS keyboard, the top row has 13 keys; ch12 = `^`, ch13 = `¥`.
 
