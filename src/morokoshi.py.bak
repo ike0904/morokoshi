@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.0"
+APP_VERSION = "v2.8.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -519,6 +519,9 @@ def _gme_load():
             lib.gme_set_fade.argtypes    = [_ct.c_void_p, _ct.c_int]
             lib.gme_set_tempo.restype    = None
             lib.gme_set_tempo.argtypes   = [_ct.c_void_p, _ct.c_double]
+            if hasattr(lib, "gme_refresh_lookahead"):  # 改造DLL v2.8.1〜
+                lib.gme_refresh_lookahead.restype  = None
+                lib.gme_refresh_lookahead.argtypes = [_ct.c_void_p]
             _gme_lib_cache = lib
             return lib
         except Exception as ex:
@@ -785,13 +788,18 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
     if err2 is not None:
         gme_lib.gme_delete(emu)
         return np.zeros(max(target_s, min_s), dtype=np.float32), True, dur_sec
-    if abs(tempo - 1.0) > 1e-6:
-        gme_lib.gme_set_tempo(emu, float(tempo))
     # mute-after: INIT後にマスク設定（タイミング正確化）
     for i in range(ch_count):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-    # ※ gme_clear_blip_buffer は呼ばない。INITノイズは改造DLLのstart_track内で処理済みで、
-    #    二重に呼ぶと鳴りっぱなしの音が消え曲頭数秒が無音になるNSFがある（例: Dragon Warrior）
+    # start_track が無音検出のため先読みした曲頭（全ch入り）をミュート適用済みで作り直す。
+    # これが無いと一部chミュート時に曲頭約20〜50msへ他chの音が漏れる。タイミングは変わらない。
+    # ※ gme_clear_blip_buffer は使わない（ミュート状態で無音検出をやり直すため、
+    #    ソロ時に曲がずれたり Dragon Warrior などで音が消える）
+    # ※ start_track 時と同じテンポで作り直すため、set_tempo はこの後に呼ぶ
+    if ch_mask != (1 << ch_count) - 1 and hasattr(gme_lib, "gme_refresh_lookahead"):
+        gme_lib.gme_refresh_lookahead(emu)
+    if abs(tempo - 1.0) > 1e-6:
+        gme_lib.gme_set_tempo(emu, float(tempo))
     buf16 = (_ct.c_int16 * (CHUNK * 2))()
     samples = []; rendered = 0
     while rendered < target_s:

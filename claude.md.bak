@@ -104,7 +104,21 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.0 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.1 (2026-11-01) ← 最新（プロンプト直接指示）
+- NSF の曲頭ノイズ再発を修正（一部chをミュート/ソロにした時、曲頭約20〜50msに他chの音が漏れる。例: Dragon Warrior の 005 で ch2 ソロ）
+  - 原因: libgme の start_track は無音検出のため曲頭を先読み生成しており、その時点ではミュート前なので全ch入り。
+    v2.7.3 で gme_clear_blip_buffer を外したため、この先読み分がそのまま出ていた
+  - gme_clear_blip_buffer の単純復活は不可: ミュート状態で無音検出をやり直すため、ソロ時に曲がずれる（約18%）・
+    Dragon Warrior の ch1 ソロが全編無音になる
+  - 改造DLLに gme_refresh_lookahead を追加: start_track の先読みチャンク数を記録し、エミュレータを曲頭に戻して
+    現在のミュートで同じ位置まで再生成 → 先読みバッファを差し替え（タイミングは start_track と同一）
+  - _nsf_render で一部chミュート時のみ呼ぶ（set_tempo はその後に移動）。SPC/GBS は変更なし
+  - 検証（NSF 1931ファイル）: 全ch再生は旧DLLと全ファイル完全一致、全ミュートは全ファイル完全無音（旧: 1851ファイルで漏れ）、
+    各chソロの合計＝全ch再生（曲頭含む。例外10件は DMC 等の非線形合成による元々の誤差）、ソロ本体の差は最大1LSB
+  - src/dll/libgme.dll を更新（game-music-emu-morokoshi で再ビルド）
+- APP_VERSION v2.8.1
+
+### v2.8.0 (2026-11-01)（プロンプト直接指示）
 - APP_VERSION を v2.8.0 に更新（ビルド前に確認済み・exe のウィンドウタイトルで v2.8.0 表示を確認）
 - v2.7.1〜v2.7.9 の変更を公開: Save（WAV/MP3/M4A、前回保存フォルダを記憶）、NSF の MIDI 保存（nsf2mid 統合、
   保存ダイアログ横のオプションパネル）、Zoom を最大化ボタンへ移動、Speed 直接入力の書式拡張、

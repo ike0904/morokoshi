@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.1"
+APP_VERSION = "v2.8.2"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -263,7 +263,7 @@ def save_global_settings(zoom, volume):
 
 # ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
 NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "rows": "auto", "time_sig": "", "triplets": "auto",
-                    "drum_map": "", "no_loop": False, "keep_tail": False,
+                    "drum_map": "", "keep_tail": False,
                     "no_quantize": False, "no_tri_drums": False}
 NSF2MID_ROWS = ("auto", "2", "3", "4", "6", "8", "9", "12", "16", "24")
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
@@ -280,16 +280,20 @@ def _nsf2mid_opts():
     saved = _read_settings().get("nsf2mid")
     if isinstance(saved, dict):
         o.update({k: v for k, v in saved.items() if k in NSF2MID_DEFAULTS})
+        if saved.get("no_loop"):  # 旧設定の "No loop detection" は Loops=0 に読み替え
+            o["loops"] = 0
     return o
 
 def _nsf2mid_argv(o):
-    """オプション dict → nsf2mid のコマンドライン引数"""
-    a = ["-s", str(int(o["seconds"])), "--loops", str(int(o["loops"]))]
+    """オプション dict → nsf2mid のコマンドライン引数（Loops=0 はループ検出なし）"""
+    loops = int(o["loops"])
+    a = ["-s", str(int(o["seconds"])), "--loops", str(max(1, loops))]
+    if loops <= 0: a.append("--no-loop")
     if str(o["rows"]) != "auto": a += ["--rows-per-beat", str(o["rows"])]
     if str(o["time_sig"]).strip(): a += ["--time-sig", str(o["time_sig"]).strip()]
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
     if str(o["drum_map"]).strip(): a += ["--drum-map", str(o["drum_map"]).strip()]
-    for k, flag in (("no_loop", "--no-loop"), ("keep_tail", "--keep-tail"),
+    for k, flag in (("keep_tail", "--keep-tail"),
                     ("no_quantize", "--no-quantize"), ("no_tri_drums", "--no-tri-drums")):
         if o[k]: a.append(flag)
     return a
@@ -4730,7 +4734,8 @@ class Nsf2MidDialog(QDialog):
             sp = QSpinBox(); sp.setRange(lo, hi); sp.setSingleStep(step)
             sp.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
             return sp
-        self.sp_loops = add("Loops", spin(1, 16), "How many times to write the loop body\nWheel: change")
+        self.sp_loops = add("Loops", spin(0, 16),
+            "How many times to write the loop body\n0: no loop detection (convert the full max seconds)\nWheel: change")
         self.sp_seconds = add("Max seconds", spin(10, 3600, 60),
             "Max length to emulate (seconds)\nStops automatically when a loop or the song end is found\nWheel: change")
         self.cb_rows = add("Rows per beat", QComboBox(),
@@ -4743,7 +4748,6 @@ class Nsf2MidDialog(QDialog):
         self.cb_triplets.addItems([t[0] for t in NSF2MID_TRIPLETS])
         self.ed_drummap = add("Drum map", QLineEdit(),
             'Override the drum assignment\ne.g. "3:0=42,12:0=36,DMC:E000:129:15=38"')
-        self.ck_noloop = check("No loop detection", "Convert the full max seconds without loop detection")
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
         self.ck_noquant = check("No quantize", "Do not snap notes to the detected grid")
         self.ck_notridrums = check("Keep triangle drums as notes", "Do not convert triangle glides to kick drums")
@@ -4778,7 +4782,6 @@ class Nsf2MidDialog(QDialog):
         self.ed_timesig.setText(str(o["time_sig"]))
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
         self.ed_drummap.setText(str(o["drum_map"]))
-        self.ck_noloop.setChecked(bool(o["no_loop"]))
         self.ck_tail.setChecked(bool(o["keep_tail"]))
         self.ck_noquant.setChecked(bool(o["no_quantize"]))
         self.ck_notridrums.setChecked(bool(o["no_tri_drums"]))
@@ -4788,7 +4791,7 @@ class Nsf2MidDialog(QDialog):
                 "rows": self.cb_rows.currentText(), "time_sig": self.ed_timesig.text().strip(),
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "drum_map": self.ed_drummap.text().strip(),
-                "no_loop": self.ck_noloop.isChecked(), "keep_tail": self.ck_tail.isChecked(),
+                "keep_tail": self.ck_tail.isChecked(),
                 "no_quantize": self.ck_noquant.isChecked(), "no_tri_drums": self.ck_notridrums.isChecked()}
 
     def accept(self):

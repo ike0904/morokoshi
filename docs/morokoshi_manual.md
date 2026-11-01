@@ -458,7 +458,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 #### MIDI options（変換オプション）
 
 | 項目 | 既定値 | 内容 |
-| :---------------- | :---- | :------------------------------------------- |
+| :---------------- | :------- | :------------------------------------------ |
 | **Loops** | 1 | ループ部分を何回書き出すか。1 なら「イントロ＋ループ 1 回」 |
 | **Max seconds** | 600 | エミュレートする最大の長さ（秒）。ループが確定するか曲が終わると、その時点で自動的に止まります |
 | **Rows per beat** | auto | 1 拍を何個の細かい単位（行）に分けるか。auto = 自動検出。<br>テンポが倍・半分に検出されたときに指定します |
@@ -1154,7 +1154,7 @@ The current song is converted with the same engine as the sister tool **nsf2mid*
 #### MIDI options
 
 | Item | Default | Description |
-| :---------------- | :---- | :------------------------------------------- |
+| :---------------- | :------- | :------------------------------------------ |
 | **Loops** | 1 | How many times to write the loop body. 1 = intro + 1 loop |
 | **Max seconds** | 600 | Maximum length to emulate (seconds). Stops automatically when the loop is confirmed or the song ends |
 | **Rows per beat** | auto | How many rows (grid steps) one beat is divided into. auto = detect.<br>Set it when the tempo is detected doubled or halved |
