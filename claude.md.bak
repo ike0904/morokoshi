@@ -104,7 +104,21 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.7 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.7.8 (2026-11-01) ← 最新（プロンプト直接指示）
+- 最大化ボタンでの Zoom 時に一瞬別のウィンドウが出る現象を修正
+  - 原因: v2.7.2 の方式は「Windows が実際に最大化 → changeEvent で検出して戻す → Zoom」だったため、
+    一瞬ウィンドウが画面左上へ移動し最大化アニメーションも出ていた（Z キーの Zoom では発生しない）
+  - 対策: QAbstractNativeEventFilter（_MaxToZoomFilter）で、最大化ボタンの押下（WM_NCLBUTTONDOWN/HTMAXBUTTON）と
+    タイトルバーのダブルクリック（WM_NCLBUTTONDBLCLK/HTCAPTION）を最大化前に握りつぶして Zoom を実行
+    - 最大化ボタンの WM_SYSCOMMAND は SendMessage で直接届きフィルターを通らないため、元のマウスメッセージで判定
+    - PyQt6 では event_type が QByteArray のため bytes() で比較。フィルター内で winId() 等の Qt 呼び出しをすると
+      再帰・クラッシュするため、hwnd は表示後に取得して渡す
+  - changeEvent の最大化検出は保険として残す（Win+↑ など）
+- 確認: 最大化ボタン押下・タイトルバーのダブルクリックをメッセージ送信で再現し、WindowStateChange（最大化）が発生せず
+  位置も変わらずに Zoom が切り替わることを確認
+- APP_VERSION v2.7.8
+
+### v2.7.7 (2026-11-01)（プロンプト直接指示）
 - Speed の直接入力を拡張（_parse_speed）: 整数は分母とみなす（"1"→×1/1, "2"→×1/2, "4"→×1/4, "8"→×1/8）、
   "1/2" "x1/2" "×1/4" "x2"(→×1/2) "0.5" も変換し、最寄りの段階に丸める。編集欄の表示も "1/2" 形式に
   （DragLabel に parse / edit_fmt 引数を追加。Speed 以外は従来どおり）

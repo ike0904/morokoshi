@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.8"
+APP_VERSION = "v2.7.9"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -7055,7 +7055,10 @@ class MainWindow(QMainWindow):
             self._st("No audio to save"); return
         if getattr(self,"_saving",False):
             self._st("Saving in progress..."); return
-        start_dir=getattr(self,"_last_save_folder",None) or self._load_last_folder()
+        # 前回 Save したフォルダ（settings.json に保存）→ 無ければ前回開いたファイルのフォルダ
+        start_dir=_read_settings().get("last_save_folder")
+        if not start_dir or not os.path.isdir(start_dir):
+            start_dir=self._load_last_folder()
         if not start_dir or not os.path.isdir(start_dir):
             start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
         # MIDI は NSF（NESM 形式）のときのみ（nsf2mid は NSFe 非対応）
@@ -7090,7 +7093,7 @@ class MainWindow(QMainWindow):
         elif ext not in (("wav","mp3","m4a","mid") if mid_ok else ("wav","mp3","m4a")):
             ext="mp3" if flt.startswith("MP3") else "m4a" if flt.startswith("M4A") else "wav"
             path+="."+ext
-        self._last_save_folder=os.path.dirname(path)
+        _update_settings(last_save_folder=os.path.dirname(path))
         if ext=="mid":
             self._save_midi(path, panel[0]); return
         # 再生中の状態（Speed/Key/Fine）を保存開始時点で確定。フィルターは反映しない
