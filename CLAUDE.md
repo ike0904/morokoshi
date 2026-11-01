@@ -40,7 +40,16 @@
 
 ## 作業記録
 
-### v0.1.17 (2026-10-18) ← 最新
+### v0.1.18 (2026-11-01) ← 最新（プロンプト直接指示: morokoshi への統合）
+- CLI に --mid-out FILE.mid を追加。指定パスに .mid のみ書き出す（notes.csv・ダンプは出さない、-o より優先）
+  - morokoshi の Save（MIDI 形式）から convert() を呼ぶために追加。GUI・既存の出力は変更なし
+- 変換モジュール（nsf2mid.py ほか）は morokoshi/src/nsf2mid_core/ にコピーして使う。
+  nsf2mid を改修したら morokoshi 側で `python tools/sync_nsf2mid.py` を実行して反映する
+  （morokoshi 側でコピーを直接編集しないこと。必要な改修は nsf2mid 本体に入れる）
+- バージョン履歴コメントを 1 日 1 エントリに整理
+- 確認: DQ2 track 2 を --mid-out で変換し、.mid のみ出力されることを確認
+
+### v0.1.17 (2026-10-18)
 - GUI 改良（プロンプト指示）
   - 「開く...」を morokoshi の open アイコン（src/icon/open.png にコピー）に変更。右クリックでファイル履歴（最大 10、morokoshi の FileHistoryPopup と同じ表示）
   - 再生中に曲の行をクリックすると、その曲を頭から再生（チェック欄のクリックは除く）

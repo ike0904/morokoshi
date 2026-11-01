@@ -10,30 +10,19 @@ Usage:
     python nsf2mid.py                (GUI)
     python nsf2mid.py FILE.nsf|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
                       [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N]
-                      [--loops N] [--no-loop] [--no-tri-drums] [--drum-map MAP] [--triplets auto|on|off]
+                      [--loops N] [--no-loop] [--no-tri-drums] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
 
 バージョン履歴:
-  v0.1.0 (2026-10-04) - 初版 (Phase 1: 6502 エミュレータ・APU レジスタログ・フレーム状態ダンプ)
-  v0.1.1 (2026-10-04) - $4015 読み出し対応 (オホーツクに消ゆ等)・Phase 2: ノート抽出・テンポ検出・MIDI 出力
-  v0.1.2 (2026-10-04) - Phase 3: ノイズ/DPCM/三角波ドラム・ループ/曲終端検出・分割エミュレーション
-  v0.1.3 (2026-10-04) - ループ確定を 3 回連続一致に変更 (2 ループ後にサビが入る曲への対策)・三角波を 1 オクターブ下げて出力 (--tri-octave)
-  v0.1.4 (2026-10-04) - 三角波のオクターブを元に戻す (--tri-octave 既定 0)
-  v0.1.5 (2026-10-04) - 三角波の GM 音色を 38→80 (Sibelius での移調表示・トラック並べ替え対策)・--programs
-  v0.1.6 (2026-10-04) - トラック名を楽器名と紛らわしくない名前に変更 (Sibelius が Triangle を打楽器と判定)
-  v0.1.7 (2026-10-04) - 音色 (プログラムチェンジ) を既定で出力しない
-  v0.1.8 (2026-10-04) - トレモロ後の持続音を余韻と誤判定しない (オホーツクに消ゆ 1ch が短すぎた)
-  v0.1.9 (2026-10-04) - 冒頭の空白を保持・ベースラインからの拍判定 (マリオUSA 地上: 200 BPM、3 連 2 個分の休符)
-  v0.1.10 (2026-10-04) - シャッフル (長短 2:1 の交互) 検出 (マリオ3: 200 BPM 3 連)・ベースライン拍判定は廃止
-  v0.1.11 (2026-10-04) - 拍子検出 (6/8・4/4)・リタルダンド/フェルマータ追従・区間境目のフレーズ優先・3 連系の拍選択 (マリオ 200 BPM)
+  v0.1.11 (2026-10-04) - 初版〜Phase 3: 6502 エミュレータ・APU レジスタログ・ノート抽出・テンポ/拍子検出・MIDI 出力・
+                         ノイズ/DPCM/三角波ドラム・ループ/曲終端検出・シャッフル/リタルダンド対応
   v0.1.12 (2026-10-05) - Phase 4: GUI (nsf2mid_gui.py、引数なしで起動)・変換処理を convert() に分離 (中止対応)
   v0.1.13 (2026-10-08) - GUI の見た目を morokoshi に合わせる・簡易再生 (libgme)
-  v0.1.14 (2026-10-18) - NSF 入りの zip (zophar.net 形式) を直接読み込み (CLI・GUI・m3u・再生)
-  v0.1.15 (2026-10-18) - 3 連ノリ検出 (チャンネル別の 3 音/4 音周期比較、--triplets)・GUI: 三角波オクターブ/音色を削除、前後の曲ボタン、終わった曲で停止
-  v0.1.16 (2026-10-18) - 簡易再生の「5 秒無音で停止」を廃止
-  v0.1.17 (2026-10-18) - GUI: 開くアイコン＋右クリック履歴、ヘッダーで全チェック、再生中の行クリックで再生、ショートカット (O/Space/←/→/Esc/Enter)
+  v0.1.17 (2026-10-18) - NSF 入りの zip を直接読み込み・3 連ノリ検出 (--triplets)・GUI 改善 (前後の曲ボタン、開くアイコン＋履歴、
+                         全チェック、ショートカット)・簡易再生の 5 秒無音停止を廃止
+  v0.1.18 (2026-11-01) - --mid-out: 指定パスに .mid のみ出力 (morokoshi 統合用。notes.csv / ダンプは出さない)
 """
 
-APP_VERSION = "v0.1.17"
+APP_VERSION = "v0.1.18"
 
 import argparse
 import csv
@@ -328,6 +317,8 @@ def build_parser():
     ap.add_argument("-s", "--seconds", type=float, default=600.0,
                     help="maximum length to emulate in seconds (stops early when a loop or the end is found)")
     ap.add_argument("-o", "--outdir", default=None, help="output folder (default: <nsf folder>/nsf2mid_out)")
+    ap.add_argument("--mid-out", default=None,
+                    help="write only the .mid to this path (no notes.csv / dumps; overrides -o)")
     ap.add_argument("--info", action="store_true", help="print header info only")
     ap.add_argument("--dump", action="store_true", help="also write register/frame/tracker dumps (Phase 1)")
     ap.add_argument("--keep-tail", action="store_true", help="keep reverb tails in note length")
@@ -429,14 +420,16 @@ def convert(args, should_stop=None):
         print(f"\nLoop: none ({end_reason}); song length {end_frame / frame_rate:.2f} s")
 
     outdir = args.outdir or os.path.join(os.path.dirname(os.path.abspath(args.nsf)), "nsf2mid_out")
-    os.makedirs(outdir, exist_ok=True)
+    if not getattr(args, "mid_out", None):
+        os.makedirs(outdir, exist_ok=True)
     base = nsf_base_name(args.nsf)
     if len(base) > 40:
         base = base[:40].rstrip()
     stem = os.path.join(outdir, f"{base}_t{track:02d}")
     outputs = []
+    mid_out = getattr(args, "mid_out", None)
 
-    if args.dump:
+    if args.dump and not mid_out:
         write_writes_csv(stem + "_writes.csv", player.writes, player.frame_cycles, player.cpu_hz)
         write_frames_csv(stem + "_frames.csv", frames)
         write_tracker_txt(stem + "_tracker.txt", frames, h, track, frame_rate)
@@ -478,11 +471,13 @@ def convert(args, should_stop=None):
                   f"{sg.meter[0]}/{sg.meter[1]}" + ("  [tempo tracked]" if sg.tracked else ""))
             if sg.score < 0.8 and not sg.tracked:
                 print("    Warning: poor grid fit (rubato or unsupported rhythm?)")
-        write_smf(stem + ".mid", build_midi(notes, drums, tmap, h.title, track, end_frame, loop, transpose, programs), PPQ)
-        outputs.insert(0, stem + ".mid")
+        mid_path = mid_out or stem + ".mid"
+        write_smf(mid_path, build_midi(notes, drums, tmap, h.title, track, end_frame, loop, transpose, programs), PPQ)
+        outputs.insert(0, mid_path)
 
-    write_notes_csv(stem + "_notes.csv", notes, drums, tmap, transpose)
-    outputs.append(stem + "_notes.csv")
+    if not mid_out:
+        write_notes_csv(stem + "_notes.csv", notes, drums, tmap, transpose)
+        outputs.append(stem + "_notes.csv")
     print("\nOutput:")
     for o in outputs:
         print(f"  {o}")
