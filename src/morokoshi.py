@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.2"
+APP_VERSION = "v2.7.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -673,7 +673,7 @@ def _nsf_detect_ch_used(gme_lib, nsf_raw, track_idx, ch_count, detect_sec=3.0, s
         # mute-after: start_track後にミュート設定
         for i in range(ch_count):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
-        gme_lib.gme_clear_blip_buffer(emu)
+        # ※ gme_clear_blip_buffer は呼ばない（_nsf_render のコメント参照）
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         # 先頭SKIP_FRAMESはINIT汚染のため読み飛ばす
         for _ in range(SKIP_FRAMES):
@@ -727,7 +727,8 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
     # mute-after: INIT後にマスク設定（タイミング正確化）
     for i in range(ch_count):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-    gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
+    # ※ gme_clear_blip_buffer は呼ばない。INITノイズは改造DLLのstart_track内で処理済みで、
+    #    二重に呼ぶと鳴りっぱなしの音が消え曲頭数秒が無音になるNSFがある（例: Dragon Warrior）
     buf16 = (_ct.c_int16 * (CHUNK * 2))()
     samples = []; rendered = 0
     while rendered < target_s:
