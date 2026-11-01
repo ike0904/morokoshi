@@ -112,6 +112,8 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
   - 確認: 引数生成（3 / 0）、バルーンファイト #1 の 1ch 164 音 → ch 11
 - マニュアル（md のみ）: オプション表の該当行を更新（JP/EN）
 - APP_VERSION v2.8.7
+- （追加指示）確認用にマニュアル PDF を再生成（57 ページ、表紙は v2.8.0 のまま）。dist の配布物は差し替えていない
+  - MIDI options 表を画面の並び順に（Pitch-drop drums を Triplets の次へ）、出力される MIDI 表の列幅を調整（「11 / 12 / 13」の折り返し解消）
 
 ### v2.8.6 (2026-11-01)（プロンプト直接指示）
 - MIDI 変換: 三角波キックに加え、矩形波（1ch・2ch）のタムも下降音ドラムとして分離。元の音程のまま MIDI ch 11/12/13（1ch/2ch/3ch）に出力

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.6"
+APP_VERSION = "v2.8.7"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -264,7 +264,7 @@ def save_global_settings(zoom, volume):
 # ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
 NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "triplets": "auto",
                     "keep_tail": False,
-                    "no_quantize": False, "no_drop_drums": False}
+                    "no_quantize": False, "drop_drums": 3}
 NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
 
@@ -280,19 +280,20 @@ def _nsf2mid_opts():
     saved = _read_settings().get("nsf2mid")
     if isinstance(saved, dict):
         o.update({k: v for k, v in saved.items() if k in NSF2MID_DEFAULTS})
-        if "no_tri_drums" in saved and "no_drop_drums" not in saved:  # 旧設定（三角波ドラムのみ）
-            o["no_drop_drums"] = bool(saved["no_tri_drums"])
+        if saved.get("no_drop_drums") or saved.get("no_tri_drums"):  # 旧設定「ドラムを音符のまま残す」は 0（分けない）
+            if "drop_drums" not in saved: o["drop_drums"] = 0
         if saved.get("no_loop"):  # 旧設定の "No loop detection" は Loops=0 に読み替え
             o["loops"] = 0
     return o
 
 def _nsf2mid_argv(o):
     """オプション dict → nsf2mid のコマンドライン引数（Loops=0 はループ検出なし）"""
-    a = ["-s", str(int(o["seconds"])), "--loops", str(max(0, int(o["loops"])))]
+    a = ["-s", str(int(o["seconds"])), "--loops", str(max(0, int(o["loops"]))),
+         "--drop-drums", str(max(0, int(o["drop_drums"])))]
     if o["tempo"] != "auto": a += ["--tempo", o["tempo"]]
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
     for k, flag in (("keep_tail", "--keep-tail"),
-                    ("no_quantize", "--no-quantize"), ("no_drop_drums", "--no-drop-drums")):
+                    ("no_quantize", "--no-quantize")):
         if o[k]: a.append(flag)
     return a
 
@@ -4742,10 +4743,10 @@ class Nsf2MidDialog(QDialog):
         self.cb_triplets = add("Triplets", QComboBox(),
             "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
         self.cb_triplets.addItems([t[0] for t in NSF2MID_TRIPLETS])
+        self.sp_dropdrums = add("Pitch-drop drums", spin(0, 24),
+            "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to the drum tracks (MIDI ch 11-13)\n0: off\nWheel: change")
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
         self.ck_noquant = check("No quantize", "Do not snap notes to the detected grid")
-        self.ck_notridrums = check("Keep pitch-drop drums as notes",
-            "Keep short pitch-drop notes (triangle kicks, pulse toms) in their channel\ninstead of the drum tracks (MIDI ch 11-13)")
         bl = QHBoxLayout(); bl.setSpacing(S(6))
         b_def = QPushButton("Defaults"); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
         b_def.setAutoDefault(False)
@@ -4767,14 +4768,14 @@ class Nsf2MidDialog(QDialog):
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
         self.ck_tail.setChecked(bool(o["keep_tail"]))
         self.ck_noquant.setChecked(bool(o["no_quantize"]))
-        self.ck_notridrums.setChecked(bool(o["no_drop_drums"]))
+        self.sp_dropdrums.setValue(int(o["drop_drums"]))
 
     def values(self):
         return {"loops": self.sp_loops.value(), "seconds": self.sp_seconds.value(),
                 "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1],
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "keep_tail": self.ck_tail.isChecked(),
-                "no_quantize": self.ck_noquant.isChecked(), "no_drop_drums": self.ck_notridrums.isChecked()}
+                "no_quantize": self.ck_noquant.isChecked(), "drop_drums": self.sp_dropdrums.value()}
 
     def done(self, r):
         hide_tt(); super().done(r)

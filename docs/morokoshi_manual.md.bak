@@ -463,9 +463,9 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | **Max seconds** | 600 | エミュレートする最大の長さ（秒）。ループが確定するか曲が終わると、その時点で自動的に止まります |
 | **Tempo** | Auto | Auto（自動検出したテンポ）/ Half（その半分）/ Double（その 2 倍）。<br>テンポが倍・半分に検出されたときに指定します |
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
+| **Pitch-drop drums** | 3 | 鳴り始めから音程が下がり続ける短い音（三角波のキック・矩形波のタム）を、この半音数以上下がるならドラム用トラックに分けます。<br>0 なら分けず、各チャンネルの音符のまま残します |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
 | **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
-| **Pitch-drop drums** | 3 | 鳴り始めから音程が下がり続ける短い音（三角波のキック・矩形波のタム）を、この半音数以上下がるならドラム用トラックに分けます。<br>0 なら分けず、各チャンネルの音符のまま残します |
 
 #### うまく変換できないとき
 
@@ -479,7 +479,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 #### 出力される MIDI
 
 | トラック | 内容 | MIDI ch |
-| :---------------- | :------------------------------------------- | :---- |
+| :-------------------- | :---------------------------------- | :--------- |
 | Track 0 | 曲名・テンポマップ・拍子・ループマーカー（`loopStart` / `loopEnd`） | — |
 | Ch1 Pulse / Ch2 Pulse | 矩形波 1 / 矩形波 2 | 1 / 2 |
 | Ch3 Wave | 三角波 | 3 |
@@ -1153,9 +1153,9 @@ The current song is converted to MIDI.
 | **Max seconds** | 600 | Maximum length to emulate (seconds). Stops automatically when the loop is confirmed or the song ends |
 | **Tempo** | Auto | Auto (detected tempo) / Half / Double (of the detected tempo).<br>Set it when the tempo is detected doubled or halved |
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
+| **Pitch-drop drums** | 3 | Short notes that keep falling from the start (triangle kicks, pulse toms) go to the drum tracks when they fall by at least this many semitones.<br>0 = keep them as notes of their channel |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
 | **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
-| **Pitch-drop drums** | 3 | Short notes that keep falling from the start (triangle kicks, pulse toms) go to the drum tracks when they fall by at least this many semitones.<br>0 = keep them as notes of their channel |
 
 #### If the result is not right
 
@@ -1169,7 +1169,7 @@ The current song is converted to MIDI.
 #### Output MIDI
 
 | Track | Contents | MIDI ch |
-| :---------------- | :------------------------------------------- | :---- |
+| :-------------------- | :---------------------------------- | :--------- |
 | Track 0 | Title, tempo map, time signatures, loop markers (`loopStart` / `loopEnd`) | — |
 | Ch1 Pulse / Ch2 Pulse | Pulse 1 / Pulse 2 | 1 / 2 |
 | Ch3 Wave | Triangle | 3 |

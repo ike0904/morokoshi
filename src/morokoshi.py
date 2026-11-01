@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.7"
+APP_VERSION = "v2.8.8"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -264,7 +264,7 @@ def save_global_settings(zoom, volume):
 # ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
 NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "triplets": "auto",
                     "keep_tail": False,
-                    "no_quantize": False, "drop_drums": 3}
+                    "quantize": True, "drop_drums": 3}
 NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
 
@@ -282,6 +282,8 @@ def _nsf2mid_opts():
         o.update({k: v for k, v in saved.items() if k in NSF2MID_DEFAULTS})
         if saved.get("no_drop_drums") or saved.get("no_tri_drums"):  # 旧設定「ドラムを音符のまま残す」は 0（分けない）
             if "drop_drums" not in saved: o["drop_drums"] = 0
+        if "no_quantize" in saved and "quantize" not in saved:  # 旧設定の "No quantize" は反転
+            o["quantize"] = not saved["no_quantize"]
         if saved.get("no_loop"):  # 旧設定の "No loop detection" は Loops=0 に読み替え
             o["loops"] = 0
     return o
@@ -292,9 +294,8 @@ def _nsf2mid_argv(o):
          "--drop-drums", str(max(0, int(o["drop_drums"])))]
     if o["tempo"] != "auto": a += ["--tempo", o["tempo"]]
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
-    for k, flag in (("keep_tail", "--keep-tail"),
-                    ("no_quantize", "--no-quantize")):
-        if o[k]: a.append(flag)
+    if o["keep_tail"]: a.append("--keep-tail")
+    if not o["quantize"]: a.append("--no-quantize")
     return a
 
 def _fhash(path):
@@ -4746,7 +4747,7 @@ class Nsf2MidDialog(QDialog):
         self.sp_dropdrums = add("Pitch-drop drums", spin(0, 24),
             "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to the drum tracks (MIDI ch 11-13)\n0: off\nWheel: change")
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
-        self.ck_noquant = check("No quantize", "Do not snap notes to the detected grid")
+        self.ck_quant = check("Quantize", "Snap notes to the detected beat grid\nOff: keep the exact timing (the tempo is still detected)")
         bl = QHBoxLayout(); bl.setSpacing(S(6))
         b_def = QPushButton("Defaults"); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
         b_def.setAutoDefault(False)
@@ -4767,7 +4768,7 @@ class Nsf2MidDialog(QDialog):
         self.cb_tempo.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TEMPO) if t[1] == o["tempo"]), 0))
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
         self.ck_tail.setChecked(bool(o["keep_tail"]))
-        self.ck_noquant.setChecked(bool(o["no_quantize"]))
+        self.ck_quant.setChecked(bool(o["quantize"]))
         self.sp_dropdrums.setValue(int(o["drop_drums"]))
 
     def values(self):
@@ -4775,7 +4776,7 @@ class Nsf2MidDialog(QDialog):
                 "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1],
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "keep_tail": self.ck_tail.isChecked(),
-                "no_quantize": self.ck_noquant.isChecked(), "drop_drums": self.sp_dropdrums.value()}
+                "quantize": self.ck_quant.isChecked(), "drop_drums": self.sp_dropdrums.value()}
 
     def done(self, r):
         hide_tt(); super().done(r)
@@ -8412,7 +8413,7 @@ class MainWindow(QMainWindow):
             if key==K.Key_4: return getattr(self,"_btn_marker_a",None)
             if key==K.Key_6: return getattr(self,"_btn_marker_b",None)
             if key==K.Key_Slash: return getattr(self,"_help_btn",None)
-            if key==K.Key_Asterisk: return getattr(self,"_zoom_btn",None)
+            if key==K.Key_Asterisk: return getattr(self,"_save_btn",None)
             # 5(Ear)/2(AB)/0(Play)はトグル式なので除外
             return None
         m={
@@ -8680,14 +8681,19 @@ class MainWindow(QMainWindow):
             self._kp_enter_time=time.time()
             return True
         if kp or key in (K.Key_0,K.Key_1,K.Key_2,K.Key_3,K.Key_4,K.Key_5,K.Key_6,K.Key_7,K.Key_8,K.Key_9,K.Key_Slash,K.Key_Asterisk):
-            # テンキー / → Help, テンキー * → Zoom
+            # テンキー / → Help, テンキー * → Save（v2.8.8〜。Zoom のテンキー対応は廃止）
             if key==K.Key_Slash:
                 try: self._show_help()
                 finally:
                     _b=getattr(self,"_help_btn",None)
                     if _b is not None: self._flash_off(_b)
                 return True
-            if key==K.Key_Asterisk: self._toggle_zoom(); return True
+            if key==K.Key_Asterisk:
+                try: self._save_audio()
+                finally:
+                    _b=getattr(self,"_save_btn",None)
+                    if _b is not None: self._flash_off(_b)
+                return True
             # Enter直後(1.5秒以内)の4/6はSet動作
             enter_recent = (time.time()-self._kp_enter_time) < 1.5
             if key==K.Key_4:
