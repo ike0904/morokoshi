@@ -108,6 +108,12 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 - Save アイコンが他より大きく見える件: 埋め込み画像の絵柄を 100px → 86px（150px 四方の中央）に縮小。
   他のアイコンの絵柄は約 85〜95px だが、Save は塗りの多い四角形で重く見えるため小さめに合わせた（縮小前後を並べた画像で確認）
 - APP_VERSION v2.8.12
+- （追加指示）マニュアルの画面写真を新しい Save アイコンに更新（docs/icons/）
+  - Main_Capture / GameMode_Capture: Save アイコンを縮小後の絵柄に差し替え
+  - Ear_Mode_Capture / Filter_Capture: 古い Zoom アイコンが残っていたので Save アイコンに差し替え、
+    タイトルバーの最大化ボタン（グレー表示）を Main_Capture から移して有効表示に
+  - save.png（アイコン表用）も同じ比率で縮小
+  - 元画像は docs/icons/bkup/（Ear_Mode_Capture・Filter_Capture・*_v280.png・save_v280_docs.png）。PDF は未再生成
 
 ### v2.8.11 (2026-11-01)（プロンプト直接指示）
 - A・B（マーカーへ移動）と Ear Mode アイコンのツールチップを日本語化（訳の不足・未訳）
