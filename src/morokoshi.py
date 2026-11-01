@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.3"
+APP_VERSION = "v2.7.4"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -849,7 +849,7 @@ def _spc_detect_ch_used(gme_lib, spc_raw, detect_sec=3.0, scb=None):
             gme_lib.gme_delete(emu); ch_used.append(False); continue
         for i in range(SPC_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
-        gme_lib.gme_clear_blip_buffer(emu)
+        # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
         target_s = int(detect_sec * SPC_SR)
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         samples = []; rendered = 0
@@ -899,7 +899,7 @@ def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=
         gme_lib.gme_set_fade(emu, fade_ms)
     for i in range(SPC_CH_COUNT):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-    gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
+    # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
     buf16 = (_ct.c_int16 * (CHUNK * 2))()
     samples = []; rendered = 0
     while rendered < target_s:
@@ -1051,7 +1051,7 @@ def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
             gme_lib.gme_delete(emu); ch_used.append(False); continue
         for i in range(GBS_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
-        gme_lib.gme_clear_blip_buffer(emu)
+        # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         samples = []; rendered = 0
         while rendered < target_s:
@@ -1093,7 +1093,7 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
             gme_lib.gme_set_tempo(emu, float(tempo))
         for i in range(GBS_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-        gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
+        # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         segs = []; rendered = 0; ended = False
         while rendered < stop_s:

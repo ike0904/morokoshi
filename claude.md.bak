@@ -104,7 +104,17 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.2 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.7.3 (2026-11-01) ← 最新（プロンプト直接指示）
+- NSF 曲頭の音切れ修正（Dragon Warrior (EMU).zophar.zip でほぼ全曲、曲頭〜数秒が無音）
+  - 原因: Python 側の gme_clear_blip_buffer 呼び出し（v1.5.14 の曲頭ノイズ対策 STEP2 の名残）。
+    v2.0.8〜v2.2.1 で INIT ノイズは改造 DLL の start_track 内で処理済みのため二重処理になり、
+    鳴りっぱなしの音（持続音）が消えて次の発音まで無音になっていた。また曲頭も約50ms削っていた
+  - _nsf_render / _nsf_detect_ch_used（未使用関数）から呼び出しを削除。SPC/GBS は変更なし
+  - 検証: NSF 120ファイル×3曲で比較。呼び出し有りで曲頭が大きく欠ける曲 7件+DW → 削除後は解消。
+    削除で残る曲頭クリックは Fire Dragon の2曲のみ（10ms・約-29dB の小さなもの）
+- APP_VERSION v2.7.3
+
+### v2.7.2 (2026-11-01)（プロンプト直接指示）
 - Zoom アイコンを廃止し、ウィンドウ枠の最大化ボタン（タイトルバーのダブルクリックも）で Zoom(1x⇔2x) 切り替えに変更
   - 固定サイズのため Qt が外す WS_MAXIMIZEBOX を Win32 API で付け直し、最大化された状態変化(changeEvent)を検出して通常状態に戻し Zoom を実行
   - nativeEvent のオーバーライドは PyQt6 でアクセス違反クラッシュしたため不採用
