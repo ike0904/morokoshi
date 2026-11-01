@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.3 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.7.4 (2026-11-01) ← 最新（プロンプト直接指示）
+- SPC/GBS の gme_clear_blip_buffer 呼び出しも削除（_spc_render / _gbs_render / 未使用の ch 検出関数）
+  - 調査: SPC 118曲・GBS 117曲で有無を比較。曲頭ノイズ（クリック）の検出数は有無で同じ（SPC 0/0, GBS 5/5）＝ノイズ除去効果なし
+  - 呼び出し有りだと一部の曲（SPC 13曲・GBS 3曲）で曲頭に 0.05〜0.27 秒の余分な無音が挿入されるだけ（波形は遅延以外完全一致）
+  - それ以外の曲は出力が完全一致（SPC 104/118, GBS 90/117 ※残りは遅延のみ or 微差）
+- APP_VERSION v2.7.4
+
+### v2.7.3 (2026-11-01)（プロンプト直接指示）
 - NSF 曲頭の音切れ修正（Dragon Warrior (EMU).zophar.zip でほぼ全曲、曲頭〜数秒が無音）
   - 原因: Python 側の gme_clear_blip_buffer 呼び出し（v1.5.14 の曲頭ノイズ対策 STEP2 の名残）。
     v2.0.8〜v2.2.1 で INIT ノイズは改造 DLL の start_track 内で処理済みのため二重処理になり、

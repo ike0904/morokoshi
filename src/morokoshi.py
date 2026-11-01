@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.4"
+APP_VERSION = "v2.7.5"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3391,7 +3391,7 @@ class _TrackQLE(QLineEdit):
             self._panel._cur = v
             self.setText(f"{v+1:03d}"); self.selectAll()
             self._panel._update_track_tooltip()
-            show_tt(self._panel._track_tt_text, self._panel._track_edit, side='right')
+            show_tt(self._panel._track_tt_text, self._panel._track_next_btn, side='right')
         ev.accept()
 
     def mouseReleaseEvent(self, ev):
@@ -3409,7 +3409,7 @@ class _TrackQLE(QLineEdit):
             self._panel._cur = v
             self.setText(f"{v+1:03d}"); self.selectAll()
             self._panel._update_track_tooltip()
-            show_tt(self._panel._track_tt_text, self._panel._track_edit, side='right')
+            show_tt(self._panel._track_tt_text, self._panel._track_next_btn, side='right')
             self._panel._wheel_timer.start(300)
         ev.accept()
 
@@ -3463,7 +3463,7 @@ class NsfPanel(QWidget):
         self._track_edit.mousePressEvent=self._track_press
         self._track_edit.leaveEvent=self._track_leave
         self._track_edit.enterEvent=lambda e, s=self: show_tt(
-            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_edit, side='right')
+            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_next_btn, side='right')
         self._track_edit.mouseMoveEvent=self._track_move
         self._track_edit.mouseReleaseEvent=self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3521,7 +3521,7 @@ class NsfPanel(QWidget):
         if e.button()==Qt.MouseButton.LeftButton:
             self._drag_y0=e.position().y(); self._drag_base=self._cur; self._dragging=False
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit, side='right')
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_move(self, e):
         if self._track_editor is not None: return
@@ -3536,7 +3536,7 @@ class NsfPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit, side='right')
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_release(self, e):
         if self._track_editor is not None: return
@@ -3547,6 +3547,7 @@ class NsfPanel(QWidget):
         if top: top.setFocus()
 
     def _track_leave(self, e):
+        hide_tt()
         if self._track_editor is not None: return
         top = self.window()
         if top: top.setFocus()
@@ -3562,7 +3563,7 @@ class NsfPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit, side='right')
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
             self._wheel_timer.start(300)
 
     def _emit_track_changed(self):
@@ -3723,7 +3724,7 @@ class SpcPanel(QWidget):
         self._track_edit.mousePressEvent = self._track_press
         self._track_edit.leaveEvent = self._track_leave
         self._track_edit.enterEvent = lambda e, s=self: show_tt(
-            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_edit, side='right')
+            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_next_btn, side='right')
         self._track_edit.mouseMoveEvent = self._track_move
         self._track_edit.mouseReleaseEvent = self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3797,7 +3798,7 @@ class SpcPanel(QWidget):
         if e.button() == Qt.MouseButton.LeftButton:
             self._drag_y0 = e.position().y(); self._drag_base = self._cur; self._dragging = False
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit, side='right')
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_move(self, e):
         if self._track_editor is not None: return
@@ -3812,7 +3813,7 @@ class SpcPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit, side='right')
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_release(self, e):
         if self._track_editor is not None: return
@@ -3839,7 +3840,7 @@ class SpcPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit, side='right')
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
             self._wheel_timer.start(300)
 
     def _emit_track_changed(self):
