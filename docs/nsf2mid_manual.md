@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">nsf2mid</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">NSF → MIDI コンバーター / NSF to MIDI Converter</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v0.1.18</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v0.1.22</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # nsf2mid ユーザーマニュアル
 
-(対象バージョン: v0.1.18)
+(対象バージョン: v0.1.22)
 
 ---
 
@@ -23,7 +23,8 @@ nsf2mid は、ファミコンの音楽ファイル **NSF** を **MIDI ファイ�
   曲の途中でテンポや拍子が変わる曲、3 連ノリ・シャッフルの曲にも対応します。
 * **自然なノート判定**: 音色（duty 比）の変化、音量の揺れ（エンベロープ・トレモロ）、ビブラートは 1 つの音の中の変化として扱い、
   余計な「弾き直し」を作りません。残響のように小さな音量で鳴らし続ける「リバーブ余韻」もノートの長さから除きます。
-* **ドラム変換**: ノイズ・DPCM（サンプル）・三角波キックを、GM ドラム（キック・スネア・ハイハットなど）に自動で割り当てます。
+* **ドラム変換**: ノイズ・DPCM（サンプル）を、GM ドラム（キック・スネア・ハイハットなど）に自動で割り当てます。
+  三角波のキックや矩形波のタム（短く音程が下がり続ける音）は、元の音程のままドラム用のトラックに分けます。
 * **ループ検出**: 曲のループ点とループ長を検出し、「イントロ＋ループ 1 回」のように必要な長さだけを書き出します。
 * **zip 対応**: NSF が入った zip（zophar.net 形式）をそのまま開けます。
 * **簡易再生**: 変換前に曲を試聴して、変換したい曲を選べます。
@@ -109,12 +110,13 @@ nsf2mid は、ファミコンの音楽ファイル **NSF** を **MIDI ファイ�
 
 | 症状 | 対処 |
 | :-------------------------- | :-------------------------------------------- |
-| テンポが倍・半分になる | 「1 拍の行数」を変える（例: auto → 4 や 2） |
+| テンポが倍・半分になる | 「テンポ」を「半分」/「2倍」に |
 | 3 連の曲が 2 分割になる / その逆 | 「3連符を優先して検出」を「常にオン」/「常にオフ」に |
 | 拍子が違う | 「拍子」に区間ごとの拍子を指定（例 `6/8,4/4`） |
 | ドラムの種類が違う | 「ドラム割当」で個別に上書き（「5. オプション」参照） |
-| 音符が細切れ / 長さが不自然 | 「クオンタイズしない」「リバーブ余韻を残す」を試す |
-| ループしない曲が途中で切れる / ループ判定が誤る | 「ループ検出をしない」＋「最大秒数」で長さを指定 |
+| 音符が細切れ / 長さが不自然 | 「クオンタイズする」をオフに、または「リバーブ余韻を残す」をオンにして試す |
+| ループしない曲が途中で切れる / ループ判定が誤る | 「ループ回数」を 0 にして「最大秒数」で長さを指定 |
+| タムやキックがメロディに混ざる / メロディがドラムに入る | 「下降音ドラム（半音）」を変える（小さくすると拾いやすく、大きくすると拾いにくくなる。0 = 分けない） |
 
 <div style="page-break-before: always;"></div>
 
@@ -124,16 +126,15 @@ nsf2mid は、ファミコンの音楽ファイル **NSF** を **MIDI ファイ�
 
 | 項目 | 既定値 | 内容 |
 | :---------------------- | :------- | :--------------------------------------------- |
-| **ループ回数** | 1 | ループ部分を何回書き出すか。1 なら「イントロ＋ループ 1 回」 |
+| **ループ回数** | 1 | ループ部分を何回書き出すか。1 なら「イントロ＋ループ 1 回」。<br>0 ならループを探さず、最大秒数の長さをそのまま変換 |
 | **最大秒数** | 600 | エミュレートする最大の長さ（秒）。ループが確定するか曲が終わると、その時点で自動的に止まります |
-| **1 拍の行数** | auto | 1 拍を何個の細かい単位（行）に分けるか。auto = 自動検出。<br>テンポが倍・半分に検出されたときに指定します |
-| **拍子** | （空欄） | 区間ごとの拍子をカンマ区切りで指定。例 `6/8,4/4`。`-` または空欄 = 自動 |
+| **テンポ** | 自動 | 自動（検出したテンポ）/ 半分 / 2倍。テンポが倍・半分に検出されたときに指定します。<br>曲の途中でテンポが変わる曲でも、区間ごとに半分 / 2倍にします |
+| **拍子** | （空欄） | 区間（テンポが変わる所で区切った部分）ごとの拍子をカンマ区切りで指定。例 `6/8,4/4`。`-` または空欄 = 自動。<br>区間はログの「Tempo」欄に表示されます |
 | **3連符を優先して検出** | 自動検出 | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。自動検出 / 常にオン / 常にオフ |
-| **ドラム割当** | （空欄） | ドラムの割当を上書き（下記） |
-| **ループ検出をしない** | オフ | ループを探さず、最大秒数の長さをそのまま変換 |
+| **ドラム割当** | （空欄） | ノイズ・DPCM のドラムの割当を上書き（下記） |
+| **下降音ドラム（半音）** | 3 | 鳴り始めから音程が下がり続ける短い音（三角波のキック・矩形波のタム）を、この半音数以上下がるならドラム用トラック（MIDI ch 11〜13）に分けます。<br>0 なら分けず、各チャンネルの音符のまま残します |
 | **リバーブ余韻を残す** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
-| **クオンタイズしない** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
-| **三角波ドラムを音符のまま残す** | オフ | 三角波の「キック」（急に音程が下がる短い音）をドラムに変換せず、三角波の音符のまま残します |
+| **クオンタイズする** | オン | 音符を拍のグリッドに合わせます。オフにすると実際のタイミングのまま出力します（テンポは検出します） |
 | **ダンプも出力** | オフ | 解析用のダンプ（レジスタ書き込み・フレーム状態・トラッカー表示）も出力します |
 | **出力フォルダ** | （空欄） | 出力先。空欄 = NSF と同じフォルダの `nsf2mid_out` |
 
@@ -162,9 +163,11 @@ Drums (source, kind, hits -> GM note):
 | Ch1 Pulse | 矩形波 1 | 1 |
 | Ch2 Pulse | 矩形波 2 | 2 |
 | Ch3 Wave | 三角波 | 3 |
-| Ch4 Noise drums | ノイズのドラム | 10 |
-| Ch5 DPCM drums | DPCM（サンプル）のドラム | 10 |
-| Ch3 Wave drums | 三角波のドラム（キック） | 10 |
+| Ch4 Noise drums | ノイズのドラム（GM ドラム） | 10 |
+| Ch5 DPCM drums | DPCM（サンプル）のドラム（GM ドラム） | 10 |
+| Ch1 Pulse drums | 矩形波 1 のタム（元の音程のまま） | 11 |
+| Ch2 Pulse drums | 矩形波 2 のタム（元の音程のまま） | 12 |
+| Ch3 Wave drums | 三角波のキック・タム（元の音程のまま） | 13 |
 
 * ドラムトラックは、その種類のドラムがある場合のみ出力されます。
 * 音色（プログラムチェンジ）は出力しません。楽譜ソフトが音色番号から楽器を推測し、移調楽器として表示したり、
@@ -189,18 +192,19 @@ python src/nsf2mid.py FILE.nsf|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [オ
 | `-s N` | 最大秒数 |
 | `-o DIR` | 出力フォルダ |
 | `--mid-out FILE.mid` | 指定したパスに .mid だけを出力（notes.csv・ダンプは出さない） |
-| `--loops N` | ループ回数 |
-| `--rows-per-beat N` | 1 拍の行数 |
+| `--loops N` | ループ回数（0 = ループ検出をしない） |
+| `--tempo auto/half/double` | テンポ（自動 / 半分 / 2倍） |
 | `--time-sig "6/8,4/4"` | 拍子 |
 | `--triplets auto/on/off` | 3連符を優先して検出 |
 | `--drum-map MAP` | ドラム割当 |
-| `--no-loop` | ループ検出をしない |
+| `--drop-drums N` | 下降音ドラム（半音。0 = 分けない） |
 | `--keep-tail` | リバーブ余韻を残す |
-| `--no-quantize` | クオンタイズしない |
-| `--no-tri-drums` | 三角波ドラムを音符のまま残す |
+| `--no-quantize` | 「クオンタイズする」をオフ |
 | `--dump` | ダンプも出力 |
 | `--info` | NSF の情報だけを表示 |
 | `--unit N` | グリッドの単位（フレーム数）を直接指定（上級者向け） |
+| `--rows-per-beat N` | 1 拍の行数を直接指定（上級者向け。全区間が同じ行数になり、3 連・シャッフルの自動検出も止まります） |
+| `--no-loop` / `--no-drop-drums` | `--loops 0` / `--drop-drums 0` と同じ（旧オプション） |
 | `--tri-octave N` / `--programs` | 三角波のオクターブ移動 / 音色番号の指定（CLI のみ） |
 
 例: 3 曲目を、ループ 2 回・6/8 拍子で変換
@@ -229,7 +233,8 @@ python src/nsf2mid.py "Dragon Warrior II.nsf" -t 3 --loops 2 --time-sig 6/8
 
 * **拡張音源**（VRC6・N163・FDS など）には対応していません。2A03 本体の音（矩形波 2・三角波・ノイズ・DPCM）だけを変換します。
 * **NSFe 形式**には対応していません（NSF のみ）。
-* テンポが倍・半分に検出されることがあります（例: 100 BPM と 200 BPM）。「1 拍の行数」で補正してください。
+* テンポが倍・半分に検出されることがあります（例: 100 BPM と 200 BPM）。「テンポ」で補正してください。
+* 下降音ドラムは音の形（短く、鳴り始めから下がり続ける）で判定しています。メロディの装飾音がドラムに入ったり、タムが拾えなかったりする場合は「下降音ドラム（半音）」で調整してください。
 * 小節の頭（ダウンビート）は検出していません。曲の最初の音を 1 拍目とみなします。
 * ビブラートやスライドなどのピッチベンドは出力しません。
 * 3 連と 2 分割が頻繁に切り替わる曲では、テンポが細切れになることがあります。
@@ -246,7 +251,7 @@ python src/nsf2mid.py "Dragon Warrior II.nsf" -t 3 --loops 2 --time-sig 6/8
 
 ---
 
-**nsf2mid v0.1.18**
+**nsf2mid v0.1.22**
 *Created by Ike-san*
 
 ## 更新履歴 {style="page-break-before: always;"}
@@ -258,13 +263,14 @@ python src/nsf2mid.py "Dragon Warrior II.nsf" -t 3 --loops 2 --time-sig 6/8
 | **v0.1.13** | 2026/10/08 | GUI の見た目をもろこしタイムに合わせる。簡易再生を追加 |
 | **v0.1.17** | 2026/10/18 | NSF 入りの zip を直接読み込み。3 連ノリの検出（3連符を優先して検出）。<br>前後の曲ボタン、開くアイコンとファイル履歴、全チェック、ショートカットを追加 |
 | **v0.1.18** | 2026/11/01 | `--mid-out`（指定パスに .mid のみ出力）を追加（もろこしタイムの MIDI 保存用）。マニュアル初版 |
+| **v0.1.22** | 2026/11/01 | 「1 拍の行数」を「テンポ」（自動 / 半分 / 2倍）に変更。<br>「ループ検出をしない」を廃止し、ループ回数 0 で同じ動作に。<br>矩形波のタムも下降音ドラムとして分離。下降音ドラムは元の音程のまま MIDI ch 11〜13 に出力し、判定の閾値（半音）を指定可能に。<br>「クオンタイズしない」を「クオンタイズする」（既定オン）に変更 |
 
 <div style="page-break-before: always;"></div>
 
 <!-- EN_START -->
 # nsf2mid User Manual
 
-(Target version: v0.1.18)
+(Target version: v0.1.22)
 
 ---
 
@@ -277,7 +283,8 @@ It is a spin-off of the music transcription player "Morokoshi Time", and aims to
   Tempo / meter changes, triplet feel and shuffle are supported.
 * **Natural note detection**: Changes of the duty cycle (timbre), volume (envelope / tremolo) and vibrato are treated as changes inside one note,
   so notes are not split into extra re-triggers. Quiet "reverb tails" that some drivers keep playing are cut from the note length.
-* **Drums**: Noise, DPCM (samples) and triangle kicks are mapped to GM drums (kick, snare, hi-hat, ...) automatically.
+* **Drums**: Noise and DPCM (samples) are mapped to GM drums (kick, snare, hi-hat, ...) automatically.
+  Triangle kicks and pulse toms (short notes that keep falling in pitch) go to their own drum tracks at their original pitch.
 * **Loop detection**: Detects the loop point and loop length, and writes only what is needed (e.g. "intro + 1 loop").
 * **Zip support**: Zips containing an NSF (zophar.net style) can be opened directly.
 * **Preview playback**: Listen to the songs before choosing which ones to convert.
@@ -365,12 +372,13 @@ The file name is `original name_tSongNumber.mid` (e.g. `Clu Clu Land (EMU)_t01.m
 
 | Symptom | What to do |
 | :-------------------------- | :-------------------------------------------- |
-| Tempo is doubled / halved | Change "Rows per beat" (e.g. auto → 4 or 2) |
+| Tempo is doubled / halved | Set "Tempo" to "Half" / "Double" |
 | A triplet song comes out in straight time / or the opposite | Set "Prefer triplets" to "Always on" / "Always off" |
 | Wrong time signature | Enter the meter per section in "Time signature" (e.g. `6/8,4/4`) |
 | Wrong drum sounds | Override them with "Drum map" (see "5. Options") |
-| Notes are chopped / lengths look odd | Try "No quantize" and "Keep reverb tails" |
-| A non-looping song is cut / the loop is wrong | Use "No loop detection" and set the length with "Max seconds" |
+| Notes are chopped / lengths look odd | Try turning "Quantize" off or "Keep reverb tails" on |
+| A non-looping song is cut / the loop is wrong | Set "Loops" to 0 and set the length with "Max seconds" |
+| Toms / kicks mixed into the melody, or melody notes in the drums | Change "Pitch-drop drums" (smaller = catches more, larger = fewer; 0 = off) |
 
 <div style="page-break-before: always;"></div>
 
@@ -380,16 +388,15 @@ Hover over an item to see the matching command-line option.
 
 | Item | Default | Description |
 | :---------------------- | :------- | :--------------------------------------------- |
-| **ループ回数** (Loops) | 1 | How many times to write the loop body. 1 = intro + 1 loop |
+| **ループ回数** (Loops) | 1 | How many times to write the loop body. 1 = intro + 1 loop.<br>0 = do not look for a loop; convert the full "Max seconds" |
 | **最大秒数** (Max seconds) | 600 | Maximum length to emulate (seconds). Stops automatically when the loop is confirmed or the song ends |
-| **1 拍の行数** (Rows per beat) | auto | How many rows (grid steps) one beat is divided into. auto = detect.<br>Set it when the tempo is detected doubled or halved |
-| **拍子** (Time signature) | (empty) | Meter per section, comma-separated. e.g. `6/8,4/4`. `-` or empty = auto |
+| **テンポ** (Tempo) | Auto | Auto (detected tempo) / Half / Double. Set it when the tempo is detected doubled or halved.<br>Songs with tempo changes are halved / doubled per section |
+| **拍子** (Time signature) | (empty) | Meter per section (a part between tempo changes), comma-separated. e.g. `6/8,4/4`. `-` or empty = auto.<br>The sections are shown in the "Tempo" part of the log |
 | **3連符を優先して検出** (Prefer triplets) | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / Always on / Always off |
-| **ドラム割当** (Drum map) | (empty) | Override the drum mapping (see below) |
-| **ループ検出をしない** (No loop detection) | Off | Do not look for a loop; convert the full "Max seconds" |
+| **ドラム割当** (Drum map) | (empty) | Override the noise / DPCM drum mapping (see below) |
+| **下降音ドラム（半音）** (Pitch-drop drums) | 3 | Short notes that keep falling from the start (triangle kicks, pulse toms) go to the drum tracks (MIDI ch 11-13) when they fall by at least this many semitones.<br>0 = keep them as notes of their channel |
 | **リバーブ余韻を残す** (Keep reverb tails) | Off | Include the quiet tails in the note length |
-| **クオンタイズしない** (No quantize) | Off | Do not snap notes to the beat grid (the tempo is still detected) |
-| **三角波ドラムを音符のまま残す** (Keep triangle drums as notes) | Off | Keep triangle "kicks" (short notes with a sharp pitch drop) as triangle notes instead of drums |
+| **クオンタイズする** (Quantize) | On | Snap notes to the beat grid. Off = keep the exact timing (the tempo is still detected) |
 | **ダンプも出力** (Also write dumps) | Off | Also write analysis dumps (register writes, frame states, tracker view) |
 | **出力フォルダ** (Output folder) | (empty) | Output folder. Empty = `nsf2mid_out` in the NSF's folder |
 
@@ -418,9 +425,11 @@ To assign a different sound, give `kind=GM note number`, separated by commas (co
 | Ch1 Pulse | Pulse 1 | 1 |
 | Ch2 Pulse | Pulse 2 | 2 |
 | Ch3 Wave | Triangle | 3 |
-| Ch4 Noise drums | Noise drums | 10 |
-| Ch5 DPCM drums | DPCM (sample) drums | 10 |
-| Ch3 Wave drums | Triangle drums (kicks) | 10 |
+| Ch4 Noise drums | Noise drums (GM drums) | 10 |
+| Ch5 DPCM drums | DPCM (sample) drums (GM drums) | 10 |
+| Ch1 Pulse drums | Pulse 1 toms (original pitch) | 11 |
+| Ch2 Pulse drums | Pulse 2 toms (original pitch) | 12 |
+| Ch3 Wave drums | Triangle kicks / toms (original pitch) | 13 |
 
 * Drum tracks are written only when that kind of drum is used.
 * No program changes (instruments) are written, so notation software does not guess instruments from them,
@@ -445,18 +454,19 @@ Running without arguments starts the GUI.
 | `-s N` | Max seconds |
 | `-o DIR` | Output folder |
 | `--mid-out FILE.mid` | Write only the .mid to the given path (no notes.csv / dumps) |
-| `--loops N` | Loops |
-| `--rows-per-beat N` | Rows per beat |
+| `--loops N` | Loops (0 = no loop detection) |
+| `--tempo auto/half/double` | Tempo (Auto / Half / Double) |
 | `--time-sig "6/8,4/4"` | Time signature |
 | `--triplets auto/on/off` | Prefer triplets |
 | `--drum-map MAP` | Drum map |
-| `--no-loop` | No loop detection |
+| `--drop-drums N` | Pitch-drop drums (semitones; 0 = off) |
 | `--keep-tail` | Keep reverb tails |
-| `--no-quantize` | No quantize |
-| `--no-tri-drums` | Keep triangle drums as notes |
+| `--no-quantize` | Turn "Quantize" off |
 | `--dump` | Also write dumps |
 | `--info` | Show the NSF information only |
 | `--unit N` | Set the grid unit (frames) directly (advanced) |
+| `--rows-per-beat N` | Set the rows per beat directly (advanced; the same for all sections, and triplet / shuffle detection is turned off) |
+| `--no-loop` / `--no-drop-drums` | Same as `--loops 0` / `--drop-drums 0` (old options) |
 | `--tri-octave N` / `--programs` | Triangle octave shift / program numbers (CLI only) |
 
 Example: convert song 3 with 2 loops in 6/8
@@ -485,7 +495,8 @@ When an input field has the focus, typing into that field takes priority.
 
 * **Expansion audio** (VRC6, N163, FDS, ...) is not supported. Only the 2A03 sound (2 pulses, triangle, noise, DPCM) is converted.
 * **NSFe** files are not supported (NSF only).
-* The tempo may be detected doubled or halved (e.g. 100 vs 200 BPM). Correct it with "Rows per beat".
+* The tempo may be detected doubled or halved (e.g. 100 vs 200 BPM). Correct it with "Tempo".
+* Pitch-drop drums are judged by the shape of the note (short, falling from the start). If melody ornaments end up in the drums or toms are missed, adjust "Pitch-drop drums".
 * Downbeats are not detected; the first note of the song is treated as beat 1.
 * Pitch bends (vibrato, slides) are not written.
 * Songs that switch often between triplets and straight time may get a fragmented tempo map.
@@ -502,7 +513,7 @@ If a song does not convert well, please let me know together with the log.
 
 ---
 
-**nsf2mid v0.1.18**
+**nsf2mid v0.1.22**
 *Created by Ike-san*
 
 ## Update History {style="page-break-before: always;"}
@@ -514,3 +525,4 @@ If a song does not convert well, please let me know together with the log.
 | **v0.1.13** | 2026/10/08 | GUI look matched to Morokoshi Time. Added preview playback |
 | **v0.1.17** | 2026/10/18 | Open zips containing an NSF directly. Triplet-feel detection (Prefer triplets).<br>Added previous / next song buttons, open icon with file history, check-all box and shortcuts |
 | **v0.1.18** | 2026/11/01 | Added `--mid-out` (write only the .mid to a given path; for Morokoshi Time's MIDI save). First manual |
+| **v0.1.22** | 2026/11/01 | "Rows per beat" replaced by "Tempo" (Auto / Half / Double).<br>"No loop detection" removed; Loops = 0 does the same.<br>Pulse toms are also split as pitch-drop drums. Pitch-drop drums keep their original pitch on MIDI ch 11-13, with a threshold (semitones).<br>"No quantize" replaced by "Quantize" (on by default) |
