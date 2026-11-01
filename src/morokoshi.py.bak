@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.9"
+APP_VERSION = "v2.8.10"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
+
+import lang as _lang          # UI 言語（src/lang/。英語の文字列がキー、ja.py などに訳）
+from lang import tr
 
 import numpy as np
 import soundfile as sf
@@ -4650,7 +4653,7 @@ def show_tt(text, widget=None, side='bottom'):
         _TT.setWindowFlags(Qt.WindowType.ToolTip|Qt.WindowType.FramelessWindowHint|Qt.WindowType.WindowStaysOnTopHint)
         _TT.setStyleSheet("background:#FFFFCC; color:#000; border:1px solid #888; padding:3px 6px; font-size:12px;")
         _TT.setMargin(2)
-    _TT.setText(text); _TT.adjustSize()
+    _TT.setText(tr(text)); _TT.adjustSize()
     if widget is not None:
         try:
             if side == 'right':
@@ -4688,7 +4691,7 @@ class Nsf2MidDialog(QDialog):
     buttons=True : 単独のモーダルダイアログ（ファイル名に .mid を直接入力した場合など）"""
     def __init__(self, opts, scale=1.0, parent=None, buttons=True):
         super().__init__(parent)
-        self.setWindowTitle("MIDI options")
+        self.setWindowTitle(tr("MIDI options"))
         if buttons:
             self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         else:
@@ -4719,13 +4722,13 @@ class Nsf2MidDialog(QDialog):
         g.setHorizontalSpacing(S(10)); g.setVerticalSpacing(S(6))
         self._r = 0
         def add(label, w, tip):
-            lb = QLabel(label)
+            lb = QLabel(tr(label))
             _attach_tt(lb, tip); _attach_tt(w, tip)
             g.addWidget(lb, self._r, 0); g.addWidget(w, self._r, 1)
             self._r += 1
             return w
         def check(label, tip):
-            c = QCheckBox(label)
+            c = QCheckBox(tr(label))
             _attach_tt(c, tip)
             g.addWidget(c, self._r, 0, 1, 2)
             self._r += 1
@@ -4740,21 +4743,21 @@ class Nsf2MidDialog(QDialog):
             "Max length to emulate (seconds)\nStops automatically when a loop or the song end is found\nWheel: change")
         self.cb_tempo = add("Tempo", QComboBox(),
             "Auto: detected tempo\nHalf / Double: use when the tempo comes out doubled or halved")
-        self.cb_tempo.addItems([t[0] for t in NSF2MID_TEMPO])
+        self.cb_tempo.addItems([tr(t[0]) for t in NSF2MID_TEMPO])
         self.cb_triplets = add("Triplets", QComboBox(),
             "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
-        self.cb_triplets.addItems([t[0] for t in NSF2MID_TRIPLETS])
+        self.cb_triplets.addItems([tr(t[0]) for t in NSF2MID_TRIPLETS])
         self.sp_dropdrums = add("Pitch-drop drums", spin(0, 24),
             "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to the drum tracks (MIDI ch 11-13)\n0: off\nWheel: change")
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
         self.ck_quant = check("Quantize", "Snap notes to the detected beat grid\nOff: keep the exact timing (the tempo is still detected)")
         bl = QHBoxLayout(); bl.setSpacing(S(6))
-        b_def = QPushButton("Defaults"); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
+        b_def = QPushButton(tr("Defaults")); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
         b_def.setAutoDefault(False)
         bl.addWidget(b_def); bl.addStretch(1)
         if buttons:
-            b_ok = QPushButton("OK"); b_ok.clicked.connect(self.accept)
-            b_cancel = QPushButton("Cancel"); b_cancel.clicked.connect(self.reject)
+            b_ok = QPushButton(tr("OK")); b_ok.clicked.connect(self.accept)
+            b_cancel = QPushButton(tr("Cancel")); b_cancel.clicked.connect(self.reject)
             for b in (b_ok, b_cancel): b.setAutoDefault(False)
             b_ok.setDefault(True)
             bl.addWidget(b_ok); bl.addWidget(b_cancel)
@@ -4842,7 +4845,7 @@ class FileHistoryPopup(QFrame):
         lo.setContentsMargins(0, 4, 0, 4)
         lo.setSpacing(0)
         if not paths:
-            lbl = QLabel("No history")
+            lbl = QLabel(tr("No history"))
             lbl.setStyleSheet(f"color:{FG2}; padding:5px 14px; font-size:13px;")
             lo.addWidget(lbl)
         else:
@@ -4858,6 +4861,40 @@ class FileHistoryPopup(QFrame):
 
     def _select(self, path):
         self.file_selected.emit(path)
+        self.close()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.RightButton:
+            self.close()
+        else:
+            super().mousePressEvent(e)
+
+
+class LanguagePopup(QFrame):
+    """Helpボタン右クリックで表示する言語の選択（各言語の名前はその言語で表示）"""
+    language_selected = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setStyleSheet(
+            f"LanguagePopup{{background:{BG2}; border:1px solid {BORDER};}}"
+            f"QPushButton{{background:transparent; color:{FG}; border:none; text-align:left;"
+            f" padding:5px 10px; font-size:13px;}}"
+            f"QPushButton:hover{{background:{BG3};}}")
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(0, 4, 0, 4)
+        lo.setSpacing(0)
+        for code, name, _ in _lang.LANGUAGES:
+            mark = "✓ " if code == _lang.current() else "    "
+            btn = QPushButton(mark + name)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setMinimumWidth(140)
+            btn.clicked.connect(lambda _checked, c=code: self._select(c))
+            lo.addWidget(btn)
+
+    def _select(self, code):
+        self.language_selected.emit(code)
         self.close()
 
     def mousePressEvent(self, e):
@@ -5100,7 +5137,7 @@ class MainWindow(QMainWindow):
         self._gbs_extend_done_sig.connect(self._on_gbs_extend_done)
         self._gbs_ch_render_done_sig.connect(self._on_gbs_ch_render_done)
         self._tick_sig.connect(self._on_tick)
-        self._status_sig.connect(lambda m: self._msg.setText(m))
+        self._status_sig.connect(lambda m: self._msg.setText(tr(m)))
         self._tempo_busy_sig.connect(self._set_tempo_inputs_enabled)
         self._load_done_sig.connect(self._on_load_done)
         self._nsf_track_done_sig.connect(self._on_nsf_track_done)
@@ -5314,7 +5351,7 @@ class MainWindow(QMainWindow):
         # ※ None=空（透明）スロット。A/B押しボタンはテンキー(4/6)との整合性のためEarの左右に配置。
         icon_grid = [
             [None,
-             ("help","Help [H]","_help_btn",self._show_help),
+             ("help","Help [H]\nR-Click: Language","_help_btn",self._show_help),
              ("save","Save [S]","_save_btn",self._save_audio)],
             [("open","Open[O]\nShift: Folder\nR-Click: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
              ("tempo_search","Tempo detection [T]\nShift: Tap tempo","_tempo_btn",self._tempo_btn_action),
@@ -5365,6 +5402,16 @@ class MainWindow(QMainWindow):
             return _press
         self._rew_btn.mousePressEvent = _make_rew_ff_press(self._rew_btn)
         self._ff_btn.mousePressEvent  = _make_rew_ff_press(self._ff_btn)
+
+        # Help 右クリック → 言語の選択
+        _help_btn_ref = self._help_btn
+        def _help_press(e, _b=_help_btn_ref):
+            hide_tt()
+            if e.button() == Qt.MouseButton.RightButton:
+                self._show_language_menu()
+            else:
+                _QPB.mousePressEvent(_b, e)
+        self._help_btn.mousePressEvent = _help_press
 
         # Open 右クリック → ファイル履歴ポップアップ
         _open_btn_ref = self._open_btn
@@ -5532,7 +5579,7 @@ class MainWindow(QMainWindow):
         # 左端をSpeed/Key行と同じ2px、右端も同じ2px余白に。
         # 中身は上寄せ（上15pxに収め、下にウィンドウ下端までの余白4pxを取る）
         msg_lo=QHBoxLayout(msg_row); msg_lo.setContentsMargins(self.S(2),0,self.S(8),self.S(4)); msg_lo.setSpacing(self.S(4))
-        self._msg=QLabel("Drop a file or click Open to load")
+        self._msg=QLabel(tr("Drop a file or click Open to load"))
         self._msg.setStyleSheet(f"color:{FG2}; background:{BG}; padding:1px 0px; font-size:{self.S(11)}px;")
         self._msg.setMaximumWidth(self.S(230))  # 音量バーに被らないよう制限
         msg_lo.addWidget(self._msg)
@@ -6816,8 +6863,8 @@ class MainWindow(QMainWindow):
     def _do_cache_clear(self):
         """キャッシュクリア＆アプリ再起動（Shift+R / Shift+Reset All / テンキーENTER+9）"""
         from PyQt6.QtWidgets import QMessageBox
-        ret = QMessageBox.question(self, "Clear cache",
-            "This will discard the current track, delete the cache folder, and restart the app.\nAre you sure?",
+        ret = QMessageBox.question(self, tr("Clear cache"),
+            tr("This will discard the current track, delete the cache folder, and restart the app.\nAre you sure?"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
@@ -7055,7 +7102,7 @@ class MainWindow(QMainWindow):
             start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
         # MIDI は NSF（NESM 形式）のときのみ（nsf2mid は NSFe 非対応）
         mid_ok=eng._nsf is not None and eng._nsf.fmt=="NESM"
-        dlg=QFileDialog(self,"Save Audio",os.path.join(start_dir, self._save_default_name()+".wav"),
+        dlg=QFileDialog(self,tr("Save Audio"),os.path.join(start_dir, self._save_default_name()+".wav"),
             "WAV (*.wav);;MP3 (*.mp3);;M4A (*.m4a)"+(";;MIDI (*.mid)" if mid_ok else ""))
         dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
         # ファイルの種類で MIDI を選んだら、保存ダイアログの横にオプションパネルを出す。
@@ -7068,7 +7115,7 @@ class MainWindow(QMainWindow):
             if panel[0] is None:
                 panel[0]=Nsf2MidDialog(_nsf2mid_opts(), self._scale, dlg, buttons=False)
             panel[0].adjustSize()
-            self._place_beside_save_dialog(panel[0], "Save Audio")
+            self._place_beside_save_dialog(panel[0], tr("Save Audio"))
             panel[0].show(); panel[0].raise_()
         if mid_ok: dlg.filterSelected.connect(on_filter)
         ok=dlg.exec()==QFileDialog.DialogCode.Accepted
@@ -7281,6 +7328,22 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────
     # ファイル
     # ──────────────────────────────────────
+    def _show_language_menu(self):
+        popup = LanguagePopup()
+        popup.language_selected.connect(self._set_language)
+        gp = self._help_btn.mapToGlobal(self._help_btn.rect().bottomLeft())
+        popup.move(gp.x(), gp.y() + 4)
+        popup.adjustSize()
+        popup.show()
+
+    def _set_language(self, code):
+        if code == _lang.current(): return
+        _lang.set_language(code)
+        _update_settings(lang=code)
+        self._rebuild_window()
+        name = next((n for c, n, _ in _lang.LANGUAGES if c == code), code)
+        self._st(f"Language: {name}")
+
     def _show_open_history(self):
         history = load_file_history()
         popup = FileHistoryPopup(history)
@@ -7299,7 +7362,7 @@ class MainWindow(QMainWindow):
             start_dir = os.path.join(profile, "Music")
         if not os.path.isdir(start_dir):
             start_dir = os.environ.get("USERPROFILE") or os.path.expanduser("~")
-        path,_=QFileDialog.getOpenFileName(self,"Open Media File",start_dir,
+        path,_=QFileDialog.getOpenFileName(self,tr("Open Media File"),start_dir,
             "Media (*.mp3 *.mp4 *.wav *.flac *.aac *.ogg *.m4a *.wma *.opus *.webm *.avi *.mkv *.mov *.nsf *.spc *.gbs *.zip);;NSF (*.nsf);;SPC (*.spc *.zip);;GBS (*.gbs *.zip);;All (*.*)")
         if path:
             folder = os.path.dirname(os.path.abspath(path))
@@ -7315,7 +7378,7 @@ class MainWindow(QMainWindow):
             start_dir = os.path.join(profile, "Music")
         if not os.path.isdir(start_dir):
             start_dir = os.environ.get("USERPROFILE") or os.path.expanduser("~")
-        folder = QFileDialog.getExistingDirectory(self, "Open Folder", start_dir)
+        folder = QFileDialog.getExistingDirectory(self, tr("Open Folder"), start_dir)
         if folder:
             self._last_folder = folder
             self._save_last_folder(folder)
@@ -8844,6 +8907,7 @@ def main():
         pass
     app=QApplication(sys.argv)
     app.setStyle("Fusion")
+    _lang.set_language(_read_settings().get("lang") or _lang.default_code())
     _gs=load_global_settings()
     _sc=2.0 if _gs["zoom"]>=2.0 else 1.0
     app.setStyleSheet(app_stylesheet(_sc))
