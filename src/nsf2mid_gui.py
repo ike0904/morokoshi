@@ -818,9 +818,10 @@ class MainWindow(QMainWindow):
         self.ed_drummap = add("ドラム割当", QLineEdit(), 'ドラム割当の上書き（--drum-map）。例 "3:0=42,12:0=36,DMC:E000:129:15=38"')
         self.ck_tail = check("リバーブ余韻を残す", "余韻もノート長に含める（--keep-tail）")
         self.ck_noquant = check("クオンタイズしない", "グリッドへのスナップをしない（--no-quantize）")
-        self.ck_notridrums = check("下降音ドラムを音符のまま残す",
-                                   "1〜3ch の短く音程が下がる音（三角波キック・矩形波タム）を MIDI ch 11〜13 に分けず、"
-                                   "各 ch の音符のまま残す（--no-drop-drums）")
+        self.sp_dropdrums = add("下降音ドラム（半音）", QSpinBox(),
+                                "1〜3ch の短く音程が下がり続ける音（三角波キック・矩形波タム）を、"
+                                "この半音数以上下がるなら MIDI ch 11〜13 に分ける（--drop-drums）。0 = 分けない")
+        self.sp_dropdrums.setRange(0, 24)
         self.ck_dump = check("ダンプも出力（writes / frames / tracker）", "--dump")
 
         orow = QHBoxLayout()
@@ -842,7 +843,8 @@ class MainWindow(QMainWindow):
         return box
 
     def options_argv(self):
-        a = ["-s", str(self.sp_seconds.value()), "--loops", str(self.sp_loops.value())]
+        a = ["-s", str(self.sp_seconds.value()), "--loops", str(self.sp_loops.value()),
+             "--drop-drums", str(self.sp_dropdrums.value())]
         if TEMPO[self.cb_tempo.currentText()] != "auto":
             a += ["--tempo", TEMPO[self.cb_tempo.currentText()]]
         if self.ed_timesig.text().strip():
@@ -852,7 +854,7 @@ class MainWindow(QMainWindow):
         if self.ed_drummap.text().strip():
             a += ["--drum-map", self.ed_drummap.text().strip()]
         for c, flag in ((self.ck_tail, "--keep-tail"),
-                        (self.ck_noquant, "--no-quantize"), (self.ck_notridrums, "--no-drop-drums"),
+                        (self.ck_noquant, "--no-quantize"),
                         (self.ck_dump, "--dump")):
             if c.isChecked():
                 a.append(flag)
@@ -864,7 +866,7 @@ class MainWindow(QMainWindow):
 
     DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "time_sig": "", "triplets": "auto",
                 "drum_map": "", "keep_tail": False,
-                "no_quantize": False, "no_tri_drums": False, "dump": False, "outdir": "",
+                "no_quantize": False, "drop_drums": 3, "dump": False, "outdir": "",
                 "last_dir": "", "history": [], "geometry": None}
 
     def _load_settings(self):
@@ -877,6 +879,8 @@ class MainWindow(QMainWindow):
         if s.pop("no_loop", False):  # 旧設定の「ループ検出をしない」はループ回数 0 に読み替え
             s["loops"] = 0
         s.pop("rows", None)          # 旧設定の「1 拍の行数」は廃止（テンポ = 自動）
+        if s.pop("no_tri_drums", False):  # 旧設定の「三角波/下降音ドラムを音符のまま残す」は 0（分けない）
+            s["drop_drums"] = 0
         return s
 
     def _apply_settings(self, s=None):
@@ -891,7 +895,7 @@ class MainWindow(QMainWindow):
         self.ed_drummap.setText(s["drum_map"])
         self.ck_tail.setChecked(bool(s["keep_tail"]))
         self.ck_noquant.setChecked(bool(s["no_quantize"]))
-        self.ck_notridrums.setChecked(bool(s["no_tri_drums"]))
+        self.sp_dropdrums.setValue(int(s["drop_drums"]))
         self.ck_dump.setChecked(bool(s["dump"]))
         self.ed_outdir.setText(s["outdir"])
         if s is self.settings and s.get("geometry"):
@@ -908,7 +912,7 @@ class MainWindow(QMainWindow):
                   "triplets": TRIPLETS[self.cb_triplets.currentText()],
                   "drum_map": self.ed_drummap.text(),
                   "keep_tail": self.ck_tail.isChecked(), "no_quantize": self.ck_noquant.isChecked(),
-                  "no_tri_drums": self.ck_notridrums.isChecked(), "dump": self.ck_dump.isChecked(),
+                  "drop_drums": self.sp_dropdrums.value(), "dump": self.ck_dump.isChecked(),
                   "outdir": self.ed_outdir.text(), "geometry": [g.x(), g.y(), g.width(), g.height()]})
         try:
             os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
