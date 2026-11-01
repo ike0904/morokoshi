@@ -464,7 +464,6 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | **Tempo** | Auto | Auto（自動検出したテンポ）/ Half（その半分）/ Double（その 2 倍）。<br>テンポが倍・半分に検出されたときに指定します |
 | **Time signature** | （空欄） | 区間ごとの拍子をカンマ区切りで指定。例 `6/8,4/4`。`-` または空欄 = 自動。書式が正しくないと枠が赤くなります |
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
-| **Drum map** | （空欄） | ドラムの割当を上書き。例 `3:0=42,DMC:E000:129:15=38`（下記「Drum map の書き方」参照） |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
 | **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
 | **Keep triangle drums as notes** | オフ | 三角波の「キック」（急に音程が下がる短い音）をドラムに変換せず、三角波の音符のまま残します |
@@ -476,16 +475,8 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | テンポが倍・半分になる | 「Tempo」を「Half」/「Double」に |
 | 3 連の曲が 2 分割になる / その逆 | 「Triplets」を「On」/「Off」に |
 | 拍子が違う | 「Time signature」に区間ごとの拍子を指定（例 `6/8,4/4`） |
-| ドラムの種類が違う | 「Drum map」で個別に上書き |
 | 音符が細切れ / 長さが不自然 | 「No quantize」「Keep reverb tails」を試す |
 | ループしない曲が途中で切れる / ループ判定が誤る | 「Loops」を 0 にして「Max seconds」で長さを指定 |
-
-#### Drum map の書き方
-
-`種類=GMノート番号` をカンマ区切りで指定します（よく使う番号: 36 キック / 38 スネア / 42 クローズドハイハット / 46 オープンハイハット / 49 クラッシュ / 45 ロータム）。
-
-* ノイズ: `周期番号:モード=番号`（例 `3:0=42`。周期番号は 0〜15、モードは 0 = 通常 / 1 = 短周期）
-* DPCM: `DMC:アドレス(16進):長さ:レート=番号`（例 `DMC:E000:129:15=38`）
 
 #### 出力される MIDI
 
@@ -1164,7 +1155,6 @@ The current song is converted to MIDI.
 | **Tempo** | Auto | Auto (detected tempo) / Half / Double (of the detected tempo).<br>Set it when the tempo is detected doubled or halved |
 | **Time signature** | (empty) | Meter per section, comma-separated. e.g. `6/8,4/4`. `-` or empty = auto. The box turns red if the format is wrong |
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
-| **Drum map** | (empty) | Override the drum mapping. e.g. `3:0=42,DMC:E000:129:15=38` (see "Drum map format" below) |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
 | **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
 | **Keep triangle drums as notes** | Off | Keep triangle "kicks" (short notes with a sharp pitch drop) as triangle notes instead of drums |
@@ -1176,16 +1166,8 @@ The current song is converted to MIDI.
 | Tempo is doubled / halved | Set "Tempo" to "Half" / "Double" |
 | A triplet song comes out in straight time / or the opposite | Set "Triplets" to "On" / "Off" |
 | Wrong time signature | Enter the meter per section in "Time signature" (e.g. `6/8,4/4`) |
-| Wrong drum sounds | Override them with "Drum map" |
 | Notes are chopped / lengths look odd | Try "No quantize" and "Keep reverb tails" |
 | A non-looping song is cut / the loop is wrong | Set "Loops" to 0 and set the length with "Max seconds" |
-
-#### Drum map format
-
-Give `kind=GM note number`, separated by commas (common numbers: 36 kick / 38 snare / 42 closed hi-hat / 46 open hi-hat / 49 crash / 45 low tom).
-
-* Noise: `period:mode=number` (e.g. `3:0=42`; period 0-15, mode 0 = normal / 1 = short loop)
-* DPCM: `DMC:address(hex):length:rate=number` (e.g. `DMC:E000:129:15=38`)
 
 #### Output MIDI
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.3"
+APP_VERSION = "v2.8.4"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -263,7 +263,7 @@ def save_global_settings(zoom, volume):
 
 # ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
 NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "time_sig": "", "triplets": "auto",
-                    "drum_map": "", "keep_tail": False,
+                    "keep_tail": False,
                     "no_quantize": False, "no_tri_drums": False}
 NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
@@ -290,7 +290,6 @@ def _nsf2mid_argv(o):
     if o["tempo"] != "auto": a += ["--tempo", o["tempo"]]
     if str(o["time_sig"]).strip(): a += ["--time-sig", str(o["time_sig"]).strip()]
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
-    if str(o["drum_map"]).strip(): a += ["--drum-map", str(o["drum_map"]).strip()]
     for k, flag in (("keep_tail", "--keep-tail"),
                     ("no_quantize", "--no-quantize"), ("no_tri_drums", "--no-tri-drums")):
         if o[k]: a.append(flag)
@@ -4744,8 +4743,6 @@ class Nsf2MidDialog(QDialog):
         self.cb_triplets = add("Triplets", QComboBox(),
             "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
         self.cb_triplets.addItems([t[0] for t in NSF2MID_TRIPLETS])
-        self.ed_drummap = add("Drum map", QLineEdit(),
-            'Override the drum assignment\ne.g. "3:0=42,12:0=36,DMC:E000:129:15=38"')
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
         self.ck_noquant = check("No quantize", "Do not snap notes to the detected grid")
         self.ck_notridrums = check("Keep triangle drums as notes", "Do not convert triangle glides to kick drums")
@@ -4779,7 +4776,6 @@ class Nsf2MidDialog(QDialog):
         self.cb_tempo.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TEMPO) if t[1] == o["tempo"]), 0))
         self.ed_timesig.setText(str(o["time_sig"]))
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
-        self.ed_drummap.setText(str(o["drum_map"]))
         self.ck_tail.setChecked(bool(o["keep_tail"]))
         self.ck_noquant.setChecked(bool(o["no_quantize"]))
         self.ck_notridrums.setChecked(bool(o["no_tri_drums"]))
@@ -4788,7 +4784,6 @@ class Nsf2MidDialog(QDialog):
         return {"loops": self.sp_loops.value(), "seconds": self.sp_seconds.value(),
                 "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1], "time_sig": self.ed_timesig.text().strip(),
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
-                "drum_map": self.ed_drummap.text().strip(),
                 "keep_tail": self.ck_tail.isChecked(),
                 "no_quantize": self.ck_noquant.isChecked(), "no_tri_drums": self.ck_notridrums.isChecked()}
 

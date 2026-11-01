@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.4"
+APP_VERSION = "v2.8.5"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -262,7 +262,7 @@ def save_global_settings(zoom, volume):
 
 
 # ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
-NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "time_sig": "", "triplets": "auto",
+NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "triplets": "auto",
                     "keep_tail": False,
                     "no_quantize": False, "no_tri_drums": False}
 NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
@@ -288,7 +288,6 @@ def _nsf2mid_argv(o):
     """オプション dict → nsf2mid のコマンドライン引数（Loops=0 はループ検出なし）"""
     a = ["-s", str(int(o["seconds"])), "--loops", str(max(0, int(o["loops"])))]
     if o["tempo"] != "auto": a += ["--tempo", o["tempo"]]
-    if str(o["time_sig"]).strip(): a += ["--time-sig", str(o["time_sig"]).strip()]
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
     for k, flag in (("keep_tail", "--keep-tail"),
                     ("no_quantize", "--no-quantize"), ("no_tri_drums", "--no-tri-drums")):
@@ -4738,8 +4737,6 @@ class Nsf2MidDialog(QDialog):
         self.cb_tempo = add("Tempo", QComboBox(),
             "Auto: detected tempo\nHalf / Double: use when the tempo comes out doubled or halved")
         self.cb_tempo.addItems([t[0] for t in NSF2MID_TEMPO])
-        self.ed_timesig = add("Time signature", QLineEdit(),
-            'Time signature per section, e.g. "6/8,4/4"\n"-" or empty = auto')
         self.cb_triplets = add("Triplets", QComboBox(),
             "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
         self.cb_triplets.addItems([t[0] for t in NSF2MID_TRIPLETS])
@@ -4758,23 +4755,12 @@ class Nsf2MidDialog(QDialog):
             bl.addWidget(b_ok); bl.addWidget(b_cancel)
         g.addLayout(bl, self._r, 0, 1, 2)
         g.setColumnMinimumWidth(1, S(150))
-        self.ed_timesig.textChanged.connect(lambda _: self._mark_timesig())
         self._apply(opts)
-
-    def timesig_ok(self):
-        import re
-        ts=self.ed_timesig.text().strip()
-        return not ts or bool(re.fullmatch(r"\s*(-|\d+/\d+)(\s*,\s*(-|\d+/\d+))*\s*", ts))
-
-    def _mark_timesig(self):
-        # 拍子の書式（例 "6/8,4/4"、"-" = 自動）が不正なら枠を赤くする
-        self.ed_timesig.setStyleSheet("" if self.timesig_ok() else "border:1px solid #E04040;")
 
     def _apply(self, o):
         self.sp_loops.setValue(int(o["loops"]))
         self.sp_seconds.setValue(int(o["seconds"]))
         self.cb_tempo.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TEMPO) if t[1] == o["tempo"]), 0))
-        self.ed_timesig.setText(str(o["time_sig"]))
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
         self.ck_tail.setChecked(bool(o["keep_tail"]))
         self.ck_noquant.setChecked(bool(o["no_quantize"]))
@@ -4782,16 +4768,10 @@ class Nsf2MidDialog(QDialog):
 
     def values(self):
         return {"loops": self.sp_loops.value(), "seconds": self.sp_seconds.value(),
-                "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1], "time_sig": self.ed_timesig.text().strip(),
+                "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1],
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "keep_tail": self.ck_tail.isChecked(),
                 "no_quantize": self.ck_noquant.isChecked(), "no_tri_drums": self.ck_notridrums.isChecked()}
-
-    def accept(self):
-        # 拍子の書式が不正なら閉じない
-        if not self.timesig_ok():
-            self._mark_timesig(); self.ed_timesig.setFocus(); return
-        super().accept()
 
     def done(self, r):
         hide_tt(); super().done(r)
@@ -7185,8 +7165,6 @@ class MainWindow(QMainWindow):
             panel=Nsf2MidDialog(_nsf2mid_opts(), self._scale, self)
             if panel.exec()!=QDialog.DialogCode.Accepted:
                 self._st("MIDI save cancelled"); return
-        elif not panel.timesig_ok():
-            self._st("MIDI save cancelled: invalid time signature"); return
         opts=panel.values()
         _update_settings(nsf2mid=opts)
         self._saving=True; self._mid_stop=False
