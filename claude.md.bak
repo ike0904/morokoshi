@@ -104,7 +104,15 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.7 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.8 (2026-11-01) ← 最新（プロンプト直接指示）
+- テンキー ＊ の Zoom を廃止し Save に割り当て（Z キーと最大化ボタンの Zoom はそのまま）。キー入力を送って Save が呼ばれることを確認
+- MIDI options「No quantize」→「Quantize」（既定オン）。旧設定 no_quantize は反転して読み込む
+  - nsf2mid 本体も v0.1.22 で GUI を「クオンタイズする」（既定オン）に変更し同期。nsf2mid のマニュアル・PDF も更新（v0.1.22、24 ページ）
+- マニュアル（md・PDF 再生成 57 ページ、表紙は v2.8.0 のまま・確認用）: ショートカット表（Z のテンキー欄を「対応無し」、S に ＊）、
+  オプション表・対処表の Quantize（JP/EN）
+- APP_VERSION v2.8.8
+
+### v2.8.7 (2026-11-01)（プロンプト直接指示）
 - MIDI options「Keep pitch-drop drums as notes」→「Pitch-drop drums」（半音の閾値、既定 3、0 = 分けない）
   - nsf2mid 本体 v0.1.21 を同期: 閾値指定（--drop-drums）＋「鳴り始めから下がり続ける音」だけをドラムとする形の条件
     （グラディウスII のメロディのグリッサンドを除外、ロックマンの三角波タム・バルーンファイト 1ch の 2 フレーム 43→39 を拾う）

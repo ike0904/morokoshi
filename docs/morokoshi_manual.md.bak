@@ -465,7 +465,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
 | **Pitch-drop drums** | 3 | 鳴り始めから音程が下がり続ける短い音（三角波のキック・矩形波のタム）を、この半音数以上下がるならドラム用トラックに分けます。<br>0 なら分けず、各チャンネルの音符のまま残します |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
-| **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
+| **Quantize** | オン | 音符を拍のグリッドに合わせます。オフにすると実際のタイミングのまま出力します（テンポは検出します） |
 
 #### うまく変換できないとき
 
@@ -473,7 +473,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | :---------------- | :------------------------------------------- |
 | テンポが倍・半分になる | 「Tempo」を「Half」/「Double」に |
 | 3 連の曲が 2 分割になる / その逆 | 「Triplets」を「On」/「Off」に |
-| 音符が細切れ / 長さが不自然 | 「No quantize」「Keep reverb tails」を試す |
+| 音符が細切れ / 長さが不自然 | 「Quantize」をオフに、または「Keep reverb tails」をオンにして試す |
 | ループしない曲が途中で切れる / ループ判定が誤る | 「Loops」を 0 にして「Max seconds」で長さを指定 |
 
 #### 出力される MIDI
@@ -619,8 +619,8 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **R** | **9** | すべてリセット |
 | **Shift+R** | **Enter+9** | キャッシュクリア |
 | **H** | **／**（スラッシュ） | Help（取扱説明書を開く） |
-| **Z** | **＊**（アスタリスク） | Zoom（画面表示倍率を切り替え。ウィンドウの最大化ボタンでも可） |
-| **S** | （対応無し） | Save（保存） |
+| **Z** | （対応無し） | Zoom（画面表示倍率を切り替え。ウィンドウの最大化ボタンでも可） |
+| **S** | **＊**（アスタリスク） | Save（保存） |
 | **1** ～ **¥**（最上段） | （対応無し） | ゲームモード: チャンネルをソロ（そのchのみON、他は全てOFF） |
 | **Shift+1 ～ ¥** | （対応無し） | ゲームモード: チャンネルのON/OFFを切り替え |
 | **,** | （対応無し） | 前の曲（ゲームモード時のみ） |
@@ -1155,7 +1155,7 @@ The current song is converted to MIDI.
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
 | **Pitch-drop drums** | 3 | Short notes that keep falling from the start (triangle kicks, pulse toms) go to the drum tracks when they fall by at least this many semitones.<br>0 = keep them as notes of their channel |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
-| **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
+| **Quantize** | On | Snap notes to the beat grid. Off = keep the exact timing (the tempo is still detected) |
 
 #### If the result is not right
 
@@ -1163,7 +1163,7 @@ The current song is converted to MIDI.
 | :---------------- | :------------------------------------------- |
 | Tempo is doubled / halved | Set "Tempo" to "Half" / "Double" |
 | A triplet song comes out in straight time / or the opposite | Set "Triplets" to "On" / "Off" |
-| Notes are chopped / lengths look odd | Try "No quantize" and "Keep reverb tails" |
+| Notes are chopped / lengths look odd | Try turning "Quantize" off or "Keep reverb tails" on |
 | A non-looping song is cut / the loop is wrong | Set "Loops" to 0 and set the length with "Max seconds" |
 
 #### Output MIDI
@@ -1309,8 +1309,8 @@ In addition to standard shortcuts, "Morokoshi Time" provides **hidden numpad sho
 | **R** | **9** | Reset all |
 | **Shift+R** | **Enter+9** | Clear cache |
 | **H** | **/** (slash) | Help (open user manual) |
-| **Z** | **\*** (asterisk) | Zoom (toggle display scaling; also the window's maximize button) |
-| **S** | (none) | Save |
+| **Z** | (none) | Zoom (toggle display scaling; also the window's maximize button) |
+| **S** | **\*** (asterisk) | Save |
 | **1** – **\\** (top row) | (none) | Game Mode: solo that channel (this ch ON, all others OFF) |
 | **Shift+1 – \\** | (none) | Game Mode: toggle that channel ON/OFF |
 | **,** | (none) | Previous track (Game Mode only) |

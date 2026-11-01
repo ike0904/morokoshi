@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.8"
+APP_VERSION = "v2.8.9"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5047,6 +5047,7 @@ class MainWindow(QMainWindow):
         self._total=0.0
         self._tempo=120.0; self._beat=4; self._bar=2.0
         self._kp_enter_time=0.0  # テンキーEnter押下時刻（直後の4/6をSetにする）
+        self._kp_enter_down=False  # テンキーEnterを押している間 True（押しながらの操作も Enter+キー扱い）
         # グローバル設定（zoom倍率・音量）を読み込み
         _gs=load_global_settings()
         self._scale = 2.0 if _gs["zoom"]>=2.0 else 1.0
@@ -7011,6 +7012,8 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, e):
         # 保険: _MaxToZoomFilter をすり抜けて最大化された場合（Win+↑ など）は、通常状態に戻してZoom切り替えにする
+        if e.type()==QEvent.Type.ActivationChange and not self.isActiveWindow():
+            self._kp_enter_down=False  # Enterを押したまま他のウィンドウへ移った場合の保険
         if e.type()==QEvent.Type.WindowStateChange and (self.windowState() & Qt.WindowState.WindowMaximized):
             self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMaximized)
             QTimer.singleShot(0, self._toggle_zoom)
@@ -8389,6 +8392,11 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
+        if event.type()==QEvent.Type.KeyRelease:
+            # テンキーEnterを離した（押しっぱなし判定の解除。どのウィジェット宛てでも拾う）
+            if not event.isAutoRepeat() and event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return):
+                self._kp_enter_down=False
+            return False
         if event.type()!=QEvent.Type.KeyPress: return False
         focused=QApplication.focusWidget()
         if isinstance(focused, QLineEdit): return False
@@ -8679,6 +8687,7 @@ class MainWindow(QMainWindow):
         # テンキーEnter → 直後の4/6をSetにするためのフラグ（時刻記録）
         if kp and key in (K.Key_Enter, K.Key_Return):
             self._kp_enter_time=time.time()
+            self._kp_enter_down=True
             return True
         if kp or key in (K.Key_0,K.Key_1,K.Key_2,K.Key_3,K.Key_4,K.Key_5,K.Key_6,K.Key_7,K.Key_8,K.Key_9,K.Key_Slash,K.Key_Asterisk):
             # テンキー / → Help, テンキー * → Save（v2.8.8〜。Zoom のテンキー対応は廃止）
@@ -8694,8 +8703,8 @@ class MainWindow(QMainWindow):
                     _b=getattr(self,"_save_btn",None)
                     if _b is not None: self._flash_off(_b)
                 return True
-            # Enter直後(1.5秒以内)の4/6はSet動作
-            enter_recent = (time.time()-self._kp_enter_time) < 1.5
+            # Enterを押している間、または押した直後(1.5秒以内)は Enter+キー の動作（4/6はSet など）
+            enter_recent = self._kp_enter_down or (time.time()-self._kp_enter_time) < 1.5
             if key==K.Key_4:
                 if enter_recent:
                     self._kp_enter_time=0.0; self._tap_set_marker(10)
@@ -8722,7 +8731,8 @@ class MainWindow(QMainWindow):
                         if _b is not None: self._flash_off(_b)
                 return True
             if key==K.Key_8:
-                if enter_recent:
+                # タップテンポ中は 8 だけでタップ（Enter の押し直し不要）
+                if enter_recent or self._tap_tempo_mode:
                     self._kp_enter_time=0.0
                     self._tap_tempo_enter_or_tap()
                 else:
