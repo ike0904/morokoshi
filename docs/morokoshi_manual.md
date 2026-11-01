@@ -30,7 +30,8 @@
 * アプリを閉じても、**前回作業時の各種情報（再生位置・マーカー・速度・キー・Fine・フィルターなど）を曲ごとに記憶**します。次に同じファイルを開くと、続きからすぐ作業できます。
 * **NSF（NES/ファミコン）・SPC（SNES/スーパーファミコン）・GBS（Game Boy）のゲーム音楽ファイルに対応**。チャンネル個別ON/OFF・複数曲の切り替えなど、耳コピに役立つ機能が揃っています（詳細は「6. ゲームモードの使い方」参照）。
 * **ZIPファイルをそのまま開ける**ので、解凍の手間なくゲーム音楽を楽しめます。
-* 速度・キーを変えた音声を **WAV / MP3 / M4A で保存**できます。NSF は **MIDI に変換**して保存することもできます（テンポ検出付き。詳細は「5. 保存（Save）・MIDI 変換」参照）。
+* **WAV / MP3 / M4A への書き出し**に対応。Speed・Key・Fine を反映した曲全体の音声を保存できるので、練習用の音源をそのまま持ち出せます（詳細は「5. 保存（Save）・MIDI 変換」参照）。
+* **NSF ファイルの MIDI（.mid）変換**に対応。テンポ・拍子を自動検出して拍に合わせた MIDI を出力し、ノイズ・DPCM のドラム変換やループ検出も行います。DAW や楽譜ソフトでの採譜にすぐ使えます（NSF 形式・2A03 本体の音のみ。拡張音源と NSFe は対象外。詳細は「5. 保存（Save）・MIDI 変換」参照）。
 * **省スペースでシンプル**、かつ直感的で使いやすいデザイン。映像ウィンドウに画面を圧迫されることもありません。
 
 ---
@@ -723,7 +724,8 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 * **Per-file state persistence.** Playback position, markers, speed, key, Fine, filters, and more are remembered for each file. The next time you open the same file, you pick up exactly where you left off.
 * **NSF (NES/Famicom), SPC (SNES/Super Famicom), and GBS (Game Boy) game music support.** Features include per-channel ON/OFF muting and multi-track switching — everything you need for game music transcription. (See "6. Game Mode" for details.)
 * **Open ZIP files directly** — no need to extract game music files first.
-* **Save** the audio with your speed / key settings as **WAV / MP3 / M4A**. NSF songs can also be **converted to MIDI** with tempo detection (see "5. Save & MIDI Conversion").
+* **Export to WAV / MP3 / M4A.** Save the whole song with your Speed / Key / Fine settings applied — take your practice audio anywhere (see "5. Save & MIDI Conversion").
+* **Convert NSF files to MIDI (.mid).** Tempo and time signature are detected automatically to produce beat-aligned MIDI, with noise/DPCM drum conversion and loop detection — ready for your DAW or notation software (NSF format, 2A03 channels only; expansion audio and NSFe are not supported. See "5. Save & MIDI Conversion").
 * **Compact and simple design** that stays out of your way, with no video window crowding your screen.
 
 ---

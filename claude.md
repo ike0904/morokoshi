@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.0 (2026-11-01) ← 最新（プロンプト直接指示）
+### マニュアルのみ更新 (2026-11-01) ← 最新（プロンプト直接指示）
+- マニュアル「1. 特徴 / Features」で、保存と MIDI 変換の説明を 2 項目に分けた（JP/EN）
+  - WAV / MP3 / M4A への書き出し（Speed・Key・Fine を反映）
+  - NSF の MIDI 変換（テンポ・拍子検出、ドラム変換、ループ検出。NSF 形式・2A03 本体の音のみで、拡張音源と NSFe は対象外と明記）
+- PDF を再生成（60 ページ）。今回はビルド物へは入れない（dist/ 直下にコピーされた PDF は削除し、morokoshi290 と zip は変更なし）。次のビルドリリース時に同梱する
+- ソース・APP_VERSION の変更はなし
+
+### v2.9.0 (2026-11-01)（プロンプト直接指示）
 - 公開バージョン v2.9.0 としてリリース（v2.8.0 は未公開のため無かったことにし、v2.8.x の作業記録は消去）
   - APP_VERSION を v2.9.0 に更新してからビルド。exe のウィンドウタイトルで v2.9.0 表示を確認
   - dist/morokoshi290（exe・dll/・license.txt・PDF）と morokoshi290.zip を作成
