@@ -104,7 +104,16 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.6 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.7 (2026-11-01) ← 最新（プロンプト直接指示）
+- MIDI options「Keep pitch-drop drums as notes」→「Pitch-drop drums」（半音の閾値、既定 3、0 = 分けない）
+  - nsf2mid 本体 v0.1.21 を同期: 閾値指定（--drop-drums）＋「鳴り始めから下がり続ける音」だけをドラムとする形の条件
+    （グラディウスII のメロディのグリッサンドを除外、ロックマンの三角波タム・バルーンファイト 1ch の 2 フレーム 43→39 を拾う）
+  - 旧設定の no_drop_drums / no_tri_drums=True は 0 として読み込む
+  - 確認: 引数生成（3 / 0）、バルーンファイト #1 の 1ch 164 音 → ch 11
+- マニュアル（md のみ）: オプション表の該当行を更新（JP/EN）
+- APP_VERSION v2.8.7
+
+### v2.8.6 (2026-11-01)（プロンプト直接指示）
 - MIDI 変換: 三角波キックに加え、矩形波（1ch・2ch）のタムも下降音ドラムとして分離。元の音程のまま MIDI ch 11/12/13（1ch/2ch/3ch）に出力
   - nsf2mid 本体 v0.1.20 で実装し tools/sync_nsf2mid.py で同期（詳細は nsf2mid の作業記録）
   - バルーンファイト・レッキングクルー（1ch のタム）、ファンタジーゾーン サンソフト版（1ch・2ch）で確認

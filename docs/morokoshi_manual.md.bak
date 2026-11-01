@@ -452,7 +452,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
     曲の途中でテンポや拍子が変わる曲、3 連ノリ・シャッフルの曲にも対応します。
   * **自然なノート判定**: 音色（duty 比）の変化、音量の揺れ、ビブラートは 1 つの音の中の変化として扱います。
     小さな音量で鳴らし続ける「リバーブ余韻」もノートの長さから除きます。
-  * **ドラム変換**: ノイズ・DPCM（サンプル）・三角波キックを、GM ドラムに自動で割り当てます。
+  * **ドラム変換**: ノイズ・DPCM（サンプル）を GM ドラムに自動で割り当てます。三角波のキックや矩形波のタム（短く音程が急に下がる音）は、元の音程のままドラム用のトラックに分けます。
   * **ループ検出**: ループ点とループ長を検出し、「イントロ＋ループ 1 回」のように必要な長さだけを書き出します。
 
 #### MIDI options（変換オプション）
@@ -465,7 +465,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
 | **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
-| **Keep triangle drums as notes** | オフ | 三角波の「キック」（急に音程が下がる短い音）をドラムに変換せず、三角波の音符のまま残します |
+| **Keep pitch-drop drums as notes** | オフ | 三角波のキックや矩形波のタム（急に音程が下がる短い音）をドラム用トラックに分けず、各チャンネルの音符のまま残します |
 
 #### うまく変換できないとき
 
@@ -483,7 +483,8 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | Track 0 | 曲名・テンポマップ・拍子・ループマーカー（`loopStart` / `loopEnd`） | — |
 | Ch1 Pulse / Ch2 Pulse | 矩形波 1 / 矩形波 2 | 1 / 2 |
 | Ch3 Wave | 三角波 | 3 |
-| Ch4 Noise drums / Ch5 DPCM drums / Ch3 Wave drums | ノイズ / DPCM / 三角波のドラム（その種類のドラムがある場合のみ） | 10 |
+| Ch4 Noise drums / Ch5 DPCM drums | ノイズ / DPCM のドラム（GM ドラム） | 10 |
+| Ch1 Pulse drums / Ch2 Pulse drums / Ch3 Wave drums | 矩形波 1 / 矩形波 2 / 三角波のドラム（元の音程のまま） | 11 / 12 / 13 |
 
 * 音色（プログラムチェンジ）は出力しません。楽譜ソフトが音色番号から楽器を推測し、移調楽器として表示したり、トラックを並べ替えたりするのを防ぐためです。
 * 三角波は APU の実際の音高で出力します。強弱は NSF の音量からベロシティに変換します。
@@ -1141,7 +1142,7 @@ The current song is converted to MIDI.
     Tempo / meter changes, triplet feel and shuffle are supported.
   * **Natural note detection**: Changes of the duty cycle (timbre), volume and vibrato are treated as changes inside one note.
     Quiet "reverb tails" that some drivers keep playing are cut from the note length.
-  * **Drums**: Noise, DPCM (samples) and triangle kicks are mapped to GM drums automatically.
+  * **Drums**: Noise and DPCM (samples) are mapped to GM drums automatically. Triangle kicks and pulse toms (short notes with a sharp pitch drop) go to their own drum tracks at their original pitch.
   * **Loop detection**: Detects the loop point and loop length, and writes only what is needed (e.g. "intro + 1 loop").
 
 #### MIDI options
@@ -1154,7 +1155,7 @@ The current song is converted to MIDI.
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
 | **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
-| **Keep triangle drums as notes** | Off | Keep triangle "kicks" (short notes with a sharp pitch drop) as triangle notes instead of drums |
+| **Keep pitch-drop drums as notes** | Off | Keep triangle kicks and pulse toms (short notes with a sharp pitch drop) as notes of their channel instead of the drum tracks |
 
 #### If the result is not right
 
@@ -1172,7 +1173,8 @@ The current song is converted to MIDI.
 | Track 0 | Title, tempo map, time signatures, loop markers (`loopStart` / `loopEnd`) | — |
 | Ch1 Pulse / Ch2 Pulse | Pulse 1 / Pulse 2 | 1 / 2 |
 | Ch3 Wave | Triangle | 3 |
-| Ch4 Noise drums / Ch5 DPCM drums / Ch3 Wave drums | Noise / DPCM / triangle drums (only when that kind of drum is used) | 10 |
+| Ch4 Noise drums / Ch5 DPCM drums | Noise / DPCM drums (GM drums) | 10 |
+| Ch1 Pulse drums / Ch2 Pulse drums / Ch3 Wave drums | Pulse 1 / Pulse 2 / triangle drums (original pitch) | 11 / 12 / 13 |
 
 * No program changes (instruments) are written, so notation software does not guess instruments from them, show transposing instruments, or reorder tracks.
 * The triangle is written at the APU's actual pitch. NSF volume is converted to note velocity.

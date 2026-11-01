@@ -10,7 +10,7 @@ Usage:
     python nsf2mid.py                (GUI)
     python nsf2mid.py FILE.nsf|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
                       [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
-                      [--loops N] [--no-loop] [--no-drop-drums] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
+                      [--loops N] [--no-loop] [--drop-drums N] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
 
 バージョン履歴:
   v0.1.11 (2026-10-04) - 初版〜Phase 3: 6502 エミュレータ・APU レジスタログ・ノート抽出・テンポ/拍子検出・MIDI 出力・
@@ -24,9 +24,11 @@ Usage:
                          GUI: 「1 拍の行数」→「テンポ」(自動/半分/2倍)、「ループ検出をしない」を廃止 (ループ回数 0 で代用)
   v0.1.20 (2026-11-01) - 下降音ドラム: 三角波キックに加え矩形波 (1ch/2ch) のタムも検出。元の音程のまま MIDI ch 11/12/13
                          (1ch/2ch/3ch) に出力 (三角波は従来 ch 10 の GM 36/45)。--no-tri-drums → --no-drop-drums (旧名も可)
+  v0.1.21 (2026-11-01) - 下降音ドラムの判定を「最初から下がり続ける音」に限定 (メロディのグリッサンドを除外)、
+                         閾値を --drop-drums N (半音、既定 3、0 = 無効) で指定。GUI もチェックボックス → 数値
 """
 
-APP_VERSION = "v0.1.20"
+APP_VERSION = "v0.1.21"
 
 import argparse
 import csv
@@ -41,8 +43,8 @@ from apu_state import APUState, note_name  # noqa: E402
 from notes import extract_notes, tempo_onsets  # noqa: E402
 from tempo import detect_tempo_map, TickMap  # noqa: E402
 from midi import Track, write_smf  # noqa: E402
-from drums import (noise_hits, dmc_hits, split_drop_drums, parse_drum_map,  # noqa: E402
-                   summarize, GM_NAMES, DROP_DRUM_CHANNELS)
+from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split, parse_drum_map,  # noqa: E402
+                   summarize, GM_NAMES, DROP_DRUM_CHANNELS, DROP_DRUM_MIN)
 from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
 
 PPQ = 480
@@ -228,19 +230,6 @@ DRUM_TRACKS = (("NOI", "Ch4 Noise drums"), ("DMC", "Ch5 DPCM drums"), ("P1", "Ch
 DROP_DRUM_CH = {"P1": 10, "P2": 11, "TRI": 12}
 
 
-def with_pulse_drops(notes, drums):
-    """notes with the pulse pitch-drop drums put back.
-
-    Tempo / meter / loop detection see the pulse toms as notes, as before v0.1.20.
-    (Triangle drums were never part of those inputs, so they stay out.)"""
-    out = dict(notes)
-    for ch in ("P1", "P2"):
-        extra = [d.note for d in drums if d.src == ch]
-        if extra:
-            out[ch] = sorted(notes[ch] + extra, key=lambda n: n.start)
-    return out
-
-
 def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, programs):
     t0 = Track(f"{title} #{track_no}" if title else f"track {track_no}")
     for tick, bpm in tmap.tempo_events():
@@ -321,20 +310,24 @@ def write_notes_csv(path, notes, drums, tmap, transpose):
 
 
 def analyze(player, n_frames, args, drum_map):
-    """Replay the register log and extract notes / drums / loop."""
+    """Replay the register log and extract notes / drums / loop.
+
+    detect: the notes seen by tempo / meter / loop detection. They use the fixed triangle-kick rule
+    (detect_triangle_split) and keep the pulse notes, so detection does not depend on --drop-drums."""
     frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz)
     notes, stats = extract_notes(frames, keep_tail=args.keep_tail)
+    base = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
+    detect = dict(notes)
+    detect["TRI"], detect_tri = detect_triangle_split(notes["TRI"])
     drop_drums = []
     for ch in DROP_DRUM_CHANNELS:
-        notes[ch], hits = split_drop_drums(notes[ch], ch, not args.no_drop_drums)
+        notes[ch], hits = split_drop_drums(notes[ch], ch, 0 if args.no_drop_drums else args.drop_drums)
         drop_drums += hits
-    drums = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
-    drums += drop_drums
-    drums.sort(key=lambda d: d.start)
-    events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in with_pulse_drops(notes, drums).items()}
-    events["DRUM"] = [(d.start, (d.src, d.kind)) for d in drums if d.src not in ("P1", "P2")]
+    drums = sorted(base + drop_drums, key=lambda d: d.start)
+    events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in detect.items()}
+    events["DRUM"] = [(d.start, (d.src, d.kind)) for d in sorted(base + detect_tri, key=lambda d: d.start)]
     loop = None if args.no_loop else detect_loop(events)
-    return frames, notes, stats, drums, events, loop
+    return frames, notes, stats, drums, events, loop, detect
 
 
 class Cancelled(Exception):
@@ -370,8 +363,11 @@ def build_parser():
                          '(default: none)')
     ap.add_argument("--triplets", choices=("auto", "on", "off"), default="auto",
                     help="prefer triplet feel: auto = detect (default), on = always, off = never (binary)")
+    ap.add_argument("--drop-drums", type=float, default=DROP_DRUM_MIN, metavar="SEMITONES",
+                    help="pitch-drop drums (triangle kicks, pulse toms): short notes gliding down by at least "
+                         f"this many semitones go to MIDI ch 11-13 (default {DROP_DRUM_MIN}, 0 = off)")
     ap.add_argument("--no-drop-drums", "--no-tri-drums", dest="no_drop_drums", action="store_true",
-                    help="keep pitch-drop drums (triangle kicks, pulse toms) as notes of their channel")
+                    help="same as --drop-drums 0")
     ap.add_argument("--drum-map", default="",
                     help='override drum notes, e.g. "3:0=42,12:0=36,DMC:E000:129:15=38" '
                          "(noise: periodIdx:mode, DPCM: DMC:addrHex:len:rate)")
@@ -425,7 +421,7 @@ def convert(args, should_stop=None):
             if player.aborted:
                 break
             continue
-        frames, notes, stats, drums, events, loop = analyze(player, n_frames, args, drum_map)
+        frames, notes, stats, drums, events, loop, detect = analyze(player, n_frames, args, drum_map)
         # accept a loop only when it is stable over two chunks and heard LOOP_REPEATS times in a row
         if (loop and prev_loop and abs(loop["start"] - prev_loop["start"]) <= 2
                 and abs(loop["period"] - prev_loop["period"]) <= 2
@@ -439,7 +435,7 @@ def convert(args, should_stop=None):
             end_reason = "song ended"
             break
     player.finish_warnings()
-    frames, notes, stats, drums, events, loop = analyze(player, n_frames, args, drum_map)
+    frames, notes, stats, drums, events, loop, detect = analyze(player, n_frames, args, drum_map)
     print(f"  {n_frames} frames ({n_frames / frame_rate:.1f} s) in {time.time() - t0:.2f} s, "
           f"{len(player.writes)} register writes; stopped: {end_reason}")
     for w in player.warnings:
@@ -489,9 +485,7 @@ def convert(args, should_stop=None):
                       f"(e.g. {info})")
             else:
                 print(f"  {src:3} {str(kind):28} {cnt:4} -> {gm:3} {GM_NAMES.get(gm, ''):16} ({info})")
-        full = with_pulse_drops(notes, drums)
-    else:
-        full = notes
+    full = detect
 
     onsets = [o for o in tempo_onsets(full, frames) if o < end_frame]
     onsets += [d.start for d in in_range if d.src == "DMC"]

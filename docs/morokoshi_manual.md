@@ -465,7 +465,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
 | **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
-| **Keep pitch-drop drums as notes** | オフ | 三角波のキックや矩形波のタム（急に音程が下がる短い音）をドラム用トラックに分けず、各チャンネルの音符のまま残します |
+| **Pitch-drop drums** | 3 | 鳴り始めから音程が下がり続ける短い音（三角波のキック・矩形波のタム）を、この半音数以上下がるならドラム用トラックに分けます。<br>0 なら分けず、各チャンネルの音符のまま残します |
 
 #### うまく変換できないとき
 
@@ -1155,7 +1155,7 @@ The current song is converted to MIDI.
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
 | **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
-| **Keep pitch-drop drums as notes** | Off | Keep triangle kicks and pulse toms (short notes with a sharp pitch drop) as notes of their channel instead of the drum tracks |
+| **Pitch-drop drums** | 3 | Short notes that keep falling from the start (triangle kicks, pulse toms) go to the drum tracks when they fall by at least this many semitones.<br>0 = keep them as notes of their channel |
 
 #### If the result is not right
 

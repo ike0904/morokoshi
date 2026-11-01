@@ -104,7 +104,15 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.5 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.6 (2026-11-01) ← 最新（プロンプト直接指示）
+- MIDI 変換: 三角波キックに加え、矩形波（1ch・2ch）のタムも下降音ドラムとして分離。元の音程のまま MIDI ch 11/12/13（1ch/2ch/3ch）に出力
+  - nsf2mid 本体 v0.1.20 で実装し tools/sync_nsf2mid.py で同期（詳細は nsf2mid の作業記録）
+  - バルーンファイト・レッキングクルー（1ch のタム）、ファンタジーゾーン サンソフト版（1ch・2ch）で確認
+- MIDI options「Keep triangle drums as notes」→「Keep pitch-drop drums as notes」（1〜3ch 共通、--no-drop-drums）。旧設定 no_tri_drums を引き継ぐ
+- マニュアル（md のみ）: 変換の特徴・オプション表・出力される MIDI の表（ch 10 と ch 11〜13 に分けて記載）を更新（JP/EN）
+- APP_VERSION v2.8.6
+
+### v2.8.5 (2026-11-01)（プロンプト直接指示）
 - MIDI options から Time signature を削除（拍子は常に自動判定）
   - 区間（テンポが変わる所で区切った部分）ごとの指定だが、もろこしでは区間を確認する手段が無いため
   - 書式チェック（赤枠・OK/保存の中止）も削除。旧設定の time_sig は無視される。nsf2mid 本体の拍子指定はそのまま

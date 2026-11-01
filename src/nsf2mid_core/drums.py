@@ -22,10 +22,13 @@ DPCM
   Looping samples are treated as tonal samples and skipped.
 
 Pitch-drop drums (v0.1.20: also on the pulse channels)
-  Short notes (<= TRI_DRUM_MAX frames) whose pitch falls by >= TRI_DRUM_DROP
-  semitones: the classic "triangle kick", and pulse toms (e.g. Balloon Fight,
-  Wrecking Crew: 4 frames, one octave down). They keep their pitch; the gm
-  field (36 / 45) is only a hint for the console report.
+  Short notes (<= TRI_DRUM_MAX frames) that glide down by >= DROP_DRUM_MIN
+  semitones (option --drop-drums): the classic "triangle kick", and pulse toms
+  (e.g. Balloon Fight, Wrecking Crew: 4 frames, one octave down). They keep
+  their pitch; the gm field (36 / 45) is only a hint for the console report.
+  v0.1.21: the pitch must keep falling from the start (is_glide). A melody note
+  that steps down once and holds, or falls only at its end (glissando into the
+  next note, e.g. Gradius II), is not a drum.
 """
 
 from apu_state import DMC_RATE_NTSC
@@ -40,7 +43,8 @@ GM_NAMES = {
 
 NOISE_REATTACK = 3
 TRI_DRUM_MAX = 12
-TRI_DRUM_DROP = 5.0
+DROP_DRUM_MIN = 3       # default minimum fall in semitones (--drop-drums; 0 = off). v0.1.20 and before: 5
+GLIDE_TOL = 0.5         # semitones: smaller frame-to-frame changes count as "flat"
 
 
 class DrumHit:
@@ -189,15 +193,46 @@ def dmc_hits(frames, samples, cpu_hz, drum_map=None):
 DROP_DRUM_CHANNELS = ("P1", "P2", "TRI")
 
 
-def split_drop_drums(ch_notes, src, enabled=True):
-    """Split one channel (P1 / P2 / TRI) into (tonal_notes, drum_hits)."""
-    if not enabled:
+def is_glide(ps, min_drop):
+    """True if the per-frame pitches fall by >= min_drop and keep falling from the start:
+    never rise, fall within the first two frames, and fall on at least half of the frames."""
+    if len(ps) < 2 or ps[0] - min(ps) < min_drop:
+        return False
+    steps = [b - a for a, b in zip(ps, ps[1:])]
+    if any(s > GLIDE_TOL for s in steps):
+        return False
+    if steps[0] > -GLIDE_TOL and (len(steps) < 2 or steps[1] > -GLIDE_TOL):
+        return False
+    return 2 * sum(1 for s in steps if s < -GLIDE_TOL) >= len(steps)
+
+
+DETECT_TRI_DROP = 5.0  # fixed triangle-kick rule for the detection inputs (see detect_triangle_split)
+
+
+def detect_triangle_split(tri_notes):
+    """The fixed v0.1.19 triangle-kick rule (<= TRI_DRUM_MAX frames, falls >= 5 semitones).
+
+    Used only for the tempo / meter / loop detection inputs, so that they do not depend on
+    --drop-drums (changing which notes count as drums broke loop detection in some songs)."""
+    tonal, hits = [], []
+    for n in tri_notes:
+        ps = [p for p in n.pitches if p is not None]
+        if ps and n.end - n.start <= TRI_DRUM_MAX and ps[0] - min(ps) >= DETECT_TRI_DROP:
+            hits.append(DrumHit("TRI", n.start, n.end, 36, 110, ("TRI",), "", n))
+        else:
+            tonal.append(n)
+    return tonal, hits
+
+
+def split_drop_drums(ch_notes, src, min_drop=DROP_DRUM_MIN):
+    """Split one channel (P1 / P2 / TRI) into (tonal_notes, drum_hits). min_drop <= 0: off."""
+    if min_drop <= 0:
         return ch_notes, []
     tonal, hits = [], []
     for n in ch_notes:
         length = n.end - n.start
         ps = [p for p in n.pitches if p is not None]
-        if ps and length <= TRI_DRUM_MAX and ps[0] - min(ps) >= TRI_DRUM_DROP:
+        if ps and length <= TRI_DRUM_MAX and is_glide(ps, min_drop):
             gm = 36 if min(ps) < 60 else 45
             vel = 110 if src == "TRI" else _vel(n.peak)
             hits.append(DrumHit(src, n.start, n.end, gm, vel, (src,),
