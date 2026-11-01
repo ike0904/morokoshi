@@ -200,7 +200,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | <img src="icons/play_pause.png" width="20"> **ボタン**（中央） | 再生・一時停止。Shiftを押しながら押すと先頭に戻ります。 |
 | **総時間**（右下） | 曲全体の長さ。NSF/GBSのループ曲では**赤く点滅**し、ドラッグ・ホイールで延長できます（後述）。 |
 | **メッセージ**（最下部の左） | 操作の結果などが表示されます。 |
-| **音量スライダー・%**（最下部の右） | 音量調整（0～200%）。 |  
+| **音量スライダー・%**（最下部の右） | 音量調整（0～200%）。%の数字は、ドラッグ（上下）・ホイールで ±1（Shift で ±10）、ダブルクリックで直接入力（「%」は省略可）、右クリックで 100% に戻ります。 |  
 
 > 💡 **ESCキー**を押すと、再生中の場合は一時停止します。停止中は何もしません。  
 
@@ -892,7 +892,7 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 | <img src="icons/play_pause.png" width="20"> **Button** (center) | Play / Pause. Hold Shift while clicking to return to the beginning. |
 | **Total Time** (bottom-right) | Total length of the file. For looping NSF/GBS tracks, **blinks red** — drag or scroll to extend (see Game Mode). |
 | **Message** (far-left bottom) | Displays operation results and status messages. |
-| **Volume slider / %** (far-right bottom) | Volume control (0–200%). |
+| **Volume slider / %** (far-right bottom) | Volume control (0–200%). On the % number: drag up/down or use the wheel for ±1 (±10 with Shift), double-click to type a value ("%" is optional), right-click to return to 100%. |
 
 > 💡 Press **ESC** to pause playback if the audio is playing. Does nothing when stopped.
 

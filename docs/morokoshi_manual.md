@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.8.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.9.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v2.8.0)
+(対象バージョン: v2.9.0)
 
 ---
 
@@ -601,7 +601,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 「もろこしタイム」は、通常のショートカットとは別に、**テンキーだけでほとんどの操作が完結**するよう隠しショートカット（裏ボタン）を用意しています。テンキーの数字の並びが、ほぼそのまま画面右側のアイコンの配置に対応しているので、慣れると手元を見ずに片手で操作できます。
 
 | メインキー | テンキー | 機能 |
-| :-------------------- | :-------------------- | :--------------------------------------------------------------- |
+| :-------------------- | :------------------------ | :------------------------------------------------------------ |
 | **Space** | **0** | 再生 / 一時停止 |
 | **←** | **1** | 早戻し |
 | **Shift+←** | **Enter+1** | 前の曲（ゲームモード時のみ） |
@@ -673,7 +673,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v2.8.0**  
+**Morokoshi Time v2.9.0**  
 *Created by Ike-san*
 
 ## 更新履歴 {style="page-break-before: always;"}
@@ -694,7 +694,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v2.5.0** | 2026/9/22 | **Tempo欄をダブルクリックで直接入力**できるように変更（1クリックのテンポ検出と競合しない）。<br>**Ear Mode 中のA・Bマーカー操作を改善**。A・Bを動かすと現在位置が常に相対的に連動して動く。また、Ear Mode 突入時に現在位置がA～B区間外にある場合は自動的にAへ移動。Ear Mode 中は波形クリックや直接入力でもA～B区間外に出られない。<br>波形のA-B帯（黄色い部分）を左右にドラッグして区間ごとパン移動できる操作を復活。 |
 | **v2.6.0** | 2026/10/4 | **タップテンポ**機能を追加（Shift+T / テンポ検出アイコンのShift+クリック / テンキーEnter+8）。<br>テンポ検出中はテンポ検出アイコンを赤、タップテンポ中は青で表示。<br>**スクロールバーの端をドラッグ**して表示範囲（ズーム幅）を調整可能に。再生中は再生位置が画面外に出ないよう制限。<br>波形エリアの**右クリックでA・B両方のマーカーをリセット**可能に。 |
 | **v2.7.0** | 2026/10/10 | 波形の上に**時間目盛り**を追加。拡大率に応じて目盛りの間隔を自動で切り替え。ゲームモードでも表示。<br>波形の拡大上限を「画面の幅が**1秒**になるまで」に変更。<br>**フィルター使用中に再生が途切れる・もたつく**問題を修正（フィルター処理を大幅に高速化）。<br>その他軽微な修正。 |
-| **v2.8.0** | 2026/11/1 | **Save（保存）機能を追加**。曲全体を WAV / MP3 / M4A で保存（Speed・Key・Fine を反映）。前回保存したフォルダを記憶。<br>**NSF を MIDI に変換して保存**（テンポ検出・ドラム変換・ループ検出付き）。<br>Zoom をウィンドウの**最大化ボタン**（タイトルバーのダブルクリック）に移動。空いた位置に Save アイコンを配置。<br>Speed の直接入力で `8`・`1/2`・`x1/4` などの書き方に対応。<br>NSF の一部の曲で**曲頭〜数秒が無音**になる問題を修正。SPC・GBS の一部の曲で曲頭に余分な無音が入る問題を修正。<br>その他軽微な修正。 |
+| **v2.9.0** | 2026/11/1 | **Save（保存）機能を追加**。曲全体を WAV / MP3 / M4A で保存（Speed・Key・Fine を反映）。前回保存したフォルダを記憶。<br>**NSF を MIDI に変換して保存**（テンポ検出・ドラム変換・ループ検出付き）。<br>**表示言語の切り替え**（English / 日本語）。Help アイコンの右クリック（Alt+H）で選択。初回はパソコンの言語に合わせる。<br>Zoom をウィンドウの**最大化ボタン**（タイトルバーのダブルクリック）に移動。空いた位置に Save アイコンを配置（テンキー ＊ も Save に）。<br>**Alt+O** で最近開いたファイルの履歴を表示。履歴・言語の一覧はキー（↑↓・Enter・数字・Esc）でも選択可能。<br>**音量の %** をドラッグ・ホイール・直接入力で変更可能に。<br>テンキー Enter を**押しながら**の操作にも対応。タップテンポ中はテンキー **8** だけでタップ可能。<br>Speed の直接入力で `8`・`1/2`・`x1/4` などの書き方に対応。<br>最下段のメッセージが長いときは横スクロールで表示。<br>NSF の一部の曲で**曲頭〜数秒が無音**になる問題を修正。SPC・GBS の一部の曲で曲頭に余分な無音が入る問題を修正。<br>その他軽微な修正。 |
 
 ---
 
@@ -703,7 +703,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v2.8.0)
+(Target version: v2.9.0)
 
 ---
 
@@ -1293,7 +1293,7 @@ NSF files support the following expansion audio chips:
 In addition to standard shortcuts, "Morokoshi Time" provides **hidden numpad shortcuts** that let you control almost everything with one hand. The numpad layout directly mirrors the icon arrangement on the right side of the screen — for example, the 3rd row (**A (Go), Ear Mode, B (Go)**) maps to numpad **4, 5, 6**.
 
 | Main Key | Numpad | Function |
-| :-------------------- | :-------------------- | :--------------------------------------------------------------- |
+| :-------------------- | :------------------------ | :------------------------------------------------------------ |
 | **Space** | **0** | Play / Pause |
 | **←** | **1** | Rewind |
 | **Shift+←** | **Enter+1** | Previous track (Game Mode only) |
@@ -1363,7 +1363,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v2.8.0**
+**Morokoshi Time v2.9.0**
 *Created by Ike-san*
 
 ## Update History {style="page-break-before: always;"}
@@ -1384,4 +1384,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v2.5.0** | 2026/9/22 | **Tempo field can now be directly edited by double-clicking** (no longer conflicts with single-click tempo detection).<br>**Improved Ear Mode A/B marker behavior.** Moving A or B now always shifts the current playback position relatively. When entering Ear Mode, if the current position is outside the A–B range, it automatically moves to A. While in Ear Mode, seeking via waveform click or direct input is now clamped to the A–B range.<br>Restored the ability to **pan the A-B region by dragging within the yellow band** in the waveform area. |
 | **v2.6.0** | 2026/10/4 | Added **Tap Tempo** (Shift+T / Shift+click on the Detect Tempo icon / numpad Enter+8).<br>The Detect Tempo icon now turns red during tempo detection and blue during Tap Tempo.<br>**Drag the scroll bar edges** to adjust the visible range (zoom width). During playback, zooming is limited so the playback position stays on screen.<br>**Right-click the waveform area to reset both A and B markers.** |
 | **v2.7.0** | 2026/10/10 | Added a **time ruler** above the waveform. The tick interval switches automatically with the zoom level. It is also shown in Game Mode.<br>The maximum zoom is now "until the visible width is **1 second**".<br>Fixed **choppy / lagging playback while the filter is in use** (filter processing is now much faster).<br>Other minor fixes. |
-| **v2.8.0** | 2026/11/1 | **Added Save**: save the whole song as WAV / MP3 / M4A (Speed, Key and Fine applied). The last save folder is remembered.<br>**Convert NSF to MIDI and save it** (with tempo detection, drum conversion and loop detection).<br>Zoom moved to the window's **maximize button** (or double-click on the title bar). The Save icon takes its old place.<br>Speed input accepts `8`, `1/2`, `x1/4`, etc.<br>Fixed **silence at the start (up to a few seconds)** of some NSF songs. Fixed extra silence at the start of some SPC / GBS songs.<br>Other minor fixes. |
+| **v2.9.0** | 2026/11/1 | **Added Save**: save the whole song as WAV / MP3 / M4A (Speed, Key and Fine applied). The last save folder is remembered.<br>**Convert NSF to MIDI and save it** (with tempo detection, drum conversion and loop detection).<br>**Display language** can be switched (English / 日本語) by right-clicking the Help icon (Alt+H). On first start it follows the Windows language.<br>Zoom moved to the window's **maximize button** (or double-click on the title bar). The Save icon takes its old place (numpad \* is now Save too).<br>**Alt+O** shows recently opened files. The history and language lists can also be used with the keyboard (↑↓, Enter, numbers, Esc).<br>The **volume %** can be changed by dragging, the wheel or typing a value.<br>Numpad Enter can now be **held** for Enter combinations. During Tap Tempo, numpad **8** alone taps.<br>Speed input accepts `8`, `1/2`, `x1/4`, etc.<br>Long messages at the bottom now scroll.<br>Fixed **silence at the start (up to a few seconds)** of some NSF songs. Fixed extra silence at the start of some SPC / GBS songs.<br>Other minor fixes. |
