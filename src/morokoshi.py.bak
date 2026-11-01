@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.0.3"
+APP_VERSION = "v2.8.0"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -38,9 +38,10 @@ def _fast_stretch(mono, sr, spd, semi):
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSlider, QLineEdit, QFrame, QSizePolicy,
-    QFileDialog, QStackedWidget
+    QFileDialog, QStackedWidget, QScrollBar,
+    QDialog, QGridLayout, QSpinBox, QComboBox, QCheckBox, QAbstractSpinBox
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, pyqtSlot, QPointF
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, pyqtSlot, QPointF, QEvent, QAbstractNativeEventFilter
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QPixmap, QImage, QFont,
     QPainterPath, QIcon, QCursor
@@ -69,6 +70,21 @@ def _fmt_speed(v):
         if abs(v - sv) < 0.005:
             return _SPEED_LABELS.get(sv, f"×{sv}")
     return f"×{v}"
+
+def _parse_speed(txt):
+    """Speed の直接入力を倍率に変換する（最寄りの SPEED_VALUES に丸めるのは呼び出し側）。
+    "1/2" "x1/2" → 0.5、整数 "2" "x2" → 1/2（分母とみなす）、小数 "0.5" → 0.5。不正なら ValueError"""
+    t = txt.strip().replace("×", "").replace(" ", "").lstrip("xX*")
+    if "/" in t:
+        a, b = t.split("/", 1)
+        v = float(a) / float(b)
+    elif t.isdigit():
+        v = 1.0 / int(t)
+    else:
+        v = float(t)
+    if not v > 0:
+        raise ValueError(txt)
+    return v
 
 
 # ── キャッシュ
@@ -171,42 +187,19 @@ def _butter_sos(fc, btype, fs):
     return sos
 
 
-def _sosfilt(sos, x, axis=0, zi=None):
-    """SOSフィルターを適用する（直接II転置形）。
-    sos: (n_sec, 6), x: ndarray, axis: フィルター軸
-    zi: (n_sec, 2, ...) 初期状態。戻り値: (y, zf)"""
-    x = np.asarray(x, dtype=np.float64)
-    n_sec = sos.shape[0]
-    # 軸を先頭に移動
-    x = np.moveaxis(x, axis, 0)
-    shape_rest = x.shape[1:]
-    n = x.shape[0]
-
-    if zi is None:
-        zi = np.zeros((n_sec, 2) + shape_rest, dtype=np.float64)
-    else:
-        zi = np.array(zi, dtype=np.float64)
-
-    y = x.copy()
-    zf = np.zeros_like(zi)
-
-    for s in range(n_sec):
-        b0, b1, b2, _, a1, a2 = sos[s]
-        z0 = zi[s, 0]
-        z1 = zi[s, 1]
-        out = np.empty_like(y)
-        for n_i in range(n):
-            xn = y[n_i]
-            yn = b0 * xn + z0
-            z0 = b1 * xn - a1 * yn + z1
-            z1 = b2 * xn - a2 * yn
-            out[n_i] = yn
-        y = out
-        zf[s, 0] = z0
-        zf[s, 1] = z1
-
-    y = np.moveaxis(y, 0, axis)
-    return y, zf
+def _filter_ir(sos, fs, tol_db=-120.0):
+    """SOSフィルターのインパルス応答を周波数応答から求める（再生時のFFT畳み込み用）。
+    応答の残りエネルギーが tol_db を下回った所で打ち切る（それ以降は聴感上無音）。
+    戻り値: 1次元float64配列"""
+    nfft = 1 << 17  # 44.1kHzで約3秒。最も低いカットオフ(40Hz)でも十分に減衰する長さ
+    f = np.fft.rfftfreq(nfft, 1.0/fs)
+    _, H = _sosfreqz(sos, f, fs)
+    h = np.fft.irfft(H, nfft)
+    tail = np.cumsum((h*h)[::-1])[::-1]  # 各位置以降の残りエネルギー
+    thr = tail[0] * (10.0 ** (tol_db/10.0))
+    idx = np.nonzero(tail < thr)[0]
+    L = int(idx[0]) if len(idx) else nfft
+    return h[:max(1, L)].copy()
 
 
 def _sosfreqz(sos, worN, fs):
@@ -241,18 +234,65 @@ def load_global_settings():
     try:
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
-        return {"zoom": float(d.get("zoom", 1.0)),
+        return {"zoom": float(d.get("zoom", 2.0)),
                 "volume": int(d.get("volume", 100))}
     except Exception:
-        return {"zoom": 1.0, "volume": 100}
+        return {"zoom": 2.0, "volume": 100}
 
-def save_global_settings(zoom, volume):
-    p = os.path.join(CACHE, "settings.json")
+def _read_settings():
+    """settings.json 全体を dict で返す（無い・壊れている場合は空）"""
     try:
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump({"zoom": zoom, "volume": volume}, f)
+        with open(os.path.join(CACHE, "settings.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+def _update_settings(**kw):
+    """settings.json の指定キーだけを書き換える（他のキーは保持）"""
+    d = _read_settings(); d.update(kw)
+    try:
+        with open(os.path.join(CACHE, "settings.json"), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
     except Exception:
         pass
+
+def save_global_settings(zoom, volume):
+    _update_settings(zoom=zoom, volume=volume)
+
+
+# ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
+NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "rows": "auto", "time_sig": "", "triplets": "auto",
+                    "drum_map": "", "no_loop": False, "keep_tail": False,
+                    "no_quantize": False, "no_tri_drums": False}
+NSF2MID_ROWS = ("auto", "2", "3", "4", "6", "8", "9", "12", "16", "24")
+NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
+
+def _import_nsf2mid():
+    core = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nsf2mid_core")
+    if os.path.isdir(core) and core not in sys.path:
+        sys.path.append(core)
+    import nsf2mid
+    return nsf2mid
+
+def _nsf2mid_opts():
+    o = dict(NSF2MID_DEFAULTS)
+    saved = _read_settings().get("nsf2mid")
+    if isinstance(saved, dict):
+        o.update({k: v for k, v in saved.items() if k in NSF2MID_DEFAULTS})
+    return o
+
+def _nsf2mid_argv(o):
+    """オプション dict → nsf2mid のコマンドライン引数"""
+    a = ["-s", str(int(o["seconds"])), "--loops", str(int(o["loops"]))]
+    if str(o["rows"]) != "auto": a += ["--rows-per-beat", str(o["rows"])]
+    if str(o["time_sig"]).strip(): a += ["--time-sig", str(o["time_sig"]).strip()]
+    if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
+    if str(o["drum_map"]).strip(): a += ["--drum-map", str(o["drum_map"]).strip()]
+    for k, flag in (("no_loop", "--no-loop"), ("keep_tail", "--keep-tail"),
+                    ("no_quantize", "--no-quantize"), ("no_tri_drums", "--no-tri-drums")):
+        if o[k]: a.append(flag)
+    return a
 
 def _fhash(path):
     st = os.stat(path)
@@ -303,11 +343,38 @@ def purge_old_cache():
             if now-os.path.getmtime(fp) > CACHE_DAYS*86400: os.remove(fp)
     except: pass
 
+def _file_history_path():
+    return os.path.join(CACHE, "file_history.json")
+
+def load_file_history():
+    try:
+        p = _file_history_path()
+        if os.path.exists(p):
+            with open(p, encoding='utf-8') as f:
+                data = json.load(f)
+            return [x for x in data if os.path.exists(x)][:10]
+    except:
+        pass
+    return []
+
+def add_to_file_history(path):
+    try:
+        path = os.path.abspath(path)
+        history = load_file_history()
+        history = [x for x in history if x != path]
+        history.insert(0, path)
+        history = history[:10]
+        with open(_file_history_path(), 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False)
+    except:
+        pass
+
 # ── アイコン
 _ICON_CACHE = {}
 _ICON_B64 = {
     "help": "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",
     "zoom": "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",
+    "save": "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",
     "ear": "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",
     "ab_repeat": "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",
     "ff": "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",
@@ -652,7 +719,7 @@ def _nsf_detect_ch_used(gme_lib, nsf_raw, track_idx, ch_count, detect_sec=3.0, s
     mute-afterでINITが正常実行されるため、FDSなどタイミング依存ゲームでも正しく検出できる。
     先頭SKIP_FRAMESフレームはINIT汚染のため判定対象外。
     戻り値: list[bool]"""
-    ch_used = []
+    ch_used = [False] * ch_count
     CHUNK = NSF_FRAME_SAMPLES
     SKIP_FRAMES = 3  # INIT汚染フレームをスキップ
     target_s = int(detect_sec * NSF_SR)
@@ -669,7 +736,7 @@ def _nsf_detect_ch_used(gme_lib, nsf_raw, track_idx, ch_count, detect_sec=3.0, s
         # mute-after: start_track後にミュート設定
         for i in range(ch_count):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
-        gme_lib.gme_clear_blip_buffer(emu)
+        # ※ gme_clear_blip_buffer は呼ばない（_nsf_render のコメント参照）
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         # 先頭SKIP_FRAMESはINIT汚染のため読み飛ばす
         for _ in range(SKIP_FRAMES):
@@ -698,7 +765,7 @@ def _nsf_detect_ch_used(gme_lib, nsf_raw, track_idx, ch_count, detect_sec=3.0, s
     return ch_used
 
 
-def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, scb=None, tempo=1.0):
+def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, scb=None, tempo=1.0, no_trim=False):
     """指定チャンネルマスクでNSFを1パスレンダリングする（mute-after方式）。
     tempo: 再生速度倍率（1.0=等速, 0.5=半速）。gme_set_tempoで実現。
     戻り値: (float32 mono array, natural_end: bool, actual_wall_dur_sec: float)"""
@@ -706,7 +773,7 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
         dur_sec = NSF_DEFAULT_DUR_SEC
     CHUNK = NSF_FRAME_SAMPLES
     tempo = max(tempo, 0.01)
-    wall_dur = min(dur_sec / tempo, NSF_MAX_DUR_SEC)
+    wall_dur = min(dur_sec, NSF_MAX_DUR_SEC) / tempo
     target_s = int(wall_dur * NSF_SR)
     min_s = int(NSF_MIN_DURATION / tempo * NSF_SR)
     _buf = _ct.create_string_buffer(nsf_raw, len(nsf_raw))
@@ -723,7 +790,8 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
     # mute-after: INIT後にマスク設定（タイミング正確化）
     for i in range(ch_count):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-    gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
+    # ※ gme_clear_blip_buffer は呼ばない。INITノイズは改造DLLのstart_track内で処理済みで、
+    #    二重に呼ぶと鳴りっぱなしの音が消え曲頭数秒が無音になるNSFがある（例: Dragon Warrior）
     buf16 = (_ct.c_int16 * (CHUNK * 2))()
     samples = []; rendered = 0
     while rendered < target_s:
@@ -733,6 +801,7 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
         if len(mono) > need: mono = mono[:need]
         samples.append(mono); rendered += len(mono)
     gme_lib.gme_delete(emu)
+    _log(f"NSF render raw: mask={ch_mask:#b} rendered={rendered} target_s={target_s} min_s={min_s} wall_dur={wall_dur:.1f}s")
     target_len = max(rendered, min_s)
     if rendered < target_len:
         samples.append(np.zeros(target_len - rendered, dtype=np.int16))
@@ -743,32 +812,19 @@ def _nsf_render(gme_lib, nsf_raw, track_idx, ch_mask, ch_count, dur_sec=None, sc
     sil_start = len(arr_f) - sil_s
     natural_end = (sil_start >= 0 and sil_s > 0 and
                    bool(np.max(np.abs(arr_f[sil_start:])) < NSF_SILENCE_THRESH))
-    if natural_end:
+    if natural_end and not no_trim:
         nz = np.where(np.abs(arr_f) > NSF_SILENCE_THRESH)[0]
-        music_end = (min(len(arr_f), nz[-1] + int(0.5 * NSF_SR)) if len(nz) > 0
-                     else min_s)
-        arr_f = arr_f[:max(min_s, music_end)]
-    # INIT汚染クリーンアップ：楽音開始以前をゼロ化
-    # mute-afterでも最大5フレーム分（≈83ms）はINIT汚染が残る可能性がある。
-    # _LEAK_S以降に「無音→楽音」のパターンがあれば、_LEAK_S以前をすべてゼロ化。
-    # _LEAK_S時点で楽音あり（nz[0]==0）の場合はゼロ化しない（頭切れ防止）。
-    _LEAK_S = 5 * CHUNK   # ≈83ms: cover INIT noise tail
-    if len(arr_f) > _LEAK_S:
-        _nz = np.where(np.abs(arr_f[_LEAK_S:]) > NSF_SILENCE_THRESH)[0]
-        if len(_nz) > 0 and _nz[0] > 0:
-            # _LEAK_S以降に無音→楽音のパターン：楽音開始点までゼロ化
-            _ms = _LEAK_S + int(_nz[0])
-            arr_f[:_ms] = 0.0
-            _fe = min(_ms + 256, len(arr_f))
-            if _fe > _ms:
-                arr_f[_ms:_fe] *= np.linspace(0.0, 1.0, _fe - _ms, dtype=np.float32)
-        elif len(_nz) == 0:
-            # _LEAK_S以降に楽音なし＝INIT汚染ノイズのみ → INIT区間もゼロ化
-            arr_f[:_LEAK_S] = 0.0
-        _log(f"NSF noise cleanup: LEAK_S={_LEAK_S} nz0={_nz[0] if len(_nz)>0 else 'none(zeroed)'}")
+        if len(nz) > 0:
+            music_end = min(len(arr_f), nz[-1] + int(0.5 * NSF_SR))
+            arr_f = arr_f[:max(min_s, music_end)]
+            _log(f"NSF render trim: nz_last={nz[-1]} music_end={music_end} -> {len(arr_f)} samples")
+        else:
+            _log(f"NSF render: natural_end=True but nz=empty (completely silent) -> no trim")
 
     actual_dur_sec = len(arr_f) / NSF_SR
-    _log(f"NSF render: mask={ch_mask:#b} ch_count={ch_count} dur={actual_dur_sec:.1f}s natural_end={natural_end}")
+    _nz_all = np.where(np.abs(arr_f) > NSF_SILENCE_THRESH)[0]
+    head_sil_sec = (_nz_all[0] / NSF_SR if len(_nz_all) > 0 else actual_dur_sec)
+    _log(f"NSF render: mask={ch_mask:#b} dur={actual_dur_sec:.1f}s natural_end={natural_end} head_silence={head_sil_sec:.3f}s")
     return arr_f, natural_end, actual_dur_sec
 
 
@@ -856,7 +912,7 @@ def _spc_detect_ch_used(gme_lib, spc_raw, detect_sec=3.0, scb=None):
             gme_lib.gme_delete(emu); ch_used.append(False); continue
         for i in range(SPC_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
-        gme_lib.gme_clear_blip_buffer(emu)
+        # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
         target_s = int(detect_sec * SPC_SR)
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         samples = []; rendered = 0
@@ -874,7 +930,7 @@ def _spc_detect_ch_used(gme_lib, spc_raw, detect_sec=3.0, scb=None):
         _log(f"SPC ch{ch}: used={used}")
     return ch_used
 
-def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=True, play_len_ms=0, tempo=1.0):
+def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=True, play_len_ms=0, tempo=1.0, no_trim=False):
     """指定チャンネルマスクでSPCを1パスレンダリングする。
     tempo: 再生速度倍率（1.0=等速）。gme_set_tempoで実現。
     戻り値: (float32 mono array, natural_end: bool, actual_wall_dur_sec: float)"""
@@ -892,7 +948,7 @@ def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=
         # tempoが異なる場合: play_len_msをwall-clock換算
         target_s = int((play_len_ms / 1000.0 / tempo + 8.0) * SPC_SR)
     else:
-        target_s = int(min(dur_sec / tempo, SPC_MAX_DUR_SEC) * SPC_SR)
+        target_s = int(min(dur_sec, SPC_MAX_DUR_SEC) / tempo * SPC_SR)
     if err is not None:
         return np.zeros(max(target_s, min_s), dtype=np.float32), True, dur_sec
     err2 = gme_lib.gme_start_track(emu, 0)
@@ -906,7 +962,7 @@ def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=
         gme_lib.gme_set_fade(emu, fade_ms)
     for i in range(SPC_CH_COUNT):
         gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-    gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
+    # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
     buf16 = (_ct.c_int16 * (CHUNK * 2))()
     samples = []; rendered = 0
     while rendered < target_s:
@@ -927,7 +983,7 @@ def _spc_render(gme_lib, spc_raw, ch_mask, dur_sec=None, scb=None, trim_silence=
         sil_start = len(arr_f) - sil_s
         natural_end = (sil_start >= 0 and sil_s > 0 and
                        bool(np.max(np.abs(arr_f[sil_start:])) < SPC_SILENCE_THRESH))
-        if natural_end:
+        if natural_end and not no_trim:
             nz = np.where(np.abs(arr_f) > SPC_SILENCE_THRESH)[0]
             music_end = (min(len(arr_f), nz[-1] + int(0.5 * SPC_SR)) if len(nz) > 0 else min_s)
             arr_f = arr_f[:max(min_s, music_end)]
@@ -1058,7 +1114,7 @@ def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
             gme_lib.gme_delete(emu); ch_used.append(False); continue
         for i in range(GBS_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if i == ch else 1)
-        gme_lib.gme_clear_blip_buffer(emu)
+        # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         samples = []; rendered = 0
         while rendered < target_s:
@@ -1079,13 +1135,13 @@ def _gbs_detect_ch_used(gme_lib, gbs_raw, track_idx, detect_sec=3.0, scb=None):
 
 
 def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_sec=None,
-                detect_silence=False, scb=None, tempo=1.0):
+                detect_silence=False, scb=None, tempo=1.0, no_trim=False):
     """指定マスクでGBSをレンダリング（ループ折り返し対応）。
     tempo: 再生速度倍率（1.0=等速）。gme_set_tempoで実現。
     戻り値: (float32 mono array, actual_wall_dur_sec, natural_end)"""
     if dur_sec is None: dur_sec = GBS_DEFAULT_DUR_SEC
     tempo = max(tempo, 0.01)
-    CHUNK = 735; target_s = int(min(dur_sec / tempo, GBS_MAX_DUR_SEC) * GBS_SR)
+    CHUNK = 735; target_s = int(min(dur_sec, GBS_MAX_DUR_SEC) / tempo * GBS_SR)
 
     def _one_pass(stop_s):
         """1パスレンダリング。(arr_int16, ended_early)を返す"""
@@ -1100,7 +1156,7 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
             gme_lib.gme_set_tempo(emu, float(tempo))
         for i in range(GBS_CH_COUNT):
             gme_lib.gme_mute_voice(emu, i, 0 if (ch_mask >> i) & 1 else 1)
-        gme_lib.gme_clear_blip_buffer(emu)  # STEP2: INIT済みバッファをクリアして曲頭ノイズを除去
+        # ※ gme_clear_blip_buffer は呼ばない（効果が無く、曲頭に余分な無音が入るだけのため。_nsf_render のコメント参照）
         buf16 = (_ct.c_int16 * (CHUNK * 2))()
         segs = []; rendered = 0; ended = False
         while rendered < stop_s:
@@ -1138,10 +1194,11 @@ def _gbs_render(gme_lib, gbs_raw, track_idx, ch_mask, dur_sec=None, single_loop_
         if (sil_start >= 0 and sil_s > 0 and
                 float(np.max(np.abs(arr_f[sil_start:]))) < GBS_SILENCE_THRESH):
             natural_end = True
-            nz = np.where(np.abs(arr_f) > GBS_SILENCE_THRESH)[0]
-            min_s = int(GBS_MIN_DUR_SEC / tempo * GBS_SR)
-            music_end = (min(len(arr_f), nz[-1] + int(0.5 * GBS_SR)) if len(nz) > 0 else min_s)
-            arr_f = arr_f[:max(min_s, music_end)]
+            if not no_trim:
+                nz = np.where(np.abs(arr_f) > GBS_SILENCE_THRESH)[0]
+                min_s = int(GBS_MIN_DUR_SEC / tempo * GBS_SR)
+                music_end = (min(len(arr_f), nz[-1] + int(0.5 * GBS_SR)) if len(nz) > 0 else min_s)
+                arr_f = arr_f[:max(min_s, music_end)]
 
     actual_dur_sec = len(arr_f) / GBS_SR
     _log(f"GBS render: mask={ch_mask:#b} dur={actual_dur_sec:.1f}s natural_end={natural_end}")
@@ -1239,7 +1296,7 @@ def _log(msg):
 
 class AudioEngine:
     def __init__(self):
-        self.data=None; self.sr=44100; self._file_hash=None
+        self.data=None; self.sr=44100; self._file_hash=None; self._wf_ref_peak=None
         self._proc=None; self._proc_spd=1.0; self._proc_semi=0
         self.position=0; self.playing=False; self.paused=False
         self._feeder_eof=False
@@ -1263,7 +1320,7 @@ class AudioEngine:
         # フィルター(HPF/LPF)用: 通過域のバンド範囲とフィルタ状態
         self.filter_lo_idx=0
         self.filter_hi_idx=len(FILTER_BANDS_HZ)-1
-        self._filter_zi=None
+        self._filter_tail=None
         self._filter_sos_cache_key=None
         self._filter_sos_cache=None
 
@@ -1318,7 +1375,9 @@ class AudioEngine:
             self._out_buf=np.zeros((0,2),dtype=np.float32)
             self._mem=ConvCache()
             self.filter_lo_idx=0; self.filter_hi_idx=len(FILTER_BANDS_HZ)-1
-            self._filter_zi=None; self._filter_sos_cache_key=None; self._filter_sos_cache=None
+            self._filter_tail=None; self._filter_sos_cache_key=None; self._filter_sos_cache=None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return len(data)/sr
@@ -1392,26 +1451,24 @@ class AudioEngine:
         nsf._nsf_raw = _nsf_raw
         nsf.expansion_chips = _nsf_chip_names(_nsf_raw, fmt)
 
-        # トラック0をデコード（ch判定→1パスレンダリング）
-        if scb: scb("NSF: ch detection...")
-        ch_used = _nsf_detect_ch_used(gme, _nsf_raw, 0, ch_count, scb=scb)
-        ch_mask = sum((1 << i) for i in range(ch_count) if ch_used[i])
-        if ch_mask == 0:
-            _log("NSF ch_mask=0: fallback to all-ch render to verify")
-            _all_mask = (1 << ch_count) - 1
-            _test_wav, _, _ = _nsf_render(gme, _nsf_raw, 0, _all_mask, ch_count, dur_sec=3.0)
-            if float(np.max(np.abs(_test_wav))) > NSF_SILENCE_THRESH:
-                ch_used = [True] * ch_count; ch_mask = _all_mask
-                _log(f"NSF fallback: ch_mask={ch_mask:#b} (all used)")
-            else:
-                _log("NSF fallback: truly silent, ch_mask remains 0")
+        # トラック0をデコード（全chをused=Trueとして1パスレンダリング）
+        ch_used = [True] * ch_count
+        ch_mask = (1 << ch_count) - 1
         if scb: scb("NSF: rendering track 1...")
         wav, natural_end, actual_dur = _nsf_render(gme, _nsf_raw, 0, ch_mask, ch_count,
                                                    NSF_DEFAULT_DUR_SEC, scb)
+        _trim_sec_init = actual_dur if natural_end else None
+        if natural_end and actual_dur > 10:
+            _pad_s = int(NSF_DEFAULT_DUR_SEC * NSF_SR)
+            if len(wav) < _pad_s:
+                wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+            actual_dur = NSF_DEFAULT_DUR_SEC
+        _init_view = actual_dur
         nsf.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
-            'decoded_sec': actual_dur, 'view_sec': actual_dur,
-            'natural_end': natural_end, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+            'decoded_sec': actual_dur, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+            'natural_end': natural_end, 'initial_sec': _init_view, 'gme_tempo': 1.0,
+                'trim_sec': _trim_sec_init, 'user_extended': False,
         }
         nsf.ch_active = list(ch_used)
 
@@ -1426,7 +1483,9 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -1491,8 +1550,8 @@ class AudioEngine:
         if state is None or state.cur_track not in state.track_data: return
         td = state.track_data[state.cur_track]
         gme_t = td.get('gme_tempo', 1.0)
+        _log(f"apply_new_wav: wav_len={len(wav)} ({len(wav)/state.sr:.1f}s) decoded_sec_before={td.get('decoded_sec','?')} view_sec={td.get('view_sec','?')}")
         td['wav'] = wav; td['ch_mask'] = ch_mask
-        td['decoded_sec'] = len(wav) / state.sr * gme_t  # 楽曲秒で保存
         raw_len = len(wav)
         view_sec_musical = td.get('view_sec', raw_len / state.sr * gme_t)
         view_s = int(view_sec_musical / gme_t * state.sr)
@@ -1502,6 +1561,7 @@ class AudioEngine:
         # seek_sec: chトグルクリック時点の位置（レンダリング中に進んだ分を無視）
         cur_sec = seek_sec if seek_sec is not None else self.current_sec()  # 楽曲秒
         new_pos = max(0, min(int(cur_sec / gme_t * state.sr), len(stereo) - 1))
+        _log(f"apply_new_wav: seek_sec={seek_sec} cur_sec={cur_sec:.3f} new_pos={new_pos} wav_len={len(stereo)} playing={self.playing} paused={self.paused}")
         with self._lock:
             self.data = stereo; self.sr = state.sr
             self._proc = stereo; self._proc_spd = 1.0; self._proc_semi = 0
@@ -1601,25 +1661,24 @@ class AudioEngine:
             if nsf._nsf_raw is None: return 0.0
             gme = _gme_load()
             if gme is None: return 0.0
-            if scb: scb(f"NSF: ch detection track {track_idx+1}...")
-            ch_used = _nsf_detect_ch_used(gme, nsf._nsf_raw, track_idx, nsf.ch_count, scb=scb)
-            ch_mask = sum((1 << i) for i in range(nsf.ch_count) if i < len(ch_used) and ch_used[i])
-            if ch_mask == 0:
-                _log("NSF ch_mask=0: fallback to all-ch render to verify")
-                _all_mask = (1 << nsf.ch_count) - 1
-                _test_wav, _, _ = _nsf_render(gme, nsf._nsf_raw, track_idx, _all_mask, nsf.ch_count, dur_sec=3.0)
-                if float(np.max(np.abs(_test_wav))) > NSF_SILENCE_THRESH:
-                    ch_used = [True] * nsf.ch_count; ch_mask = _all_mask
-                    _log(f"NSF fallback: ch_mask={ch_mask:#b} (all used)")
-                else:
-                    _log("NSF fallback: truly silent, ch_mask remains 0")
+            # 全chをused=Trueとする（遅れて鳴り始めるchを誤って未使用と判定しないため）
+            ch_used = [True] * nsf.ch_count
+            ch_mask = (1 << nsf.ch_count) - 1
             if scb: scb(f"NSF: rendering track {track_idx+1}...")
             wav, natural_end, actual_dur = _nsf_render(gme, nsf._nsf_raw, track_idx, ch_mask,
                                                        nsf.ch_count, NSF_DEFAULT_DUR_SEC, scb)
+            _trim_sec_init = actual_dur if natural_end else None
+            if natural_end and actual_dur > 10:
+                _pad_s = int(NSF_DEFAULT_DUR_SEC * NSF_SR)
+                if len(wav) < _pad_s:
+                    wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+                actual_dur = NSF_DEFAULT_DUR_SEC
+            _init_view = actual_dur
             nsf.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
-                'decoded_sec': actual_dur, 'view_sec': actual_dur,
-                'natural_end': natural_end, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+                'decoded_sec': actual_dur, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+                'natural_end': natural_end, 'initial_sec': _init_view, 'gme_tempo': 1.0,
+                'trim_sec': _trim_sec_init, 'user_extended': False,
             }
 
         self._inject_pending_session(nsf, track_idx)
@@ -1657,25 +1716,30 @@ class AudioEngine:
         nsf = self._nsf
         if nsf is None or track_idx not in nsf.track_data: return 0.0, True
         td = nsf.track_data[track_idx]
-        decoded_sec = td.get('decoded_sec', 0.0)
-        natural_end = td.get('natural_end', True)
+        decoded_sec   = td.get('decoded_sec', 0.0)
+        natural_end   = td.get('natural_end', True)
+        trim_sec      = td.get('trim_sec')       # 自然終端位置（musical秒）
+        user_extended = td.get('user_extended', False)
         new_view_sec = max(NSF_MIN_DURATION, min(new_view_sec, NSF_MAX_DUR_SEC))
+        _init_view_lower = td.get('initial_view_sec', 60.0)
+        _lower = max(_init_view_lower, trim_sec if trim_sec is not None else 0.0)
+        new_view_sec = max(new_view_sec, _lower)
 
         if new_view_sec <= decoded_sec:
             # 短縮/既存範囲内: view_secを更新するだけ
+            if trim_sec is not None:
+                td['user_extended'] = new_view_sec > trim_sec
             td['view_sec'] = new_view_sec
             dur = self._nsf_mix_apply()
             with self._rt_lock:
                 new_len = len(self.data) if self.data is not None else 1
-                # Keep only the valid pre-buffered portion (up to new end)
                 gme_t = self._gme_tempo
                 eff_spd = 1.0 if gme_t != 1.0 else (self.speed if self.speed > 0 else 1.0)
                 buf_keep = max(0, int((new_len - self._played_orig) / eff_spd))
                 if len(self._out_buf) > buf_keep:
                     self._out_buf = self._out_buf[:buf_keep]
-                # Allow feeder to hit EOF naturally at new_len
                 self._src_pos = min(self._src_pos, new_len)
-                self._rt_gen += 1   # discard in-flight stale chunk, wake EOF wait loop
+                self._rt_gen += 1
                 self._feeder_eof = False
             return dur, natural_end
 
@@ -1686,46 +1750,27 @@ class AudioEngine:
 
         ch_mask = td.get('ch_mask', (1 << nsf.ch_count) - 1)
         gme_t = self._gme_tempo
+        # 自然終端を超えた延長: trim なし（ユーザーの意図を尊重）
+        no_trim = natural_end and trim_sec is not None
+        if no_trim:
+            td['user_extended'] = True
         if scb: scb(f"NSF: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
         new_wav, new_natural_end, new_actual_dur = _nsf_render(
-            gme, nsf._nsf_raw, track_idx, ch_mask, nsf.ch_count, new_view_sec, scb, tempo=gme_t)
+            gme, nsf._nsf_raw, track_idx, ch_mask, nsf.ch_count, new_view_sec, scb,
+            tempo=gme_t, no_trim=no_trim)
 
         td['wav']         = new_wav
         td['decoded_sec'] = new_actual_dur * gme_t
-        td['view_sec']    = new_view_sec
-        td['natural_end'] = new_natural_end
-
-        # 延長後に未使用chを再検出（延長部分で登場するchを自動ON）
-        _unused = [i for i in range(nsf.ch_count) if not td['ch_used'][i]]
-        if _unused:
-            gme2 = _gme_load()
-            if gme2 is not None:
-                if scb: scb("NSF: checking unused channels in extended range...")
-                _det_sec = min(new_actual_dur, 60.0)
-                _found_all = _nsf_detect_ch_used(gme2, nsf._nsf_raw, track_idx,
-                                                 nsf.ch_count, detect_sec=_det_sec)
-                _newly = [i for i in _unused if _found_all[i]]
-                if _newly:
-                    for i in _newly:
-                        td['ch_used'][i] = True
-                        nsf.ch_active[i] = True
-                    new_ch_mask = sum((1 << i) for i in range(nsf.ch_count)
-                                      if i < len(nsf.ch_active) and nsf.ch_active[i]
-                                      and td['ch_used'][i])
-                    td['ch_mask'] = new_ch_mask
-                    gme3 = _gme_load()
-                    if gme3 and scb: scb("NSF: re-rendering with newly found channels...")
-                    if gme3:
-                        _w2, _ne2, _d2 = _nsf_render(gme3, nsf._nsf_raw, track_idx,
-                                                      new_ch_mask, nsf.ch_count, new_view_sec, scb,
-                                                      tempo=gme_t)
-                        td['wav'] = _w2; td['decoded_sec'] = _d2 * gme_t
-                        td['view_sec'] = new_view_sec; td['natural_end'] = _ne2
-                        new_natural_end = _ne2
+        td['view_sec']    = new_view_sec if no_trim else new_actual_dur * gme_t
+        if not no_trim:
+            td['natural_end'] = new_natural_end
+            td['trim_sec']    = new_actual_dur * gme_t if new_natural_end else None
+            if not new_natural_end:
+                td['user_extended'] = False
 
         self._mem = ConvCache()
         dur = self._nsf_mix_apply()
-        return dur, new_natural_end
+        return dur, td.get('natural_end', new_natural_end)
 
     # ── SPC専用メソッド ───────────────────────────────────────────
     def _load_spc(self, path, scb=None):
@@ -1737,12 +1782,8 @@ class AudioEngine:
         with open(path, 'rb') as _f:
             spc_raw = _f.read()
         meta = _spc_get_meta(gme, spc_raw)
-        if scb: scb("SPC: detecting channels...")
-        ch_used = _spc_detect_ch_used(gme, spc_raw, scb=scb)
-        ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * SPC_CH_COUNT
-            ch_mask = (1 << SPC_CH_COUNT) - 1
+        ch_used = [True] * SPC_CH_COUNT
+        ch_mask = (1 << SPC_CH_COUNT) - 1
         if scb: scb("SPC: rendering...")
         wav, natural_end, actual_dur = _spc_render(
             gme, spc_raw, ch_mask, meta['dur_sec'], scb, play_len_ms=meta.get('play_len_ms', 0))
@@ -1758,6 +1799,7 @@ class AudioEngine:
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
             'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+                    'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
         }
         with self._lock:
             self._spc = spc
@@ -1770,7 +1812,9 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -1800,12 +1844,8 @@ class AudioEngine:
             m = _spc_get_meta(gme, raw)
             track_metas.append(m)
         # track 0 をデコード
-        if scb: scb("SPC: detecting channels (track 1)...")
-        ch_used = _spc_detect_ch_used(gme, spc_raws_list[0], scb=scb)
-        ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * SPC_CH_COUNT
-            ch_mask = (1 << SPC_CH_COUNT) - 1
+        ch_used = [True] * SPC_CH_COUNT
+        ch_mask = (1 << SPC_CH_COUNT) - 1
         if scb: scb("SPC: rendering track 1...")
         wav, natural_end, actual_dur = _spc_render(
             gme, spc_raws_list[0], ch_mask, track_metas[0]['dur_sec'], scb,
@@ -1822,6 +1862,7 @@ class AudioEngine:
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
             'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+                    'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
         }
         with self._lock:
             self._spc = spc
@@ -1834,7 +1875,9 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -1856,7 +1899,15 @@ class AudioEngine:
                 zf.extract(nsf_names[0], tmp_dir)
             import os as _os
             nsf_path = _os.path.join(tmp_dir, nsf_names[0].replace('/', _os.sep).replace('\\', _os.sep))
-            return self._load_nsf(nsf_path, scb)
+            dur = self._load_nsf(nsf_path, scb)
+            # _load_nsf は一時パスのハッシュを使うため、ZIPパスのハッシュで上書きする
+            # （一時ディレクトリは毎回変わるため、セッション保存/復元が正常に機能しない）
+            fh = _fhash(path)
+            with self._lock:
+                self._file_hash = fh
+                if self._nsf is not None:
+                    self._nsf.path = path  # ステータスバーにZIPファイル名を表示
+            return dur
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1881,12 +1932,8 @@ class AudioEngine:
         for i, raw in enumerate(spc_raws_list):
             m = _spc_get_meta(gme, raw)
             track_metas.append(m)
-        if scb: scb("SPC: detecting channels (track 1)...")
-        ch_used = _spc_detect_ch_used(gme, spc_raws_list[0], scb=scb)
-        ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * SPC_CH_COUNT
-            ch_mask = (1 << SPC_CH_COUNT) - 1
+        ch_used = [True] * SPC_CH_COUNT
+        ch_mask = (1 << SPC_CH_COUNT) - 1
         if scb: scb("SPC: rendering track 1...")
         wav, natural_end, actual_dur = _spc_render(
             gme, spc_raws_list[0], ch_mask, track_metas[0]['dur_sec'], scb,
@@ -1903,6 +1950,7 @@ class AudioEngine:
         spc.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
             'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+                    'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
         }
         with self._lock:
             self._spc = spc
@@ -1915,7 +1963,9 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -1983,12 +2033,8 @@ class AudioEngine:
                 })
 
         # トラック0をデコード
-        if scb: scb("GBS: ch detection...")
-        ch_used = _gbs_detect_ch_used(gme, gbs_raw, 0, scb=scb)
-        ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT) if ch_used[i])
-        if ch_mask == 0:
-            ch_used = [True] * GBS_CH_COUNT
-            ch_mask = (1 << GBS_CH_COUNT) - 1
+        ch_used = [True] * GBS_CH_COUNT
+        ch_mask = (1 << GBS_CH_COUNT) - 1
         meta0 = track_metas[0] if track_metas else {}
         if meta0.get('has_m3u', False):
             dur_sec, single_loop = _gbs_target_sec(meta0)
@@ -1998,8 +2044,16 @@ class AudioEngine:
         if scb: scb("GBS: rendering track 1...")
         wav, actual_dur, natural_end = _gbs_render(
             gme, gbs_raw, 0, ch_mask, dur_sec, single_loop, detect_sil, scb)
-        if meta0.get('has_m3u', False):
+        _has_m3u0 = meta0.get('has_m3u', False)
+        if _has_m3u0:
             natural_end = True  # m3uが時間を明示→自然終了扱い（赤点滅なし）
+        _trim_sec_init = actual_dur if natural_end else None
+        if not _has_m3u0 and natural_end and actual_dur > 10:
+            _pad_s = int(GBS_DEFAULT_DUR_SEC * GBS_SR)
+            if len(wav) < _pad_s:
+                wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+            actual_dur = GBS_DEFAULT_DUR_SEC
+        _init_view = actual_dur
 
         gbs = GbsState()
         gbs.path = path; gbs.game = game_title
@@ -2009,7 +2063,9 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
             'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+            'natural_end': natural_end, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+            'initial_sec': _init_view, 'gme_tempo': 1.0,
+                    'trim_sec': _trim_sec_init, 'user_extended': False,
         }
         with self._lock:
             self._gbs = gbs
@@ -2022,7 +2078,9 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -2087,9 +2145,17 @@ class AudioEngine:
         if scb: scb("GBS: rendering track 1...")
         wav, actual_dur, natural_end = _gbs_render(
             gme2, gbs_raw, 0, all_mask, dur_sec, single_loop, detect_sil, scb)
-        if meta0.get('has_m3u', False):
+        _has_m3u0 = meta0.get('has_m3u', False)
+        if _has_m3u0:
             natural_end = True
         actual_dur = max(GBS_MIN_DUR_SEC, actual_dur)
+        _trim_sec_init = actual_dur if natural_end else None
+        if not _has_m3u0 and natural_end and actual_dur > 10:
+            _pad_s = int(GBS_DEFAULT_DUR_SEC * GBS_SR)
+            if len(wav) < _pad_s:
+                wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+            actual_dur = GBS_DEFAULT_DUR_SEC
+        _init_view = actual_dur
         gbs = GbsState()
         gbs.path = folder_path; gbs.game = game_title
         track_metas_list = []
@@ -2108,7 +2174,9 @@ class AudioEngine:
         gbs.track_data[0] = {
             'wav': wav, 'ch_used': [True] * GBS_CH_COUNT,
             'ch_mask': all_mask, 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-            'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+            'natural_end': natural_end, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+            'initial_sec': _init_view, 'gme_tempo': 1.0,
+                    'trim_sec': _trim_sec_init, 'user_extended': False,
         }
         with self._lock:
             self._gbs = gbs
@@ -2121,7 +2189,9 @@ class AudioEngine:
             self.markers = {}; self.ab_active = False; self.ear_active = False
             self._mem = ConvCache()
             self.filter_lo_idx = 0; self.filter_hi_idx = len(FILTER_BANDS_HZ) - 1
-            self._filter_zi = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+            self._filter_tail = None; self._filter_sos_cache_key = None; self._filter_sos_cache = None
+        with self._rt_lock:
+            self._played_orig = 0
         threading.Thread(target=purge_old_cache, daemon=True).start()
         if scb: scb("Done")
         return dur
@@ -2150,12 +2220,8 @@ class AudioEngine:
             if spc_raw is None: return 0.0
             gme = _gme_load()
             if gme is None: return 0.0
-            if scb: scb(f"SPC: detecting channels (track {track_idx+1})...")
-            ch_used = _spc_detect_ch_used(gme, spc_raw, scb=scb)
-            ch_mask = sum((1 << i) for i in range(SPC_CH_COUNT) if ch_used[i])
-            if ch_mask == 0:
-                ch_used = [True] * SPC_CH_COUNT
-                ch_mask = (1 << SPC_CH_COUNT) - 1
+            ch_used = [True] * SPC_CH_COUNT
+            ch_mask = (1 << SPC_CH_COUNT) - 1
             if scb: scb(f"SPC: rendering track {track_idx+1}...")
             meta_t = spc.track_metas[track_idx] if track_idx < len(spc.track_metas) else {}
             dur_sec = meta_t.get('dur_sec', SPC_DEFAULT_DUR_SEC)
@@ -2164,6 +2230,7 @@ class AudioEngine:
             spc.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask, 'decoded_sec': actual_dur,
                 'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+                    'trim_sec': actual_dur if natural_end else None, 'user_extended': False,
             }
 
         self._inject_pending_session(spc, track_idx)
@@ -2203,11 +2270,17 @@ class AudioEngine:
         spc = self._spc
         if spc is None or track_idx not in spc.track_data: return 0.0, True
         td = spc.track_data[track_idx]
-        decoded_sec = td.get('decoded_sec', 0.0)
-        natural_end = td.get('natural_end', True)
+        decoded_sec   = td.get('decoded_sec', 0.0)
+        natural_end   = td.get('natural_end', True)
+        trim_sec      = td.get('trim_sec')
         new_view_sec = max(SPC_MIN_DURATION, min(new_view_sec, SPC_MAX_DUR_SEC))
+        _init_view_lower = td.get('initial_view_sec', 60.0)
+        _lower = max(_init_view_lower, trim_sec if trim_sec is not None else 0.0)
+        new_view_sec = max(new_view_sec, _lower)
 
         if new_view_sec <= decoded_sec:
+            if trim_sec is not None:
+                td['user_extended'] = new_view_sec > trim_sec
             td['view_sec'] = new_view_sec
             dur = self._spc_mix_apply()
             with self._rt_lock:
@@ -2229,14 +2302,22 @@ class AudioEngine:
 
         ch_mask = td.get('ch_mask', (1 << SPC_CH_COUNT) - 1)
         gme_t = self._gme_tempo
+        no_trim = natural_end and trim_sec is not None
+        if no_trim:
+            td['user_extended'] = True
         if scb: scb(f"SPC: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
         new_wav, new_natural_end, new_actual_dur = _spc_render(
-            gme, spc_raw, ch_mask, new_view_sec, scb, trim_silence=True, play_len_ms=0, tempo=gme_t)
+            gme, spc_raw, ch_mask, new_view_sec, scb, trim_silence=True, play_len_ms=0,
+            tempo=gme_t, no_trim=no_trim)
 
         td['wav'] = new_wav
         td['decoded_sec'] = new_actual_dur * gme_t
-        td['view_sec'] = new_view_sec
-        td['natural_end'] = new_natural_end
+        td['view_sec'] = new_view_sec if no_trim else new_actual_dur * gme_t
+        if not no_trim:
+            td['natural_end'] = new_natural_end
+            td['trim_sec']    = new_actual_dur * gme_t if new_natural_end else None
+            if not new_natural_end:
+                td['user_extended'] = False
 
         self._mem = ConvCache()
         dur = self._spc_mix_apply()
@@ -2264,12 +2345,8 @@ class AudioEngine:
         if track_idx not in gbs.track_data:
             gme = _gme_load()
             if gme is None: return 0.0
-            if scb: scb(f"GBS: detecting channels (track {track_idx+1})...")
-            ch_used = _gbs_detect_ch_used(gme, gbs._gbs_raw, track_idx, scb=scb)
-            ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT) if ch_used[i])
-            if ch_mask == 0:
-                ch_used = [True] * GBS_CH_COUNT
-                ch_mask = (1 << GBS_CH_COUNT) - 1
+            ch_used = [True] * GBS_CH_COUNT
+            ch_mask = (1 << GBS_CH_COUNT) - 1
             meta_t = gbs.track_metas[track_idx] if track_idx < len(gbs.track_metas) else {}
             if meta_t.get('has_m3u', False):
                 dur_sec, single_loop = _gbs_target_sec(meta_t)
@@ -2279,12 +2356,22 @@ class AudioEngine:
             if scb: scb(f"GBS: rendering track {track_idx+1}...")
             wav, actual_dur, natural_end = _gbs_render(
                 gme, gbs._gbs_raw, track_idx, ch_mask, dur_sec, single_loop, detect_sil, scb)
-            if meta_t.get('has_m3u', False):
+            _has_m3u_t = meta_t.get('has_m3u', False)
+            if _has_m3u_t:
                 natural_end = True  # m3uが時間を明示→自然終了扱い（赤点滅なし）
+            _trim_sec_init = actual_dur if natural_end else None
+            if not _has_m3u_t and natural_end and actual_dur > 10:
+                _pad_s = int(GBS_DEFAULT_DUR_SEC * GBS_SR)
+                if len(wav) < _pad_s:
+                    wav = np.concatenate([wav, np.zeros(_pad_s - len(wav), dtype=wav.dtype)])
+                actual_dur = GBS_DEFAULT_DUR_SEC
+            _init_view = actual_dur
             gbs.track_data[track_idx] = {
                 'wav': wav, 'ch_used': ch_used, 'ch_mask': ch_mask,
                 'decoded_sec': actual_dur, 'single_loop_sec': single_loop,
-                'natural_end': natural_end, 'view_sec': actual_dur, 'initial_sec': actual_dur, 'gme_tempo': 1.0,
+                'natural_end': natural_end, 'view_sec': _init_view, 'initial_view_sec': _init_view,
+                'initial_sec': _init_view, 'gme_tempo': 1.0,
+                    'trim_sec': _trim_sec_init, 'user_extended': False,
             }
 
         self._inject_pending_session(gbs, track_idx)
@@ -2330,9 +2417,15 @@ class AudioEngine:
         td = gbs.track_data[track_idx]
         decoded_sec   = td.get('decoded_sec', 0.0)
         natural_end   = td.get('natural_end', True)
+        trim_sec      = td.get('trim_sec')
         new_view_sec  = max(GBS_MIN_DUR_SEC, min(new_view_sec, GBS_MAX_DUR_SEC))
+        _init_view_lower = td.get('initial_view_sec', 60.0)
+        _lower = max(_init_view_lower, trim_sec if trim_sec is not None else 0.0)
+        new_view_sec = max(new_view_sec, _lower)
 
         if new_view_sec <= decoded_sec:
+            if trim_sec is not None:
+                td['user_extended'] = new_view_sec > trim_sec
             td['view_sec'] = new_view_sec
             dur = self._gbs_mix_apply()
             with self._rt_lock:
@@ -2354,45 +2447,26 @@ class AudioEngine:
         ch_mask     = td.get('ch_mask', (1 << GBS_CH_COUNT) - 1)
         single_loop = td.get('single_loop_sec')
         gme_t = self._gme_tempo
+        no_trim = natural_end and trim_sec is not None
+        if no_trim:
+            td['user_extended'] = True
         if scb: scb(f"GBS: rendering {decoded_sec:.0f}s→{new_view_sec:.0f}s...")
         new_wav, new_dur, new_nat = _gbs_render(
             gme, gbs._gbs_raw, track_idx, ch_mask, new_view_sec, single_loop,
-            detect_silence=True, scb=scb, tempo=gme_t)
+            detect_silence=True, scb=scb, tempo=gme_t, no_trim=no_trim)
         td['wav']         = new_wav
         td['decoded_sec'] = new_dur * gme_t
-        td['view_sec']    = new_dur * gme_t
-        td['natural_end'] = new_nat
-
-        # 延長後に未使用chを再検出（延長部分で登場するchを自動ON）
-        _unused = [i for i in range(GBS_CH_COUNT) if not td['ch_used'][i]]
-        if _unused:
-            gme2 = _gme_load()
-            if gme2 is not None:
-                if scb: scb("GBS: checking unused channels in extended range...")
-                _det_sec = min(new_dur, 60.0)
-                _found_all = _gbs_detect_ch_used(gme2, gbs._gbs_raw, track_idx, detect_sec=_det_sec)
-                _newly = [i for i in _unused if _found_all[i]]
-                if _newly:
-                    for i in _newly:
-                        td['ch_used'][i] = True
-                        gbs.ch_active[i] = True
-                    new_ch_mask = sum((1 << i) for i in range(GBS_CH_COUNT)
-                                      if i < len(gbs.ch_active) and gbs.ch_active[i]
-                                      and td['ch_used'][i])
-                    td['ch_mask'] = new_ch_mask
-                    gme3 = _gme_load()
-                    if gme3 and scb: scb("GBS: re-rendering with newly found channels...")
-                    if gme3:
-                        _w2, _d2, _ne2 = _gbs_render(gme3, gbs._gbs_raw, track_idx,
-                                                      new_ch_mask, new_view_sec, single_loop,
-                                                      detect_silence=True, scb=scb, tempo=gme_t)
-                        td['wav'] = _w2; td['decoded_sec'] = _d2 * gme_t
-                        td['view_sec'] = _d2 * gme_t; td['natural_end'] = _ne2
-                        new_nat = _ne2
+        td['view_sec']    = new_view_sec if no_trim else new_dur * gme_t
+        if not no_trim:
+            td['natural_end'] = new_nat
+            td['trim_sec']    = new_dur * gme_t if new_nat else None
+            if not new_nat:
+                td['user_extended'] = False
+        new_nat_out = td.get('natural_end', new_nat)
 
         self._mem = ConvCache()
         dur = self._gbs_mix_apply()
-        return dur, new_nat
+        return dur, new_nat_out
 
     def _request_conv(self, spd, semi, scb, fast=False, resume=True):
         if self.data is None: return
@@ -2616,30 +2690,58 @@ class AudioEngine:
         全域選択(フィルター無し)の時は何もせず素通し（負荷・誤差を避ける）"""
         if stereo_chunk.shape[0]==0:
             return stereo_chunk
-        lo=self.filter_lo_idx; hi=self.filter_hi_idx
-        key=(lo,hi)
-        if key!=self._filter_sos_cache_key:
-            sr=self.sr if self.sr else 44100
-            self._filter_sos_cache=_build_filter_sos(lo,hi,sr)
-            self._filter_sos_cache_key=key
-        sos=self._filter_sos_cache
-        if sos is None:
+        if (self.filter_lo_idx,self.filter_hi_idx,self.sr)!=self._filter_sos_cache_key:
+            self._filter_prepare()  # 通常はset_filter_range側(UIスレッド)で準備済み
+        if self._filter_sos_cache is None:
+            if self._filter_tail is not None:
+                # フィルター解除直後: 直前までの余韻だけ足し込んで終える
+                out=self._filter_add_tail(stereo_chunk.astype(np.float64), stereo_chunk.shape[0]).astype(np.float32)
+                if not np.any(self._filter_tail): self._filter_tail=None
+                return out
             return stereo_chunk
-        nch=stereo_chunk.shape[1] if stereo_chunk.ndim>1 else 1
-        if (self._filter_zi is None) or (self._filter_zi.shape[0]!=sos.shape[0]) or (self._filter_zi.shape[2]!=nch):
-            self._filter_zi=np.zeros((sos.shape[0],2,nch),dtype=np.float64)
-        filtered,self._filter_zi=_sosfilt(sos, stereo_chunk.astype(np.float64), axis=0, zi=self._filter_zi)
-        return filtered.astype(np.float32)
+        # FFT畳み込み(overlap-add)。1サンプルずつのIIR計算はPythonでは遅く、
+        # バンドパス時に音声出力が間に合わなくなるため、インパルス応答との畳み込みで処理する
+        ir=self._filter_sos_cache["ir"]
+        n=stereo_chunk.shape[0]; L=len(ir)
+        nfft=1<<int(np.ceil(np.log2(n+L-1)))
+        Hs=self._filter_sos_cache["H"]
+        if nfft not in Hs:
+            Hs[nfft]=np.fft.rfft(ir, nfft)
+        y=np.fft.irfft(np.fft.rfft(stereo_chunk.astype(np.float64), nfft, axis=0)*Hs[nfft][:,None], nfft, axis=0)[:n+L-1]
+        return self._filter_add_tail(y, n).astype(np.float32)
+
+    def _filter_add_tail(self, y, n):
+        """前ブロックの余韻(tail)を先頭に足し込み、先頭nフレームを返す。残りは次ブロックへの余韻として保持"""
+        tail=self._filter_tail
+        if tail is not None and len(tail):
+            if len(tail)>len(y):
+                y=np.concatenate([y, np.zeros((len(tail)-len(y), y.shape[1]))])
+            y[:len(tail)]+=tail
+        self._filter_tail=y[n:]
+        return y[:n]
+
+    def _filter_prepare(self, lo=None, hi=None):
+        """帯域に応じたインパルス応答を用意する（数十msかかるため、音声コールバック外で呼ぶのが基本）"""
+        if lo is None: lo=self.filter_lo_idx
+        if hi is None: hi=self.filter_hi_idx
+        sr=self.sr if self.sr else 44100
+        sos=_build_filter_sos(lo,hi,sr)
+        # インパルス応答と、FFTサイズごとの周波数応答(遅延計算)を保持
+        cache=None if sos is None else {"ir":_filter_ir(sos, sr), "H":{}}
+        self._filter_sos_cache=cache
+        self._filter_sos_cache_key=(lo,hi,self.sr)
 
     def set_filter_range(self, lo_idx, hi_idx):
         n=len(FILTER_BANDS_HZ)
         lo_idx=max(0,min(n-1,int(lo_idx))); hi_idx=max(0,min(n-1,int(hi_idx)))
         if lo_idx>hi_idx: lo_idx,hi_idx=hi_idx,lo_idx
+        if (lo_idx,hi_idx,self.sr)!=self._filter_sos_cache_key:
+            self._filter_prepare(lo_idx, hi_idx)  # 帯域を切り替える前に準備しておく
         self.filter_lo_idx=lo_idx; self.filter_hi_idx=hi_idx
 
     def reset_filter(self):
         self.filter_lo_idx=0; self.filter_hi_idx=len(FILTER_BANDS_HZ)-1
-        self._filter_zi=None
+        self._filter_tail=None
         self._filter_sos_cache_key=None; self._filter_sos_cache=None
 
     def play(self, seek_sec=None):
@@ -2775,7 +2877,7 @@ class AudioEngine:
         self._stop.set(); self.playing=False
         self._feeder_eof=False
         self._vis_latest=np.zeros(2048,dtype=np.float32)
-        self._filter_zi=None
+        self._filter_tail=None
         if self._stream:
             try: self._stream.stop(); self._stream.close()
             except: pass
@@ -2821,13 +2923,18 @@ class AudioEngine:
             return _estimate_bpm(seg, self.sr)
         except: return None
 
-    def get_waveform(self, width=700):
+    def get_waveform(self, width=700, update_ref=False):
         if self.data is None: return None
         mono=self.data.mean(axis=1); n=len(mono)
         chunk=max(1,n//width)
         peaks=np.array([np.abs(mono[i*chunk:min((i+1)*chunk,n)]).max() for i in range(width)],dtype=np.float32)
         mx=peaks.max()
-        if mx>0: peaks/=mx
+        if update_ref:
+            if mx > 0: self._wf_ref_peak = float(mx)
+            denom = mx
+        else:
+            denom = self._wf_ref_peak if self._wf_ref_peak else mx
+        if denom > 0: peaks /= denom
         return peaks
 
     def get_spectrum(self):
@@ -2868,7 +2975,9 @@ class WaveformWidget(QWidget):
     seeked = pyqtSignal(float)
     view_changed = pyqtSignal()  # ズーム/スクロール時に発火
     ab_drag = pyqtSignal(float)  # AB範囲ドラッグ時、移動量(全体比率)を発火（未使用）
-    ab_range_set = pyqtSignal(float, float)  # ドラッグでAB範囲を設定: (start_ratio, end_ratio)
+    ab_range_set = pyqtSignal(float, float)       # ドラッグでAB範囲を設定: (start_ratio, end_ratio)
+    ab_range_committed = pyqtSignal(float, float) # AB範囲設定の確定（mouseRelease時のみ）
+    ab_pan = pyqtSignal(float, float)             # AB間ドラッグでA/Bを連動移動: (a_ratio, b_ratio)
     double_clicked = pyqtSignal(float)  # ダブルクリック位置(全体比率)を発火
     marker_reset_requested = pyqtSignal(int)  # マーカーの真上をダブルクリック→そのマーカー番号(MARKER_A or MARKER_B)
     seek_revert = pyqtSignal(float)  # ダブルクリック確定時、1回目クリックによるシークを取り消すための復元先比率
@@ -2882,6 +2991,7 @@ class WaveformWidget(QWidget):
         self.setFixedHeight(42); self._dragging=False
         self._drag_mode=None; self._press_x=0; self._press_view=None
         self._press_on_ab=False; self._press_r=0.0
+        self._press_ab_a=None; self._press_ab_b=None  # AB間パンドラッグ用
         self._pre_click_pos=0.0       # クリック列開始時点の再生位置比率（ダブルクリック確定時の復元用）
         self._last_press_time=0.0     # シングル/ダブルクリック列の判定用
         self._suppress_next_release_seek=False  # ダブルクリック確定後、2回目releaseのシークを抑制するフラグ
@@ -2889,10 +2999,15 @@ class WaveformWidget(QWidget):
         self._total=0.0
         self._last_manual=0.0  # 最後に手動でズーム/スクロールした時刻
         self._is_playing=False  # 再生中フラグ（拡大方針の切替用）
+        self._ruler=None  # TimeRulerWidget（表示範囲が変わったら再描画を依頼する）
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
 
     def set_total(self, total): self._total=total
+
+    def _min_span(self):
+        """ズームの拡大上限: 波形エリアの左端〜右端が1秒になるまで（曲全体に対する比率）"""
+        return min(1.0, 1.0/self._total) if self._total>0 else 0.005
 
     def reset_view(self):
         self._view_lo=0.0; self._view_hi=1.0; self.update(); self.view_changed.emit()
@@ -2958,6 +3073,8 @@ class WaveformWidget(QWidget):
         if wf is None: p.end(); return
         n=len(wf); cy=h/2
         lo=self._view_lo; span=self._vspan()
+        if self._ruler is not None:
+            self._ruler.sync_view()
         px=self._r2x(self.position, w)
         i0=max(0, int(lo*n)-1); i1=min(n, int(self._view_hi*n)+2)
         idxs_all=list(range(i0,i1))
@@ -3012,6 +3129,10 @@ class WaveformWidget(QWidget):
         if focused is not None: focused.clearFocus()
         w=self.window()
         if w: w.setFocus()
+        if e.button()==Qt.MouseButton.RightButton:
+            self.marker_reset_requested.emit(MARKER_A)
+            self.marker_reset_requested.emit(MARKER_B)
+            return
         if e.button()==Qt.MouseButton.LeftButton:
             self._dragging=True
             self._press_x=e.position().x()
@@ -3033,6 +3154,7 @@ class WaveformWidget(QWidget):
                 lo=min(self._ab_a,self._ab_b); hi=max(self._ab_a,self._ab_b)
                 if lo<=r<=hi:
                     self._press_on_ab=True
+            self._press_ab_a=self._ab_a; self._press_ab_b=self._ab_b
             self._press_r=self._x2r(self._press_x, max(1,self.width()))
             # 現在位置線・A線・B線のいずれかの直上を掴んでいるか判定（帯ドラッグより優先）
             w=max(1,self.width())
@@ -3061,16 +3183,19 @@ class WaveformWidget(QWidget):
                     else:
                         self._drag_mode="marker_b_move"
             else:
-                # フリーエリア: 上下はズーム、左右はAB範囲設定
+                # フリーエリア: 上下はズーム、左右はAB範囲設定 or AB間パン
                 if abs(dy) > 5:
                     self._drag_mode = "zoom_drag"
                 elif abs(dx) > 5:
-                    self._drag_mode = "ab_set_drag"
+                    if self._press_on_ab and self._press_ab_a is not None and self._press_ab_b is not None:
+                        self._drag_mode = "ab_pan_drag"
+                    else:
+                        self._drag_mode = "ab_set_drag"
         if self._drag_mode=="zoom_drag":
             vlo,vhi=self._press_view
             span_base=max(0.001,vhi-vlo)
             factor=0.85**(-dy/8.0)  # 上ドラッグ(dy<0)でズームイン
-            new_span=max(0.005,min(1.0,span_base*factor))
+            new_span=max(self._min_span(),min(1.0,span_base*factor))
             frac=(self._press_r-vlo)/span_base
             lo=self._press_r-frac*new_span; hi=lo+new_span
             if lo<0: lo=0; hi=new_span
@@ -3083,6 +3208,15 @@ class WaveformWidget(QWidget):
             cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
             r1 = max(0.0, min(1.0, self._press_r))
             self.ab_range_set.emit(r1, cur_r)
+        elif self._drag_mode=="ab_pan_drag":
+            # A-B間ドラッグ: A/Bを連動パン
+            cur_r = self._x2r(e.position().x(), max(1, self.width()))
+            d = cur_r - self._press_r
+            pa = self._press_ab_a; pb = self._press_ab_b
+            if pa is not None and pb is not None:
+                lo_p = min(pa, pb); hi_p = max(pa, pb)
+                d = max(-lo_p, min(1.0 - hi_p, d))
+                self.ab_pan.emit(pa + d, pb + d)
         elif self._drag_mode=="pos_move":
             r=max(0.0,min(1.0,self._x2r(e.position().x(), max(1,self.width()))))
             self.position=r  # 見た目はすぐ追従させる
@@ -3111,6 +3245,15 @@ class WaveformWidget(QWidget):
             cur_r = max(0.0, min(1.0, self._x2r(e.position().x(), max(1, self.width()))))
             r1 = max(0.0, min(1.0, self._press_r))
             self.ab_range_set.emit(r1, cur_r)
+            self.ab_range_committed.emit(r1, cur_r)
+        elif self._drag_mode=="ab_pan_drag":
+            cur_r = self._x2r(e.position().x(), max(1, self.width()))
+            d = cur_r - self._press_r
+            pa = self._press_ab_a; pb = self._press_ab_b
+            if pa is not None and pb is not None:
+                lo_p = min(pa, pb); hi_p = max(pa, pb)
+                d = max(-lo_p, min(1.0 - hi_p, d))
+                self.ab_pan.emit(pa + d, pb + d)
         self._dragging=False; self._drag_mode=None
 
     def mouseDoubleClickEvent(self,e):
@@ -3153,7 +3296,7 @@ class WaveformWidget(QWidget):
             cursor_r=self._x2r(e.position().x(), w)
             span=self._vspan()
             factor=0.85 if delta>0 else (1/0.85)  # 上で拡大
-            new_span=max(0.005, min(1.0, span*factor))
+            new_span=max(self._min_span(), min(1.0, span*factor))
             # カーソル位置の比率を保つ
             frac=(cursor_r-self._view_lo)/span
             lo=cursor_r-frac*new_span
@@ -3311,7 +3454,7 @@ class _TrackQLE(QLineEdit):
             self._panel._cur = v
             self.setText(f"{v+1:03d}"); self.selectAll()
             self._panel._update_track_tooltip()
-            show_tt(self._panel._track_tt_text, self._panel._track_edit)
+            show_tt(self._panel._track_tt_text, self._panel._track_next_btn, side='right')
         ev.accept()
 
     def mouseReleaseEvent(self, ev):
@@ -3329,7 +3472,7 @@ class _TrackQLE(QLineEdit):
             self._panel._cur = v
             self.setText(f"{v+1:03d}"); self.selectAll()
             self._panel._update_track_tooltip()
-            show_tt(self._panel._track_tt_text, self._panel._track_edit)
+            show_tt(self._panel._track_tt_text, self._panel._track_next_btn, side='right')
             self._panel._wheel_timer.start(300)
         ev.accept()
 
@@ -3383,7 +3526,7 @@ class NsfPanel(QWidget):
         self._track_edit.mousePressEvent=self._track_press
         self._track_edit.leaveEvent=self._track_leave
         self._track_edit.enterEvent=lambda e, s=self: show_tt(
-            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_edit)
+            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_next_btn, side='right')
         self._track_edit.mouseMoveEvent=self._track_move
         self._track_edit.mouseReleaseEvent=self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3441,12 +3584,12 @@ class NsfPanel(QWidget):
         if e.button()==Qt.MouseButton.LeftButton:
             self._drag_y0=e.position().y(); self._drag_base=self._cur; self._dragging=False
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit)
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_move(self, e):
         if self._track_editor is not None: return
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
-        dy = self._drag_y0 - e.position().y()  # 上=正=インクリメント
+        dy = e.position().y() - self._drag_y0
         if abs(dy) < 4: return
         self._dragging = True
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
@@ -3456,7 +3599,7 @@ class NsfPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit)
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_release(self, e):
         if self._track_editor is not None: return
@@ -3467,6 +3610,7 @@ class NsfPanel(QWidget):
         if top: top.setFocus()
 
     def _track_leave(self, e):
+        hide_tt()
         if self._track_editor is not None: return
         top = self.window()
         if top: top.setFocus()
@@ -3476,13 +3620,13 @@ class NsfPanel(QWidget):
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         step = 10 if shift else 1
         delta = e.angleDelta().y()
-        v = self._cur + (step if delta > 0 else -step)
+        v = self._cur + (-step if delta > 0 else step)
         v = max(0, min(self._total - 1, v))
         if v != self._cur:
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit)
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
             self._wheel_timer.start(300)
 
     def _emit_track_changed(self):
@@ -3643,7 +3787,7 @@ class SpcPanel(QWidget):
         self._track_edit.mousePressEvent = self._track_press
         self._track_edit.leaveEvent = self._track_leave
         self._track_edit.enterEvent = lambda e, s=self: show_tt(
-            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_edit)
+            "Track number\nDrag↑↓/Wheel: change\nShift+Drag↑↓/Wheel: ×10\n2-Click: Edit", s._track_next_btn, side='right')
         self._track_edit.mouseMoveEvent = self._track_move
         self._track_edit.mouseReleaseEvent = self._track_release
         r1lo.addWidget(self._track_edit)
@@ -3717,12 +3861,12 @@ class SpcPanel(QWidget):
         if e.button() == Qt.MouseButton.LeftButton:
             self._drag_y0 = e.position().y(); self._drag_base = self._cur; self._dragging = False
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit)
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_move(self, e):
         if self._track_editor is not None: return
         if not (e.buttons() & Qt.MouseButton.LeftButton): return
-        dy = self._drag_y0 - e.position().y()
+        dy = e.position().y() - self._drag_y0
         if abs(dy) < 4: return
         self._dragging = True
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
@@ -3732,7 +3876,7 @@ class SpcPanel(QWidget):
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit)
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
 
     def _track_release(self, e):
         if self._track_editor is not None: return
@@ -3753,13 +3897,13 @@ class SpcPanel(QWidget):
         shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         step = 10 if shift else 1
         delta = e.angleDelta().y()
-        v = self._cur + (step if delta > 0 else -step)
+        v = self._cur + (-step if delta > 0 else step)
         v = max(0, min(self._total - 1, v))
         if v != self._cur:
             self._cur = v
             self._track_edit.setText(f"{v+1:03d}")
             self._update_track_tooltip()
-            show_tt(self._track_tt_text, self._track_edit)
+            show_tt(self._track_tt_text, self._track_next_btn, side='right')
             self._wheel_timer.start(300)
 
     def _emit_track_changed(self):
@@ -3937,6 +4081,85 @@ class SpectrumLabelsWidget(QWidget):
             p.drawText(int(cx-col_w/2), 0, col_w, h,
                        Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignVCenter,
                        self._fmt_hz(SPECTRUM_BANDS_HZ[i]))
+        p.end()
+
+# ════════════════════════════════════════
+# 波形上部の時間目盛り（タイムルーラー）
+# 波形の表示範囲に合わせた再生時間の目盛りを表示する
+# ════════════════════════════════════════
+# 数字ラベル間隔の候補(秒)と、それぞれの短い目盛り線の間隔(秒)
+TIME_RULER_STEPS = [(0.1,None),(0.2,0.1),(0.5,0.1),(1,0.5),(2,1),(5,1),(10,1),(15,5),
+                    (30,5),(60,10),(120,30),(300,60),(600,60),(1200,300)]
+TIME_RULER_TARGET_LABELS = 4    # 画面内の数字ラベル数の目標
+TIME_RULER_MIN_MINOR_PX = 6     # 短い目盛り線の最小間隔(px)。これ未満なら短い線を省く
+
+class TimeRulerWidget(SpectrumLabelsWidget):
+    def __init__(self, wf, parent=None):
+        super().__init__(parent)
+        self._wf=wf
+        self._last_view=None
+        wf._ruler=self
+
+    def sync_view(self):
+        # 波形の表示範囲・曲長が変わった時だけ再描画する
+        wf=self._wf
+        key=(wf._view_lo, wf._view_hi, wf._total, wf.waveform is None)
+        if key!=self._last_view:
+            self._last_view=key; self.update()
+
+    @staticmethod
+    def _fmt_time(t):
+        # 分は上限なし(最大99:59)、秒は2桁。小数部が0の時は ".0" を付けない
+        tenths=int(round(t*10))
+        m=tenths//600; sec=(tenths%600)//10; d=tenths%10
+        return f"{m}:{sec:02d}" + (f".{d}" if d else "")
+
+    @staticmethod
+    def _pick_step(dur):
+        # 数字ラベル数が目標値に最も近くなる間隔を選ぶ（対数距離で比較）
+        best=None; best_d=None
+        for step,minor in TIME_RULER_STEPS:
+            d=abs(math.log(max(1e-9, dur/step)/TIME_RULER_TARGET_LABELS))
+            if best_d is None or d<best_d:
+                best=(step,minor); best_d=d
+        return best
+
+    def paintEvent(self, e):
+        p=QPainter(self)
+        w=self.width(); h=self.height()
+        p.fillRect(0,0,w,h, QColor(BG))
+        wf=self._wf; total=wf._total
+        if wf.waveform is None or total<=0 or w<=0:
+            p.end(); return
+        t_lo=wf._view_lo*total; t_hi=wf._view_hi*total
+        dur=max(1e-6, t_hi-t_lo)
+        step,minor=self._pick_step(dur)
+        def t2x(t): return (t-t_lo)/dur*w
+        # 短い目盛り線
+        if minor and minor/dur*w>=TIME_RULER_MIN_MINOR_PX:
+            mc=QColor(FG2); mc.setAlpha(110)
+            p.setPen(QPen(mc,1))
+            k=math.ceil(t_lo/minor-1e-9)
+            while k*minor<=t_hi+1e-9:
+                x=int(round(t2x(k*minor)))
+                p.drawLine(x, h-max(2,int(h*0.25)), x, h)
+                k+=1
+        # 長い目盛り線と数字ラベル
+        f=self.font(); f.setPixelSize(max(6,int(self._font_px)))
+        p.setFont(f)
+        fm=p.fontMetrics()
+        p.setPen(QPen(QColor(FG2),1))
+        k=math.ceil(t_lo/step-1e-9)
+        while k*step<=t_hi+1e-9:
+            t=k*step
+            x=int(round(t2x(t)))
+            p.drawLine(x, int(h*0.4), x, h)
+            txt=self._fmt_time(t)
+            tw=fm.horizontalAdvance(txt)
+            if x+2+tw<=w:  # 右端からはみ出す数字は描かない
+                p.drawText(x+2, 0, tw+1, h,
+                           Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop, txt)
+            k+=1
         p.end()
 
 # ════════════════════════════════════════
@@ -4257,7 +4480,10 @@ class DragLabel(QLabel):
     value_changed = pyqtSignal(float)   # 確定値: リリース / タイマー / commit
     value_preview = pyqtSignal(float)   # 即時表示用: ドラッグ中・ホイール各ステップ
     value_edited_invalid = pyqtSignal()
-    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, values=None, lazy=False, parent=None):
+    def __init__(self, text, step=0.25, lo=0.25, hi=4.0, default=0.0, big_step=None, values=None, lazy=False,
+                 parse=None, edit_fmt=None, parent=None):
+        self._parse=parse or float       # 直接入力の文字列 → 値
+        self._edit_fmt=edit_fmt          # 値 → 直接入力欄の表示（None = 既定）
         super().__init__(text, parent)
         self.step=step; self.lo=lo; self.hi=hi
         self.big_step=big_step if big_step is not None else step
@@ -4328,7 +4554,8 @@ class DragLabel(QLabel):
         from PyQt6.QtWidgets import QLineEdit
         if getattr(self,"_editor",None) is not None: return
         ed=QLineEdit(self)
-        ed.setText(self.text().replace("×","").replace("x","").replace("+","").replace("±",""))
+        ed.setText(self._edit_fmt(self._val) if self._edit_fmt else
+                   self.text().replace("×","").replace("x","").replace("+","").replace("±",""))
         ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:0;")
         ed.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
@@ -4336,6 +4563,7 @@ class DragLabel(QLabel):
         ed.setFocus(); ed.selectAll()
         self._editor=ed
         def _fmt(v):
+            if self._edit_fmt: return self._edit_fmt(v)
             if self.values: return str(v)
             if float(self.step).is_integer(): return str(int(round(v)))
             dp=max(0, -int(math.floor(math.log10(self.step))))
@@ -4345,7 +4573,7 @@ class DragLabel(QLabel):
             txt=self._editor.text().strip()
             self._editor.deleteLater(); self._editor=None
             try:
-                v=float(txt)
+                v=self._parse(txt)
             except:
                 self.value_edited_invalid.emit(); return
             if self.values:
@@ -4357,7 +4585,7 @@ class DragLabel(QLabel):
         def ed_press(ev):
             if ev.button()==Qt.MouseButton.LeftButton:
                 _dy0[0]=ev.position().y()
-                try: _base[0]=float(ed.text().strip())
+                try: _base[0]=self._parse(ed.text().strip())
                 except: _base[0]=self._val
             QLineEdit.mousePressEvent(ed, ev)
         def ed_move(ev):
@@ -4379,7 +4607,7 @@ class DragLabel(QLabel):
             ev.accept()
         def on_wheel(ev):
             txt=ed.text().strip()
-            try: v=float(txt)
+            try: v=self._parse(txt)
             except: self.value_edited_invalid.emit(); ev.ignore(); return
             if self.values:
                 idx=min(range(len(self.values)), key=lambda i: abs(self.values[i]-v))
@@ -4403,7 +4631,7 @@ class DragLabel(QLabel):
 # カスタムツールチップ
 # ════════════════════════════════════════
 _TT = None
-def show_tt(text, widget=None):
+def show_tt(text, widget=None, side='bottom'):
     global _TT
     if _TT is None:
         _TT=QLabel()
@@ -4412,10 +4640,13 @@ def show_tt(text, widget=None):
         _TT.setMargin(2)
     _TT.setText(text); _TT.adjustSize()
     if widget is not None:
-        # 対象ウィジェットの真下に表示（対象に被らない）
         try:
-            gp=widget.mapToGlobal(widget.rect().bottomLeft())
-            _TT.move(gp.x(), gp.y()+4); _TT.show(); return
+            if side == 'right':
+                gp = widget.mapToGlobal(widget.rect().topRight())
+                _TT.move(gp.x()+4, gp.y()); _TT.show(); return
+            else:
+                gp=widget.mapToGlobal(widget.rect().bottomLeft())
+                _TT.move(gp.x(), gp.y()+4); _TT.show(); return
         except Exception:
             pass
     pos=QCursor.pos()
@@ -4439,6 +4670,161 @@ def _attach_tt(w, text):
     w.enterEvent = enter
     w.leaveEvent = leave
 
+class Nsf2MidDialog(QDialog):
+    """Save で MIDI を選んだときのオプション（nsf2mid の変換オプション。出力フォルダ・ダンプは無し）
+    buttons=False: 保存ダイアログ横に出すパネル（OK/Cancel 無し、確定は保存ダイアログ側）
+    buttons=True : 単独のモーダルダイアログ（ファイル名に .mid を直接入力した場合など）"""
+    def __init__(self, opts, scale=1.0, parent=None, buttons=True):
+        super().__init__(parent)
+        self.setWindowTitle("MIDI options")
+        if buttons:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        else:
+            # 閉じるボタン無しのツールウィンドウ（保存ダイアログが閉じると一緒に消える）
+            self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.CustomizeWindowHint
+                                | Qt.WindowType.WindowTitleHint)
+        S = lambda px: int(round(px*scale))
+        fs = S(13)
+        self.setStyleSheet(
+            f"QDialog{{background:{BG};}}"
+            f"QLabel{{color:{FG}; font-size:{fs}px;}}"
+            f"QCheckBox{{color:{FG}; font-size:{fs}px; spacing:{S(6)}px;}}"
+            f"QCheckBox::indicator{{width:{S(13)}px; height:{S(13)}px; background:{BG3}; border:1px solid {BORDER};}}"
+            f"QCheckBox::indicator:hover{{border:1px solid {FG2};}}"
+            f"QCheckBox::indicator:checked{{background:#FFD700; border:1px solid #FFD700;}}"
+            f"QLineEdit, QSpinBox, QComboBox{{color:{FG}; background:{BG3}; border:1px solid {BORDER};"
+            f" padding:{S(2)}px {S(4)}px; font-size:{fs}px;}}"
+            f"QLineEdit:hover, QSpinBox:hover, QComboBox:hover{{border:1px solid {FG2};}}"
+            f"QLineEdit:focus, QSpinBox:focus, QComboBox:focus{{border:1px solid #FFD700;}}"
+            f"QComboBox QAbstractItemView{{color:{FG}; background:{BG3}; selection-background-color:{BG2};"
+            f" border:1px solid {BORDER};}}"
+            f"QPushButton{{color:{FG}; background:{BG3}; border:1px solid {BORDER}; border-radius:3px;"
+            f" padding:{S(3)}px {S(12)}px; font-size:{fs}px;}}"
+            f"QPushButton:hover{{background:{BG2}; border:1px solid {FG2};}}"
+            f"QPushButton:pressed{{color:#FFD700; border:1px solid #FFD700;}}")
+        g = QGridLayout(self)
+        g.setContentsMargins(S(14), S(12), S(14), S(12))
+        g.setHorizontalSpacing(S(10)); g.setVerticalSpacing(S(6))
+        self._r = 0
+        def add(label, w, tip):
+            lb = QLabel(label)
+            _attach_tt(lb, tip); _attach_tt(w, tip)
+            g.addWidget(lb, self._r, 0); g.addWidget(w, self._r, 1)
+            self._r += 1
+            return w
+        def check(label, tip):
+            c = QCheckBox(label)
+            _attach_tt(c, tip)
+            g.addWidget(c, self._r, 0, 1, 2)
+            self._r += 1
+            return c
+        def spin(lo, hi, step=1):
+            sp = QSpinBox(); sp.setRange(lo, hi); sp.setSingleStep(step)
+            sp.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+            return sp
+        self.sp_loops = add("Loops", spin(1, 16), "How many times to write the loop body\nWheel: change")
+        self.sp_seconds = add("Max seconds", spin(10, 3600, 60),
+            "Max length to emulate (seconds)\nStops automatically when a loop or the song end is found\nWheel: change")
+        self.cb_rows = add("Rows per beat", QComboBox(),
+            "Rows per beat (auto = detect)\nSet this when the tempo comes out doubled or halved")
+        self.cb_rows.addItems(NSF2MID_ROWS)
+        self.ed_timesig = add("Time signature", QLineEdit(),
+            'Time signature per section, e.g. "6/8,4/4"\n"-" or empty = auto')
+        self.cb_triplets = add("Triplets", QComboBox(),
+            "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
+        self.cb_triplets.addItems([t[0] for t in NSF2MID_TRIPLETS])
+        self.ed_drummap = add("Drum map", QLineEdit(),
+            'Override the drum assignment\ne.g. "3:0=42,12:0=36,DMC:E000:129:15=38"')
+        self.ck_noloop = check("No loop detection", "Convert the full max seconds without loop detection")
+        self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
+        self.ck_noquant = check("No quantize", "Do not snap notes to the detected grid")
+        self.ck_notridrums = check("Keep triangle drums as notes", "Do not convert triangle glides to kick drums")
+        bl = QHBoxLayout(); bl.setSpacing(S(6))
+        b_def = QPushButton("Defaults"); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
+        b_def.setAutoDefault(False)
+        bl.addWidget(b_def); bl.addStretch(1)
+        if buttons:
+            b_ok = QPushButton("OK"); b_ok.clicked.connect(self.accept)
+            b_cancel = QPushButton("Cancel"); b_cancel.clicked.connect(self.reject)
+            for b in (b_ok, b_cancel): b.setAutoDefault(False)
+            b_ok.setDefault(True)
+            bl.addWidget(b_ok); bl.addWidget(b_cancel)
+        g.addLayout(bl, self._r, 0, 1, 2)
+        g.setColumnMinimumWidth(1, S(150))
+        self.ed_timesig.textChanged.connect(lambda _: self._mark_timesig())
+        self._apply(opts)
+
+    def timesig_ok(self):
+        import re
+        ts=self.ed_timesig.text().strip()
+        return not ts or bool(re.fullmatch(r"\s*(-|\d+/\d+)(\s*,\s*(-|\d+/\d+))*\s*", ts))
+
+    def _mark_timesig(self):
+        # 拍子の書式（例 "6/8,4/4"、"-" = 自動）が不正なら枠を赤くする
+        self.ed_timesig.setStyleSheet("" if self.timesig_ok() else "border:1px solid #E04040;")
+
+    def _apply(self, o):
+        self.sp_loops.setValue(int(o["loops"]))
+        self.sp_seconds.setValue(int(o["seconds"]))
+        self.cb_rows.setCurrentIndex(max(0, self.cb_rows.findText(str(o["rows"]))))
+        self.ed_timesig.setText(str(o["time_sig"]))
+        self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
+        self.ed_drummap.setText(str(o["drum_map"]))
+        self.ck_noloop.setChecked(bool(o["no_loop"]))
+        self.ck_tail.setChecked(bool(o["keep_tail"]))
+        self.ck_noquant.setChecked(bool(o["no_quantize"]))
+        self.ck_notridrums.setChecked(bool(o["no_tri_drums"]))
+
+    def values(self):
+        return {"loops": self.sp_loops.value(), "seconds": self.sp_seconds.value(),
+                "rows": self.cb_rows.currentText(), "time_sig": self.ed_timesig.text().strip(),
+                "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
+                "drum_map": self.ed_drummap.text().strip(),
+                "no_loop": self.ck_noloop.isChecked(), "keep_tail": self.ck_tail.isChecked(),
+                "no_quantize": self.ck_noquant.isChecked(), "no_tri_drums": self.ck_notridrums.isChecked()}
+
+    def accept(self):
+        # 拍子の書式が不正なら閉じない
+        if not self.timesig_ok():
+            self._mark_timesig(); self.ed_timesig.setFocus(); return
+        super().accept()
+
+    def done(self, r):
+        hide_tt(); super().done(r)
+
+
+class _MaxToZoomFilter(QAbstractNativeEventFilter):
+    """メインウィンドウの最大化ボタン・タイトルバーのダブルクリックを、最大化が始まる前に握りつぶして Zoom 切り替えにする。
+    （一度最大化させてから戻す方式だと、ウィンドウが一瞬画面左上へ移動し最大化アニメーションも見えてしまうため）
+    最大化ボタンの WM_SYSCOMMAND は SendMessage で直接届きフィルターを通らないため、
+    その元になるキュー経由のマウスメッセージ（非クライアント領域のクリック）で判定する"""
+    WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCLBUTTONDBLCLK, WM_SYSCOMMAND = 0x00A1, 0x00A2, 0x00A3, 0x0112
+    HTCAPTION, HTMAXBUTTON, SC_MAXIMIZE = 2, 9, 0xF030
+    def __init__(self, win, hwnd):
+        # hwnd はウィンドウ表示後に取得して渡す（フィルター内で winId() 等の Qt 呼び出しをすると再帰・クラッシュするため）
+        super().__init__(); self._win = win; self._hwnd = hwnd
+    def nativeEventFilter(self, event_type, message):
+        try:
+            if message is None or bytes(event_type) != b"windows_generic_MSG":
+                return False, 0
+            from ctypes import wintypes as _w
+            msg = _w.MSG.from_address(int(message))
+            w = self._win
+            if w is None or msg.hWnd != self._hwnd:
+                return False, 0
+            m, wp = msg.message, msg.wParam
+            if ((m in (self.WM_NCLBUTTONDOWN, self.WM_NCLBUTTONDBLCLK) and wp == self.HTMAXBUTTON)
+                    or (m == self.WM_NCLBUTTONDBLCLK and wp == self.HTCAPTION)
+                    or (m == self.WM_SYSCOMMAND and (wp & 0xFFF0) == self.SC_MAXIMIZE)):
+                QTimer.singleShot(0, w._toggle_zoom)
+                return True, 0
+            if m == self.WM_NCLBUTTONUP and wp == self.HTMAXBUTTON:
+                return True, 0
+        except Exception:
+            pass
+        return False, 0
+
+
 class TipButton(QPushButton):
     def __init__(self, tip="", parent=None):
         super().__init__(parent); self._tip=tip
@@ -4449,6 +4835,47 @@ class TipButton(QPushButton):
         hide_tt(); super().mousePressEvent(e)
     def leaveEvent(self,e):
         hide_tt(); super().leaveEvent(e)
+
+
+class FileHistoryPopup(QFrame):
+    """OPENボタン右クリックで表示するファイル履歴ポップアップ（最大10件）"""
+    file_selected = pyqtSignal(str)
+
+    def __init__(self, paths, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setStyleSheet(
+            f"FileHistoryPopup{{background:{BG2}; border:1px solid {BORDER};}}"
+            f"QPushButton{{background:transparent; color:{FG}; border:none; text-align:left;"
+            f" padding:5px 10px; font-size:13px;}}"
+            f"QPushButton:hover{{background:{BG3};}}")
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(0, 4, 0, 4)
+        lo.setSpacing(0)
+        if not paths:
+            lbl = QLabel("No history")
+            lbl.setStyleSheet(f"color:{FG2}; padding:5px 14px; font-size:13px;")
+            lo.addWidget(lbl)
+        else:
+            for p in paths:
+                name = os.path.basename(p)
+                btn = QPushButton(name)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setMinimumWidth(260)
+                btn.clicked.connect(lambda _checked, pp=p: self._select(pp))
+                btn.enterEvent = lambda e, pp=p: show_tt(pp, self)
+                btn.leaveEvent = lambda e: hide_tt()
+                lo.addWidget(btn)
+
+    def _select(self, path):
+        self.file_selected.emit(path)
+        self.close()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.RightButton:
+            self.close()
+        else:
+            super().mousePressEvent(e)
 
 
 # ════════════════════════════════════════
@@ -4479,6 +4906,135 @@ class DividerRow(QWidget):
         line.setStyleSheet(f"background:{color}; border:none;")
         lo.addWidget(line)
         lo.addStretch(1)
+
+WF_SB_RES = 100000  # 波形スクロールバーの分解能（細かいズームでもサム位置が丸めでずれないよう高めに）
+
+class WaveformScrollBar(QScrollBar):
+    """端ドラッグでズーム幅を調整できるスクロールバー。"""
+    zoom_resize = pyqtSignal(float, float)  # (new_view_lo, new_view_hi)
+
+    def __init__(self, wf, edge_tol=8, min_span=0.005, min_thumb_px=20):
+        super().__init__(Qt.Orientation.Horizontal)
+        self._wf = wf
+        self._edge_tol = edge_tol
+        self._min_span = min_span
+        self._min_thumb_px = min_thumb_px  # stylesheetのmin-widthと合わせる
+        self._resize_mode = None  # 'left' or 'right'
+        self._press_x = 0.0
+        self._press_vlo = 0.0
+        self._press_vhi = 1.0
+        self._anchor_px = 0.0
+        self._limit_by_pos = False
+        self.setMouseTracking(True)
+
+    def _view_to_px(self, lo, hi):
+        """表示範囲 (lo, hi) → サムの表示位置 (lo_px, hi_px)。stylesheetのmin-widthを考慮。
+        QStyleOptionSlider/subControlRectはCSSのmin-widthを反映しないため手動計算する。"""
+        w = float(max(1, self.width()))
+        span = hi - lo
+        if span >= 1.0:
+            return 0.0, w
+        m = min(float(self._min_thumb_px), w)
+        length = max(span * w, m)
+        lo_px = lo / max(1e-9, 1.0 - span) * (w - length)
+        return lo_px, lo_px + length
+
+    def _visual_handle_px(self):
+        wf = self._wf
+        return self._view_to_px(wf._view_lo, wf._view_hi)
+
+    def _place(self, span):
+        """反対側のサム端の表示位置(_anchor_px)を固定したまま、幅spanの表示範囲 (lo, hi) を求める。
+        サムがmin-widthに達した後は、サムの見た目を動かさずに表示範囲だけを縮める。"""
+        w = float(max(1, self.width()))
+        m = min(float(self._min_thumb_px), w)
+        a = self._anchor_px
+        if span * w >= m:
+            # 比例領域: サム端の位置 = 表示端 × 幅
+            if self._resize_mode == 'left':
+                hi = a / w; lo = hi - span
+            else:
+                lo = a / w; hi = lo + span
+        else:
+            # min-width領域: サム左端 = lo/(1-span) × (w-m)
+            thumb_lo = (a - m) if self._resize_mode == 'left' else a
+            c = thumb_lo / (w - m) if w > m else 0.0
+            c = max(0.0, min(1.0, c))
+            lo = c * (1.0 - span); hi = lo + span
+        if lo < 0.0: lo = 0.0
+        if hi > 1.0: hi = 1.0
+        return lo, hi
+
+    def _pos_ok(self, lo, hi):
+        """再生中の現在位置が、左端ドラッグなら左20%より右、右端ドラッグなら右80%より左にあるか"""
+        p = self._wf.position; sp = hi - lo
+        if self._resize_mode == 'left':
+            return p >= lo + sp * 0.2
+        return p <= lo + sp * 0.8
+
+    def _hit_edge(self, x):
+        lo_px, hi_px = self._visual_handle_px()
+        tol = self._edge_tol
+        if abs(x - lo_px) <= tol: return 'left'
+        if abs(x - hi_px) <= tol: return 'right'
+        return None
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            side = self._hit_edge(e.position().x())
+            if side:
+                wf = self._wf
+                self._resize_mode = side
+                self._press_x = e.position().x()
+                self._press_vlo = wf._view_lo
+                self._press_vhi = wf._view_hi
+                lo_px, hi_px = self._view_to_px(wf._view_lo, wf._view_hi)
+                self._anchor_px = hi_px if side == 'left' else lo_px
+                # 再生中かつ押下時点で条件を満たしている場合のみ、現在位置による拡縮制限を行う
+                self._limit_by_pos = bool(wf._is_playing) and self._pos_ok(wf._view_lo, wf._view_hi)
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+                e.accept()
+                return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._resize_mode:
+            dx = e.position().x() - self._press_x
+            dr = dx / max(1, self.width())
+            press_span = self._press_vhi - self._press_vlo
+            if self._resize_mode == 'left':
+                span = press_span - dr
+            else:
+                span = press_span + dr
+            span = max(self._wf._min_span(), min(1.0, span))
+            lo, hi = self._place(span)
+            if self._limit_by_pos and not self._pos_ok(lo, hi):
+                # 条件を満たす境界のspanを二分探索（bad=span側, good=押下時span側）
+                bad, good = span, press_span
+                for _ in range(40):
+                    mid = (bad + good) * 0.5
+                    if self._pos_ok(*self._place(mid)): good = mid
+                    else: bad = mid
+                lo, hi = self._place(good)
+            self.zoom_resize.emit(lo, hi)
+        else:
+            side = self._hit_edge(e.position().x())
+            self.setCursor(Qt.CursorShape.SizeHorCursor if side else Qt.CursorShape.ArrowCursor)
+            super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if self._resize_mode:
+            self._resize_mode = None
+            self.unsetCursor()
+            e.accept()
+            return
+        super().mouseReleaseEvent(e)
+
+    def leaveEvent(self, e):
+        if not self._resize_mode:
+            self.unsetCursor()
+        super().leaveEvent(e)
+
 
 class MainWindow(QMainWindow):
     _tick_sig   = pyqtSignal(float, float)
@@ -4511,6 +5067,18 @@ class MainWindow(QMainWindow):
         self._ear_blink_timer=QTimer(self)
         self._ear_blink_timer.timeout.connect(self._ear_blink_tick)
         self._ear_blink_on=False  # False=通常色, True=青
+
+        # テンポ1クリック検出のディレイタイマー（ダブルクリック判定用）
+        self._tempo_click_timer=QTimer(self)
+        self._tempo_click_timer.setSingleShot(True)
+        self._tempo_click_timer.timeout.connect(self._tempo_detect)
+        # タップテンポ状態
+        self._tap_tempo_mode = False
+        self._tap_times = []
+        self._tap_timeout_timer = QTimer(self)
+        self._tap_timeout_timer.setSingleShot(True)
+        self._tap_timeout_timer.timeout.connect(self._tap_tempo_timeout)
+        self._tempo_detecting = False  # テンポ検出中フラグ（赤アイコン表示用）
 
         self._nsf_loading = False        # NSFトラックデコード中フラグ
         self._nsf_ch_rendering = False   # ch切替レンダリング中フラグ
@@ -4549,7 +5117,7 @@ class MainWindow(QMainWindow):
         self._nsf_ch_render_done_sig.connect(self._on_nsf_ch_render_done)
 
         self.setWindowTitle(f"Morokoshi Time {APP_VERSION}  by Ike-san")
-        self.setFixedSize(self.S(375), self.S(313))
+        self.setFixedSize(self.S(375), self.S(320))
         self.setAcceptDrops(True)
         self._build_ui()
         self.setFocus()
@@ -4729,7 +5297,8 @@ class MainWindow(QMainWindow):
         mid_vlo.addWidget(mk_row("Bar   ", self._bar_edit))
         mid_vlo.addWidget(DividerRow(BORDER, self.S(5)))
 
-        self._spd_lbl=DragLabel("×1/1", default=1.0, values=SPEED_VALUES, lazy=True)
+        self._spd_lbl=DragLabel("×1/1", default=1.0, values=SPEED_VALUES, lazy=True,
+                                parse=_parse_speed, edit_fmt=lambda v: _fmt_speed(v).replace("×",""))
         self._spd_lbl.set_value(1.0); self._spd_lbl.setFixedWidth(VAL_W); self._spd_lbl.setFixedHeight(self.S(22))
         self._spd_lbl.value_changed.connect(self._on_spd)
         self._spd_lbl.value_preview.connect(lambda v: self._spd_lbl.setText(_fmt_speed(v)))
@@ -4747,7 +5316,8 @@ class MainWindow(QMainWindow):
         icon_lo=QVBoxLayout(icon_col); icon_lo.setContentsMargins(0,self.S(4),0,0); icon_lo.setSpacing(0)
 
         # 4列構成（各列32px）で配置
-        #   [blank], Help,  Zoom
+        #   [blank], Help,  Save
+        # ※ Zoom はウィンドウ枠の最大化ボタン（と Z キー）に割り当て
         #   Open,   Tempo, Reset
         #   [blank], Ear
         #   Rew,    AB,    FF
@@ -4755,9 +5325,9 @@ class MainWindow(QMainWindow):
         icon_grid = [
             [None,
              ("help","Help [H]","_help_btn",self._show_help),
-             ("zoom","Zoom [Z]","_zoom_btn",self._toggle_zoom)],
-            [("open","Open[O]\nShift: Folder","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
-             ("tempo_search","Tempo detection [T]","_tempo_btn",self._tempo_detect),
+             ("save","Save [S]","_save_btn",self._save_audio)],
+            [("open","Open[O]\nShift: Folder\nR-Click: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
+             ("tempo_search","Tempo detection [T]\nShift: Tap tempo","_tempo_btn",self._tempo_btn_action),
              ("reset","Reset[R]\nShift: Clear Cache","_reset_btn",
               lambda: self._do_cache_clear() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._do_reset())],
             [self._wrap_small_btn(self._btn_marker_a),
@@ -4783,7 +5353,9 @@ class MainWindow(QMainWindow):
                     _name,_tip,_attr,_slot=_cell
                     # AB Repeatはトグル式なのでフラッシュ除外
                     _b=self._mk_icon_btn(_name,_tip,_slot, flash=(_name not in ("ab_repeat","ear")))
-                    _rlo.addWidget(_b)
+                    # 枠はアイコン上下の透明部分を2pxずつ削った32x28。32x32の透明枠の中央に置き、位置は従来通り
+                    _b.setFixedSize(self.S(32),self.S(28))
+                    _rlo.addWidget(self._wrap_small_btn(_b))
                     if _attr: setattr(self,_attr,_b)
             _rlo.addStretch()
             icon_lo.addWidget(_rw)
@@ -4803,6 +5375,16 @@ class MainWindow(QMainWindow):
             return _press
         self._rew_btn.mousePressEvent = _make_rew_ff_press(self._rew_btn)
         self._ff_btn.mousePressEvent  = _make_rew_ff_press(self._ff_btn)
+
+        # Open 右クリック → ファイル履歴ポップアップ
+        _open_btn_ref = self._open_btn
+        def _open_press(e, _b=_open_btn_ref):
+            hide_tt()
+            if e.button() == Qt.MouseButton.RightButton:
+                self._show_open_history()
+            else:
+                _QPB.mousePressEvent(_b, e)
+        self._open_btn.mousePressEvent = _open_press
 
         root.addWidget(main_area, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -4855,35 +5437,43 @@ class MainWindow(QMainWindow):
         self._spectrum.enterEvent=_spectrum_enter
 
         # ── 波形エリア
-        wf_area=QWidget(); wf_area.setFixedHeight(self.S(42)+self.S(12)+self.S(36)); wf_area.setStyleSheet(f"background:{BG};")
+        wf_area=QWidget(); wf_area.setFixedHeight(self.S(13)+self.S(42)+self.S(12)+self.S(30)+self.S(19)); wf_area.setStyleSheet(f"background:{BG};")
         wf_lo=QVBoxLayout(wf_area); wf_lo.setContentsMargins(0,0,0,0); wf_lo.setSpacing(0)
         self._waveform=WaveformWidget(); self._waveform.seeked.connect(self._on_wf_seek)
+        # 波形上部の時間目盛り行（全モード共通）
+        self._time_ruler=TimeRulerWidget(self._waveform)
+        self._time_ruler.set_font_px(self.S(8))
+        self._time_ruler.setFixedHeight(self.S(13))
+        wf_lo.addWidget(self._time_ruler)
         self._waveform.seek_revert.connect(self._on_wf_seek)  # ダブルクリック確定時、1回目クリックのシークを取り消す
         self._waveform.setFixedHeight(self.S(42))
         self._waveform._marker_hit_tol_px=self.S(8)  # マーカー直上ダブルクリック判定の許容範囲
         self._waveform.marker_reset_requested.connect(self._reset_marker)
-        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset")
+        self._attach_tip(self._waveform, "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n2-click on A/B: Reset\nR-Click: Reset A & B")
         wf_lo.addWidget(self._waveform)
-        from PyQt6.QtWidgets import QScrollBar
-        self._wf_scroll=QScrollBar(Qt.Orientation.Horizontal)
+        self._wf_scroll=WaveformScrollBar(self._waveform, edge_tol=self.S(8), min_thumb_px=self.S(20))
         self._wf_scroll.setFixedHeight(self.S(12))
-        self._wf_scroll.setRange(0,0); self._wf_scroll.setPageStep(1000)
+        self._wf_scroll.setRange(0,0); self._wf_scroll.setPageStep(WF_SB_RES)
+        self._wf_scroll.setSingleStep(WF_SB_RES//1000)
         self._wf_scroll.setStyleSheet(
             f"QScrollBar:horizontal{{height:{self.S(12)}px;background:{BG2};border:none;}}"
             f"QScrollBar::handle:horizontal{{background:{BG3};border-radius:4px;min-width:{self.S(20)}px;}}"
             f"QScrollBar::handle:horizontal:hover{{background:{FG2};}}"
             f"QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{{width:0px;}}")
         self._wf_scroll.valueChanged.connect(self._on_wf_scroll)
-        self._attach_tip(self._wf_scroll, "Drag←→: Scroll")
+        self._wf_scroll.zoom_resize.connect(self._on_sb_zoom_resize)
+        self._attach_tip(self._wf_scroll, "Drag←→: Scroll\nDrag edge ←→: Zoom")
         self._waveform.view_changed.connect(self._sync_wf_scroll)
         self._waveform.ab_range_set.connect(self._on_ab_range_set)
+        self._waveform.ab_range_committed.connect(self._on_ab_range_committed)
+        self._waveform.ab_pan.connect(self._on_ab_pan)
         self._waveform.double_clicked.connect(self._on_wf_double_click)
         self._waveform.position_drag.connect(self._on_wf_position_drag)
         self._waveform.marker_drag.connect(self._on_wf_marker_drag)
         wf_lo.addWidget(self._wf_scroll)
 
         # 時間行
-        time_row=QWidget(); time_row.setFixedHeight(self.S(32)); time_row.setStyleSheet(f"background:{BG};")
+        time_row=QWidget(); time_row.setFixedHeight(self.S(30)); time_row.setStyleSheet(f"background:{BG};")
         time_lo=QHBoxLayout(time_row); time_lo.setContentsMargins(0,0,0,0); time_lo.setSpacing(self.S(4))
         self._pos_lbl=TimeLabel("00:00.0"); self._pos_lbl.setFixedSize(self.S(64),self.S(22))
         self._pos_lbl.setCursor(Qt.CursorShape.SizeVerCursor)
@@ -4913,7 +5503,8 @@ class MainWindow(QMainWindow):
             f"QSlider::groove:horizontal{{height:{self.S(4)}px;background:{BG3};}}"
             f"QSlider::handle:horizontal{{width:{self.S(12)}px;height:{self.S(12)}px;margin:-{self.S(4)}px 0;background:{FG};border-radius:{self.S(6)}px;}}")
         self._vol_slider.valueChanged.connect(lambda v: (setattr(self.engine,'volume',v/100.0), self._vol_pct.setText(f"{v}%"), self._on_volume_changed(v)))
-        self._vol_pct=QLabel("100%"); self._vol_pct.setStyleSheet(f"color:{FG2};"); self._vol_pct.setFixedWidth(self.S(40))
+        self._vol_pct=QLabel("100%"); self._vol_pct.setStyleSheet(f"color:{FG2}; padding:1px 0px; font-size:{self.S(11)}px;")  # メッセージと同じフォント
+        self._vol_pct.setFixedWidth(self.S(40))  # 桁数で幅が変わって音量バーがずれないよう固定
         self._vol_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         # 右クリックで100%に戻す
         def _vol_reset(e):
@@ -4937,17 +5528,20 @@ class MainWindow(QMainWindow):
         self._play_btn=self._mk_icon_btn("play_pause","Play/Pause [Space]\nShift: Back to Start",
             lambda: self._seek_to_start() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._pp(),
             flash=False)
-        time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignTop)
+        # 再生ボタンはアイコン上下の透明部分を2pxずつ削って枠を32x28に。
+        # 時間行(30px)の下寄せに置くことで、アイコンの位置は32x32の時と同じ（行の上端から2px）に保つ
+        self._play_btn.setFixedSize(self.S(32), self.S(28))
+        time_lo.addWidget(self._play_btn, 0, Qt.AlignmentFlag.AlignBottom)
         time_lo.addStretch()
         time_lo.addWidget(_mk_lbl_wrap(self._dur_lbl, self.S(64)))
         wf_lo.addWidget(time_row)
-        root.addWidget(wf_area)
 
 
         # ── メッセージバー（右端に音量バー）
         msg_row=QWidget(); msg_row.setFixedHeight(self.S(19)); msg_row.setStyleSheet(f"background:{BG};")
-        # 左端をSpeed/Key行と同じ2px、右端も同じ2px余白に
-        msg_lo=QHBoxLayout(msg_row); msg_lo.setContentsMargins(self.S(2),0,self.S(8),0); msg_lo.setSpacing(self.S(4))
+        # 左端をSpeed/Key行と同じ2px、右端も同じ2px余白に。
+        # 中身は上寄せ（上15pxに収め、下にウィンドウ下端までの余白4pxを取る）
+        msg_lo=QHBoxLayout(msg_row); msg_lo.setContentsMargins(self.S(2),0,self.S(8),self.S(4)); msg_lo.setSpacing(self.S(4))
         self._msg=QLabel("Drop a file or click Open to load")
         self._msg.setStyleSheet(f"color:{FG2}; background:{BG}; padding:1px 0px; font-size:{self.S(11)}px;")
         self._msg.setMaximumWidth(self.S(230))  # 音量バーに被らないよう制限
@@ -4975,7 +5569,9 @@ class MainWindow(QMainWindow):
             hide_tt()
         self._msg.enterEvent = _msg_enter
         self._msg.leaveEvent = _msg_leave
-        root.addWidget(msg_row)
+        # 時間行（再生ボタン）との間に行間スキマを入れないよう、波形エリア内(spacing 0)に置く
+        wf_lo.addWidget(msg_row)
+        root.addWidget(wf_area)
 
         # 音量の初期値を反映
         try:
@@ -5088,12 +5684,12 @@ class MainWindow(QMainWindow):
         if flash:
             # 押下中は黄色、離したら通常色に戻す
             b.pressed.connect(lambda nm=name, bb=b: bb.setIcon(_get_icon(nm,ICO_IMG,"#FFD700")))
-            b.released.connect(lambda nm=name, bb=b: bb.setIcon(_get_icon(nm,ICO_IMG,FG)))
+            b.released.connect(lambda nm=name, bb=b, _win=self: bb.setIcon(_get_icon(nm,ICO_IMG,_win._get_btn_base_color(bb))))
             if slot:
                 # モーダルダイアログ等でreleasedが取りこぼされても確実に戻す
-                def _wrapped(checked=False, _slot=slot, nm=name, bb=b):
+                def _wrapped(checked=False, _slot=slot, nm=name, bb=b, _win=self):
                     try: _slot()
-                    finally: bb.setIcon(_get_icon(nm,ICO_IMG,FG))
+                    finally: bb.setIcon(_get_icon(nm,ICO_IMG,_win._get_btn_base_color(bb)))
                 b.clicked.connect(_wrapped)
         else:
             if slot: b.clicked.connect(slot)
@@ -5184,8 +5780,11 @@ class MainWindow(QMainWindow):
                 self._st("Time out of range")
                 self._refresh_marker(n)
                 return
+            delta = sec - self.engine.markers.get(n, sec)
+            new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=sec
             self.engine.markers[other]=no
+            self._seek_update(new_cur)
             self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
             self._update_wf_ab()
             self._st("Markers updated")
@@ -5209,6 +5808,13 @@ class MainWindow(QMainWindow):
         if n in (MARKER_A, MARKER_B): self._update_wf_ab()
         self._st(f"Marker {'A' if n==MARKER_A else 'B' if n==MARKER_B else n} = {self._fmt(sec)}")
 
+    def _seek_update(self, sec):
+        """seekと波形・時間表示の即時更新を同時に行う（ドラッグ中の遅延解消用）"""
+        self.engine.seek(sec)
+        if self._total > 0:
+            self._pos_lbl.setText(self._fmt(sec))
+            self._waveform.set_position(sec / self._total)
+
     def _set_current_time(self, sec):
         """直接入力で現在時刻（再生位置）を設定（楽曲時間を超えたらエラー、元の値のまま）"""
         if self.engine.data is None: return
@@ -5216,6 +5822,12 @@ class MainWindow(QMainWindow):
             self._st("Time out of range")
             self._pos_lbl.setText(self._fmt(self.engine.current_sec()))  # 元に戻す
             return
+        # EAR MODE中はAB範囲内にクランプ
+        if self.engine.ear_active:
+            a=self.engine.markers.get(MARKER_A); b=self.engine.markers.get(MARKER_B)
+            if a is not None and b is not None:
+                lo=min(a,b); hi=max(a,b)
+                sec=max(lo, min(hi, sec))
         self.engine.seek(sec)
         self._pos_lbl.clear_highlight(); self._pos_lbl.setText(self._fmt(sec))
         if self._total>0: self._waveform.set_position(sec/self._total)
@@ -5251,24 +5863,19 @@ class MainWindow(QMainWindow):
             new_sec=max(0.0, tl._base+steps*step)
             n=tl._n
             looping_now = self.engine.playing and (self.engine.ab_active or self.engine.ear_active)
-            # Ear Mode中: 差分を保ったまま両マーカーを連動
+            # Ear Mode中: 差分を保ったまま両マーカーを連動・現在位置も相対移動
             if self.engine.ear_active and MARKER_A in self.engine.markers and MARKER_B in self.engine.markers:
                 other = MARKER_B if n==MARKER_A else MARKER_A
                 cur_n=self.engine.markers[n]; other_v=self.engine.markers[other]
                 delta=new_sec-cur_n
-                if looping_now:
-                    lo=min(cur_n,other_v); hi=max(cur_n,other_v)
-                    cur_pos=self.engine.current_sec()
-                    new_lo=lo+delta; new_hi=hi+delta
-                    if new_lo > cur_pos:
-                        delta = cur_pos-lo
-                    elif new_hi < cur_pos:
-                        delta = cur_pos-hi
                 final_n=cur_n+delta; final_other=other_v+delta
                 if final_n < 0 or final_other < 0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                     return  # どちらかが範囲外なら動かさない
+                new_cur = max(0.0, self.engine.current_sec()+delta)
+                # マーカーを先に更新してからseek（コールバックが新範囲で判定するように）
                 self.engine.markers[n]=final_n
                 self.engine.markers[other]=final_other
+                self._seek_update(new_cur)
                 self._refresh_marker(other)
                 self._update_wf_ab()
                 tl.setText(self._fmt(final_n))
@@ -5329,21 +5936,18 @@ class MainWindow(QMainWindow):
         """エディタドラッグ/ホイール中のリアルタイムプレビュー。クランプ後の値を返す"""
         if self.engine.data is None: return new_sec
         looping_now=self.engine.playing and (self.engine.ab_active or self.engine.ear_active)
-        # Ear Mode: 差分を保ったまま両マーカーを連動
+        # Ear Mode: 差分を保ったまま両マーカーを連動・現在位置も相対移動
         if self.engine.ear_active and MARKER_A in self.engine.markers and MARKER_B in self.engine.markers:
             other=MARKER_B if n==MARKER_A else MARKER_A
             cur_n=self.engine.markers.get(n, new_sec)
             other_v=self.engine.markers[other]
             delta=new_sec-cur_n
-            if looping_now:
-                lo=min(cur_n,other_v); hi=max(cur_n,other_v)
-                cur_pos=self.engine.current_sec()
-                if lo+delta>cur_pos: delta=cur_pos-lo
-                elif hi+delta<cur_pos: delta=cur_pos-hi
             final_n=cur_n+delta; final_other=other_v+delta
             if final_n<0 or final_other<0 or (self._total>0 and (final_n>self._total or final_other>self._total)):
                 return self.engine.markers.get(n, new_sec)
+            new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=final_n; self.engine.markers[other]=final_other
+            self._seek_update(new_cur)
             self._refresh_marker(other)
             self._update_wf_ab()
             return final_n
@@ -5443,6 +6047,8 @@ class MainWindow(QMainWindow):
 
     def _edit_dblclick(self, e, ed):
         # 2-Click → 編集可能にして全選択。枠を黄色くハイライト
+        if ed is self._tempo_edit:
+            self._tempo_click_timer.stop()  # 1クリック検出をキャンセル
         ed.setReadOnly(False)
         ed.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid #FFD700; padding:1px 4px;")
         ed.setFocus(); ed.selectAll()
@@ -5489,8 +6095,11 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QLineEdit
         QLineEdit.mouseReleaseEvent(ed, e)
         if e.button() == Qt.MouseButton.LeftButton and not ed._moved:
-            if ed is self._tempo_edit:
-                self._tempo_detect()
+            if ed is self._tempo_edit and ed.isReadOnly():
+                # 読み取り専用時のみタイマー起動（編集モード中は検出しない）
+                # ダブルクリック間隔より必ず長くなるよう最低400msを保証
+                self._tempo_click_timer.start(
+                    max(400, QApplication.doubleClickInterval()))
 
     def _pos_leave(self, e):
         self._pos_lbl.clear_highlight()
@@ -5582,14 +6191,11 @@ class MainWindow(QMainWindow):
         lo_lim=0.0; hi_lim=self._total if self._total>0 else max(na,nb)
         if na<lo_lim or nb<lo_lim or na>hi_lim or nb>hi_lim:
             self._st("Marker out of range"); return
+        new_cur = max(0.0, self.engine.current_sec()+delta)
         self.engine.markers[MARKER_A]=na; self.engine.markers[MARKER_B]=nb
+        self._seek_update(new_cur)
         self._refresh_marker(MARKER_A); self._refresh_marker(MARKER_B)
         self._update_wf_ab()
-        if self.engine.playing:
-            lo=min(na,nb); hi=max(na,nb)
-            cur=self.engine.current_sec()
-            if not (lo<=cur<=hi):
-                self.engine.seek(lo)
 
     # ──────────────────────────────────────
     # 再生
@@ -5950,6 +6556,66 @@ class MainWindow(QMainWindow):
                     w.setStyleSheet(f"color:{FG}; background:{BG3}; border:1px solid {BORDER}; padding:1px 4px;")
             else:
                 w.setStyleSheet(f"color:{FG2}; background:{BG}; border:1px solid {BORDER}; padding:1px 4px;")
+        if enabled:
+            self._tempo_detecting = False
+            _b = getattr(self, "_tempo_btn", None)
+            if _b is not None and not self._tap_tempo_mode:
+                _b.setIcon(_get_icon("tempo_search", self.S(28), FG))
+
+    def _tempo_btn_action(self):
+        """テンポボタンクリック: Shift=タップテンポ, 通常=テンポ検出"""
+        if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier:
+            self._tap_tempo_enter_or_tap()
+        else:
+            if self._tap_tempo_mode: self._tap_tempo_exit()
+            self._tempo_detect()
+
+    def _tap_tempo_enter_or_tap(self):
+        """タップテンポ: 未入状態なら入りかつ初回タップ、入り済みなら追加タップ。"""
+        if self.engine.data is None: self._st("Load a file first"); return
+        if self._beat <= 1:
+            self._st("Tap tempo: set Beat to 2 or more"); return
+        now = time.time()
+        if self._tap_tempo_mode:
+            self._tap_times.append(now)
+            self._tap_timeout_timer.start(2000)
+            if len(self._tap_times) >= self._beat:
+                self._tap_tempo_calc()
+            else:
+                remain = self._beat - len(self._tap_times)
+                self._st(f"Tap tempo: {len(self._tap_times)} taps ({remain} more...)")
+        else:
+            self._tap_tempo_mode = True
+            self._tap_times = [now]
+            self._tap_timeout_timer.start(2000)
+            _b = getattr(self, "_tempo_btn", None)
+            if _b is not None:
+                _b.setIcon(_get_icon("tempo_search", self.S(28), "#4499FF"))
+            remain = self._beat - 1
+            self._st(f"Tap tempo: 1 tap ({remain} more...)")
+
+    def _tap_tempo_calc(self):
+        if len(self._tap_times) < 2: return
+        total_time = self._tap_times[-1] - self._tap_times[0]
+        n_intervals = len(self._tap_times) - 1
+        bpm = 60.0 / (total_time / n_intervals)
+        bpm = max(30.0, min(300.0, bpm))
+        self._tempo_edit.setText(f"{bpm:.1f}")
+        self._tempo = bpm
+        self._update_rewff()
+        self._st(f"Tap tempo: {bpm:.1f} BPM ({len(self._tap_times)} taps)")
+
+    def _tap_tempo_timeout(self):
+        if self._tap_tempo_mode: self._tap_tempo_exit()
+
+    def _tap_tempo_exit(self):
+        if not self._tap_tempo_mode: return
+        self._tap_tempo_mode = False
+        self._tap_times = []
+        self._tap_timeout_timer.stop()
+        _b = getattr(self, "_tempo_btn", None)
+        if _b is not None:
+            _b.setIcon(_get_icon("tempo_search", self.S(28), FG))
 
     def _tempo_detect(self):
         if self.engine.data is None: self._st("Load a file first"); return
@@ -5960,7 +6626,11 @@ class MainWindow(QMainWindow):
             self.engine.seek(cur)  # _src_pos と _played_orig を現在位置で一致させ固定
             self._pos_lbl.setText(self._fmt(cur))
         self._st("Detecting tempo...")
+        self._tempo_detecting = True
         self._set_tempo_inputs_enabled(False)  # 検出中はグレーアウト
+        _b = getattr(self, "_tempo_btn", None)
+        if _b is not None:
+            _b.setIcon(_get_icon("tempo_search", self.S(28), "#FF4040"))
         ctr=self.engine.current_sec()
         def worker():
             t=self.engine.estimate_tempo(ctr)
@@ -6055,7 +6725,8 @@ class MainWindow(QMainWindow):
         self._bar_edit.setText(f"{self._bar:.1f}")
         self._update_rewff()
         _spd=state.get("speed",1.0); _semi=state.get("semitones",0); _fine=state.get("fine_semi",0.0)
-        if self.engine.speed!=_spd:
+        _game_mode = self.engine._nsf or self.engine._spc or self.engine._gbs
+        if self.engine.speed!=_spd or (_game_mode and abs(self.engine._gme_tempo - _spd) > 1e-6):
             self.engine.set_speed(_spd, self._st)
         if self.engine.semitones!=_semi:
             self.engine.set_semitones(_semi, self._st)
@@ -6211,7 +6882,15 @@ class MainWindow(QMainWindow):
             self.engine.ear_active=True
             self._ear_btn.setIcon(_get_icon("ear",self.S(28),"#FFD700"))
             self._start_ear_blink()
-            self._update_wf_ab(); self._st("Ear Mode ON")
+            self._update_wf_ab()
+            # 突入時に現在位置がAB外ならAへシーク
+            a=self.engine.markers.get(MARKER_A); b=self.engine.markers.get(MARKER_B)
+            if a is not None and b is not None:
+                lo=min(a,b); hi=max(a,b)
+                cur=self.engine.current_sec()
+                if cur<lo or cur>hi:
+                    self.engine.seek(lo)
+            self._st("Ear Mode ON")
 
     def _start_ear_blink(self):
         self._ear_blink_phase=0.0
@@ -6319,6 +6998,230 @@ class MainWindow(QMainWindow):
         if app is not None: app.setStyleSheet(app_stylesheet(self._scale))
         self._rebuild_window()
 
+    # ──────────────────────────────────────
+    # ウィンドウ枠の最大化ボタン → Zoom 切り替え
+    # ──────────────────────────────────────
+    def _enable_max_button(self):
+        """固定サイズのためQtが外す最大化ボタンを有効化する（押下は _MaxToZoomFilter で Zoom に置き換え）"""
+        if sys.platform!="win32": return
+        try:
+            import ctypes as _ctm
+            u=_ctm.windll.user32; h=int(self.winId())
+            GWL_STYLE=-16; WS_MAXIMIZEBOX=0x00010000
+            st=u.GetWindowLongW(h, GWL_STYLE)
+            if not (st & WS_MAXIMIZEBOX):
+                u.SetWindowLongW(h, GWL_STYLE, st | WS_MAXIMIZEBOX)
+                # SWP_NOSIZE|SWP_NOMOVE|SWP_NOZORDER|SWP_FRAMECHANGED
+                u.SetWindowPos(h, 0, 0, 0, 0, 0, 0x0001|0x0002|0x0004|0x0020)
+        except Exception as ex:
+            _log(f"_enable_max_button err: {ex}")
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._enable_max_button()
+
+    def changeEvent(self, e):
+        # 保険: _MaxToZoomFilter をすり抜けて最大化された場合（Win+↑ など）は、通常状態に戻してZoom切り替えにする
+        if e.type()==QEvent.Type.WindowStateChange and (self.windowState() & Qt.WindowState.WindowMaximized):
+            self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMaximized)
+            QTimer.singleShot(0, self._toggle_zoom)
+        super().changeEvent(e)
+
+    # ──────────────────────────────────────
+    # Save（再生中の音声を WAV / MP3 / M4A で保存）
+    # ──────────────────────────────────────
+    def _save_default_name(self):
+        """保存ダイアログの初期ファイル名（拡張子なし）"""
+        import re
+        src=getattr(self,"_loaded_path","") or ""
+        stem=os.path.splitext(os.path.basename(src.rstrip("\\/")))[0] or "morokoshi"
+        eng=self.engine
+        st=eng._nsf or eng._spc or eng._gbs
+        if st is not None:
+            t=st.cur_track
+            title=""
+            try:
+                metas=getattr(st,"track_metas",None) or []
+                if t<len(metas): title=metas[t].get("title") or metas[t].get("song") or ""
+                titles=getattr(st,"track_titles",None) or []
+                if not title and t<len(titles): title=titles[t] or ""
+            except Exception: title=""
+            stem=f"{stem}_{t+1:02d}" + (f" {title}" if title else "")
+        return re.sub(r'[\\/:*?"<>|]', "_", stem).strip() or "morokoshi"
+
+    def _save_audio(self):
+        eng=self.engine
+        if eng.data is None:
+            self._st("No audio to save"); return
+        if getattr(self,"_saving",False):
+            self._st("Saving in progress..."); return
+        # 前回 Save したフォルダ（settings.json に保存）→ 無ければ前回開いたファイルのフォルダ
+        start_dir=_read_settings().get("last_save_folder")
+        if not start_dir or not os.path.isdir(start_dir):
+            start_dir=self._load_last_folder()
+        if not start_dir or not os.path.isdir(start_dir):
+            start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
+        # MIDI は NSF（NESM 形式）のときのみ（nsf2mid は NSFe 非対応）
+        mid_ok=eng._nsf is not None and eng._nsf.fmt=="NESM"
+        dlg=QFileDialog(self,"Save Audio",os.path.join(start_dir, self._save_default_name()+".wav"),
+            "WAV (*.wav);;MP3 (*.mp3);;M4A (*.m4a)"+(";;MIDI (*.mid)" if mid_ok else ""))
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        # ファイルの種類で MIDI を選んだら、保存ダイアログの横にオプションパネルを出す。
+        # パネルは保存ダイアログの子にする（子でないと保存ダイアログのモーダル中に操作できない）
+        panel=[None]
+        def on_filter(f):
+            if not f.startswith("MIDI"):
+                if panel[0] is not None: panel[0].hide()
+                hide_tt(); return
+            if panel[0] is None:
+                panel[0]=Nsf2MidDialog(_nsf2mid_opts(), self._scale, dlg, buttons=False)
+            panel[0].adjustSize()
+            self._place_beside_save_dialog(panel[0], "Save Audio")
+            panel[0].show(); panel[0].raise_()
+        if mid_ok: dlg.filterSelected.connect(on_filter)
+        ok=dlg.exec()==QFileDialog.DialogCode.Accepted
+        hide_tt()
+        if panel[0] is not None: panel[0].hide()
+        if not ok or not dlg.selectedFiles(): return
+        path=dlg.selectedFiles()[0]; flt=dlg.selectedNameFilter()
+        ext=os.path.splitext(path)[1].lower().lstrip(".")
+        if mid_ok and flt.startswith("MIDI"):
+            # MIDI を選んだ場合は拡張子を .mid にそろえる
+            if ext!="mid":
+                if ext in ("wav","mp3","m4a"): path=os.path.splitext(path)[0]
+                path+=".mid"; ext="mid"
+        elif ext not in (("wav","mp3","m4a","mid") if mid_ok else ("wav","mp3","m4a")):
+            ext="mp3" if flt.startswith("MP3") else "m4a" if flt.startswith("M4A") else "wav"
+            path+="."+ext
+        _update_settings(last_save_folder=os.path.dirname(path))
+        if ext=="mid":
+            self._save_midi(path, panel[0]); return
+        # 再生中の状態（Speed/Key/Fine）を保存開始時点で確定。フィルターは反映しない
+        with eng._lock:
+            data=eng.data; sr=eng.sr
+        spd=eng.speed if eng.speed>0 else 1.0
+        semi=eng.semitones+eng.fine_semi
+        self._saving=True
+        threading.Thread(target=self._save_audio_th,
+            args=(path,ext,data,sr,spd,semi,eng._gme_tempo),daemon=True).start()
+
+    def _save_audio_th(self, path, fmt, data, sr, spd, semi, gme_tempo):
+        tmp=None
+        try:
+            self._st("Saving...")
+            # 再生時(_make_chunk)と同じ規則: ゲーム音楽でテンポ焼き込み済みなら速度変換はしない
+            if gme_tempo!=1.0: spd=1.0
+            if abs(spd-1.0)<1e-6 and abs(semi)<1e-9:
+                out=data
+            else:
+                self._st("Saving... (converting)")
+                mono=data.mean(axis=1).astype(np.float32)
+                conv=_fast_stretch(mono, sr, spd, semi)
+                out=np.stack([conv,conv],axis=1)
+            out=np.clip(out,-1.0,1.0)
+            if fmt=="wav":
+                sf.write(path, out, sr, subtype="PCM_16")
+            else:
+                tmp=os.path.join(self.engine._tmp,"export.wav")
+                sf.write(tmp, out, sr, subtype="PCM_16")
+                ff=_ensure_ffmpeg(scb=self._st)
+                codec="libmp3lame" if fmt=="mp3" else "aac"
+                cmd=[ff,"-y","-i",tmp,"-c:a",codec,"-b:a","192k",path]
+                _cf=subprocess.CREATE_NO_WINDOW if sys.platform=="win32" else 0
+                r=subprocess.run(cmd, capture_output=True, timeout=600, creationflags=_cf)
+                if r.returncode!=0: raise RuntimeError(r.stderr.decode(errors="replace")[-300:])
+            _log(f"save audio: {path} fmt={fmt} sr={sr} spd={spd} semi={semi}")
+            self._st(f"Saved: {os.path.basename(path)}")
+        except Exception as ex:
+            _log(f"save audio err: {ex}")
+            self._st(f"Save failed: {ex}")
+        finally:
+            if tmp and os.path.exists(tmp):
+                try: os.remove(tmp)
+                except Exception: pass
+            self._saving=False
+
+    def _place_beside_save_dialog(self, w, title):
+        """ネイティブの保存ダイアログ（自プロセスの #32770 ウィンドウ）の右横に w を置く。
+        右に入らなければ左、見つからなければメインウィンドウの右横"""
+        x=y=None
+        try:
+            import ctypes as _c
+            from ctypes import wintypes as _w
+            u=_c.windll.user32; pid=os.getpid(); found=[]
+            proc=_c.WINFUNCTYPE(_w.BOOL,_w.HWND,_w.LPARAM)
+            def cb(h,_):
+                p=_w.DWORD(); u.GetWindowThreadProcessId(h,_c.byref(p))
+                if p.value==pid and u.IsWindowVisible(h):
+                    c=_c.create_unicode_buffer(32); u.GetClassNameW(h,c,32)
+                    t=_c.create_unicode_buffer(256); u.GetWindowTextW(h,t,256)
+                    if c.value=="#32770" and t.value==title: found.append(h)
+                return True
+            u.EnumWindows(proc(cb),0)
+            if found:
+                r=_w.RECT(); u.GetWindowRect(found[0],_c.byref(r))
+                dpr=(w.screen() or QApplication.primaryScreen()).devicePixelRatio()
+                x=int(r.right/dpr)+4; y=int(r.top/dpr)
+                scr=QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+                ag=scr.availableGeometry()
+                if x+w.frameGeometry().width()>ag.right():
+                    x=max(ag.left(), int(r.left/dpr)-w.frameGeometry().width()-4)
+        except Exception:
+            x=y=None
+        if x is None:
+            g=self.frameGeometry(); x=g.right()+4; y=g.top()
+        w.move(x,y)
+
+    def _save_midi(self, path, panel=None):
+        """NSF の現在のトラックを nsf2mid で MIDI に変換して保存。
+        panel: 保存ダイアログ横のオプションパネル。無ければ（.mid を直接入力した場合）オプションダイアログを出す"""
+        nsf=self.engine._nsf
+        if nsf is None: return
+        if panel is None:
+            panel=Nsf2MidDialog(_nsf2mid_opts(), self._scale, self)
+            if panel.exec()!=QDialog.DialogCode.Accepted:
+                self._st("MIDI save cancelled"); return
+        elif not panel.timesig_ok():
+            self._st("MIDI save cancelled: invalid time signature"); return
+        opts=panel.values()
+        _update_settings(nsf2mid=opts)
+        self._saving=True; self._mid_stop=False
+        threading.Thread(target=self._save_midi_th,
+            args=(nsf.path, nsf.cur_track+1, path, opts), daemon=True).start()
+
+    def _save_midi_th(self, src, track, path, opts):
+        import io, contextlib, time as _time
+        t0=_time.time(); buf=io.StringIO()
+        def should_stop():
+            self._st(f"Saving MIDI... {int(_time.time()-t0)}s (Esc: cancel)")
+            return self._mid_stop
+        try:
+            n2m=_import_nsf2mid()
+            argv=[src,"-t",str(track),"--mid-out",path]+_nsf2mid_argv(opts)
+            try:
+                args=n2m.build_parser().parse_args(argv)
+            except SystemExit:
+                raise RuntimeError("invalid MIDI options")
+            should_stop()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    code,outs=n2m.convert(args, should_stop)
+            except n2m.Cancelled:
+                _log(f"save midi cancelled: {path}")
+                self._st("MIDI save cancelled"); return
+            _log(f"save midi: {path} src={src} track={track} argv={argv}\n{buf.getvalue().rstrip()}")
+            if code!=0:
+                lines=[l for l in buf.getvalue().splitlines() if l.strip()]
+                raise RuntimeError(lines[-1] if lines else f"exit code {code}")
+            if not any(o.lower().endswith(".mid") for o in outs):
+                raise RuntimeError("not enough notes to detect the tempo")
+            self._st(f"Saved: {os.path.basename(path)} ({_time.time()-t0:.1f}s)")
+        except Exception as ex:
+            _log(f"save midi err: {ex}\n{buf.getvalue().rstrip()}")
+            self._st(f"MIDI save failed: {ex}")
+        finally:
+            self._saving=False; self._mid_stop=False
+
     def _rebuild_window(self):
         # 現在の表示状態を保持しつつウィンドウUIを再構築
         _prev_st = self._msg.text() if hasattr(self, "_msg") else ""
@@ -6328,7 +7231,8 @@ class MainWindow(QMainWindow):
         pos = self.engine.current_sec()
         # 旧UIを破棄して作り直し
         old=self.centralWidget()
-        self.setFixedSize(self.S(375), self.S(313))
+        self.setFixedSize(self.S(375), self.S(320))
+        self._enable_max_button()
         self._build_ui()
         if old is not None:
             old.deleteLater()
@@ -6387,6 +7291,15 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────
     # ファイル
     # ──────────────────────────────────────
+    def _show_open_history(self):
+        history = load_file_history()
+        popup = FileHistoryPopup(history)
+        popup.file_selected.connect(self._load)
+        gp = self._open_btn.mapToGlobal(self._open_btn.rect().bottomLeft())
+        popup.move(gp.x(), gp.y() + 4)
+        popup.adjustSize()
+        popup.show()
+
     def _open(self):
         import os
         # 前回開いたファイルのフォルダ → 無ければ %USERPROFILE%\Music
@@ -6421,9 +7334,11 @@ class MainWindow(QMainWindow):
     def _load_folder(self, folder_path):
         _log(f"_load_folder: path={folder_path}")
         import os
+        add_to_file_history(folder_path)
         prev = self.engine._file_hash
         if prev: save_session(prev, self._get_state())
         fname = os.path.basename(folder_path)
+        self._loaded_path = folder_path
         self.setWindowTitle(f"Morokoshi Time - {fname}")
         self.engine.stop()
         threading.Thread(target=self._load_folder_th, args=(folder_path,), daemon=True).start()
@@ -6433,7 +7348,7 @@ class MainWindow(QMainWindow):
         try:
             tot = self.engine.load_folder(folder_path, self._st)
             _log(f"_load_folder_th: loaded tot={tot}")
-            wf = self.engine.get_waveform(700)
+            wf = self.engine.get_waveform(700, update_ref=True)
             session = load_session(self.engine._file_hash)
             self._load_done_sig.emit(tot, wf, session)
         except Exception as ex:
@@ -6463,9 +7378,11 @@ class MainWindow(QMainWindow):
 
     def _load(self, path):
         _log(f"_load: path={path}")
+        add_to_file_history(path)
         prev=self.engine._file_hash
         if prev: save_session(prev, self._get_state())
         fname = os.path.basename(path)
+        self._loaded_path = path
         self.setWindowTitle(f"Morokoshi Time - {fname}")
         self.engine.stop()
         threading.Thread(target=self._load_th, args=(path,), daemon=True).start()
@@ -6475,7 +7392,7 @@ class MainWindow(QMainWindow):
         try:
             tot=self.engine.load(path, self._st)
             _log(f"_load_th: loaded tot={tot} data_is_None={self.engine.data is None} _proc_is_None={self.engine._proc is None}")
-            wf=self.engine.get_waveform(700)
+            wf=self.engine.get_waveform(700, update_ref=True)
             session=load_session(self.engine._file_hash)
             self._load_done_sig.emit(tot, wf, session)
         except Exception as ex:
@@ -6657,7 +7574,7 @@ class MainWindow(QMainWindow):
         def do_set():
             try:
                 dur = self.engine.spc_set_track(track_idx_0based, self._st)
-                wf = self.engine.get_waveform(700)
+                wf = self.engine.get_waveform(700, update_ref=True)
                 self._spc_track_done_sig.emit(dur, wf)
             except Exception as ex:
                 self._spc_loading = False
@@ -6724,6 +7641,7 @@ class MainWindow(QMainWindow):
         """SPC ch切替バックグラウンドレンダリングを開始する"""
         self._spc_ch_rendering = True
         seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
+        _log(f"SPC ch render start: mask={ch_mask:#b} track={track_idx} seek_sec={seek_sec:.3f} playing={self.engine.playing} paused={self.engine.paused}")
         spc = self.engine._spc
         spc_raw = spc._spc_raws.get(track_idx) if spc else None
         if spc_raw is None:
@@ -6794,7 +7712,7 @@ class MainWindow(QMainWindow):
         def do_set():
             try:
                 dur = self.engine.gbs_set_track(track_idx_0based, self._st)
-                wf = self.engine.get_waveform(700)
+                wf = self.engine.get_waveform(700, update_ref=True)
                 self._gbs_track_done_sig.emit(dur, wf)
             except Exception as ex:
                 self._gbs_loading = False
@@ -6861,6 +7779,7 @@ class MainWindow(QMainWindow):
         """GBS ch切替バックグラウンドレンダリングを開始する"""
         self._gbs_ch_rendering = True
         seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
+        _log(f"GBS ch render start: mask={ch_mask:#b} track={track_idx} seek_sec={seek_sec:.3f} playing={self.engine.playing} paused={self.engine.paused}")
         gbs = self.engine._gbs
         gbs_raw = gbs._gbs_raw if gbs else None
         if gbs_raw is None:
@@ -6938,7 +7857,7 @@ class MainWindow(QMainWindow):
         def do_set():
             try:
                 dur=self.engine.nsf_set_track(track_idx_0based, self._st)
-                wf=self.engine.get_waveform(700)
+                wf=self.engine.get_waveform(700, update_ref=True)
                 self._nsf_track_done_sig.emit(dur, wf)
             except Exception as ex:
                 self._nsf_loading = False
@@ -7037,15 +7956,8 @@ class MainWindow(QMainWindow):
         self._dur_lbl.unsetCursor()
 
     def _dur_step_list(self, initial_sec):
-        """総再生時間ステップリストを返す（初期検出時間を含む）"""
-        import bisect
-        base = [10, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]
-        rounded = round(initial_sec, 1)
-        if rounded not in base and 10 <= rounded <= 900:
-            steps = list(base)
-            bisect.insort(steps, rounded)
-            return steps
-        return list(base)
+        """総再生時間ステップリストを返す（0:10 + 1分単位）"""
+        return [10, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]
 
     def _dur_step_navigate(self, initial_sec, cur_sec, direction):
         """ステップリスト内で現在値から上下に移動した値を返す"""
@@ -7261,6 +8173,7 @@ class MainWindow(QMainWindow):
         """ch切替のバックグラウンドレンダリングを開始する"""
         self._nsf_ch_rendering = True
         seek_sec = self.engine.current_sec()  # クリック時点の位置を記録
+        _log(f"NSF ch render start: mask={ch_mask:#b} track={track_idx} seek_sec={seek_sec:.3f} playing={self.engine.playing} paused={self.engine.paused}")
         gme_t = self.engine._gme_tempo
         def do_render():
             try:
@@ -7308,6 +8221,13 @@ class MainWindow(QMainWindow):
     def _on_wf_seek(self, ratio):
         if self._total>0:
             pos=ratio*self._total
+            # EAR MODE中はAB範囲内にクランプ
+            if self.engine.ear_active:
+                a=self.engine.markers.get(MARKER_A); b=self.engine.markers.get(MARKER_B)
+                if a is not None and b is not None:
+                    lo=min(a,b); hi=max(a,b)
+                    pos=max(lo, min(hi, pos))
+                    ratio=pos/self._total
             self.engine.seek(pos)
             self._pos_lbl.setText(self._fmt(pos))
             self._waveform.set_position(ratio)
@@ -7330,20 +8250,14 @@ class MainWindow(QMainWindow):
         looping_now = self.engine.playing and (self.engine.ab_active or self.engine.ear_active)
         if self.engine.ear_active and MARKER_A in self.engine.markers and MARKER_B in self.engine.markers:
             cur_n=self.engine.markers[n]; other_v=self.engine.markers[other]
-            delta=new_sec-cur_n  # ドラッグで生じる移動量（A,B同時に同じだけ動かす）
-            if looping_now:
-                lo=min(cur_n,other_v); hi=max(cur_n,other_v)
-                cur_pos=self.engine.current_sec()
-                new_lo=lo+delta; new_hi=hi+delta
-                if new_lo > cur_pos:
-                    delta = cur_pos-lo
-                elif new_hi < cur_pos:
-                    delta = cur_pos-hi
+            delta=new_sec-cur_n
             final_n=cur_n+delta; final_other=other_v+delta
             if final_n < 0 or final_other < 0 or final_n > self._total or final_other > self._total:
                 return  # どちらかが範囲外になる場合は動かさない
+            new_cur = max(0.0, self.engine.current_sec()+delta)
             self.engine.markers[n]=final_n
             self.engine.markers[other]=final_other
+            self._seek_update(new_cur)
             self._refresh_marker(other)
         else:
             ov = self.engine.markers.get(other)
@@ -7399,6 +8313,36 @@ class MainWindow(QMainWindow):
         self._refresh_marker(MARKER_B)
         self._update_wf_ab()
 
+    def _on_ab_range_committed(self, r1, r2):
+        # AB範囲ドラッグ確定時（mouseRelease）のEAR MODE処理
+        if self._total <= 0: return
+        if not self.engine.ear_active: return
+        a = min(r1, r2) * self._total
+        b = max(r1, r2) * self._total
+        cur = self.engine.current_sec()
+        if cur < a or cur > b:
+            self.engine.seek(a)
+
+    def _on_ab_pan(self, r1, r2):
+        # 波形AB間ドラッグでA/Bを連動パン
+        if self._total <= 0: return
+        old_a = self.engine.markers.get(MARKER_A)
+        new_a = r1 * self._total
+        new_b = r2 * self._total
+        # EAR MODE中: 先にcurrent計算、マーカー更新後にseek
+        if self.engine.ear_active and old_a is not None:
+            delta_sec = new_a - old_a
+            new_cur = max(0.0, self.engine.current_sec()+delta_sec)
+            self.engine.markers[MARKER_A] = new_a
+            self.engine.markers[MARKER_B] = new_b
+            self._seek_update(new_cur)
+        else:
+            self.engine.markers[MARKER_A] = new_a
+            self.engine.markers[MARKER_B] = new_b
+        self._refresh_marker(MARKER_A)
+        self._refresh_marker(MARKER_B)
+        self._update_wf_ab()
+
     def _on_wf_double_click(self, ratio):
         # 波形ダブルクリックでマーカーをセット
         if self._total<=0: return
@@ -7424,12 +8368,20 @@ class MainWindow(QMainWindow):
         wf=self._waveform
         span=wf._vspan()
         if span>=1.0: return
-        lo=(value/1000.0)
+        lo=(value/float(WF_SB_RES))
         lo=max(0.0, min(1.0-span, lo))
         wf._view_lo=lo; wf._view_hi=lo+span
         wf._last_manual=time.time()  # 手動操作として追従を一時抑制
         _log(f"WF scrollbar: value={value} span={span:.4f} view=[{lo:.4f},{lo+span:.4f}] playing={self.engine.playing}")
         wf.update()
+
+    def _on_sb_zoom_resize(self, vlo, vhi):
+        """スクロールバー端ドラッグ → ズーム幅変更"""
+        wf = self._waveform
+        wf._view_lo = vlo; wf._view_hi = vhi
+        wf._last_manual = time.time()
+        wf.update()
+        wf.view_changed.emit()
 
     def _sync_wf_scroll(self):
         # 波形の表示範囲 → スクロールバーに反映
@@ -7440,9 +8392,9 @@ class MainWindow(QMainWindow):
         if span>=1.0:
             sb.setRange(0,0)
         else:
-            sb.setRange(0, int(1000*(1.0-span)))
-            sb.setPageStep(int(1000*span))
-            sb.setValue(int(wf._view_lo*1000))
+            sb.setRange(0, round(WF_SB_RES*(1.0-span)))
+            sb.setPageStep(max(1, round(WF_SB_RES*span)))
+            sb.setValue(round(wf._view_lo*WF_SB_RES))
         sb.blockSignals(False)
 
     # ──────────────────────────────────────
@@ -7482,7 +8434,7 @@ class MainWindow(QMainWindow):
             84:getattr(self,"_tempo_btn",None),
             82:getattr(self,"_reset_btn",None),
             72:getattr(self,"_help_btn",None),
-            90:getattr(self,"_zoom_btn",None),
+            83:getattr(self,"_save_btn",None),
             65:getattr(self,"_btn_marker_a",None),
             66:getattr(self,"_btn_marker_b",None),
         }
@@ -7505,6 +8457,13 @@ class MainWindow(QMainWindow):
             nm=getattr(btn,"_icon_name",None)
             if nm: btn.setIcon(_get_icon(nm,self.S(28),"#FFD700"))
 
+    def _get_btn_base_color(self, btn):
+        _tb = getattr(self, "_tempo_btn", None)
+        if btn is _tb:
+            if self._tap_tempo_mode: return "#4499FF"
+            if self._tempo_detecting: return "#FF4040"
+        return FG
+
     def _flash_off(self, btn):
         if btn is None: return
         inner=getattr(btn,"_inner_btn",None)
@@ -7514,13 +8473,22 @@ class MainWindow(QMainWindow):
             btn.setDown(False)
         else:
             nm=getattr(btn,"_icon_name",None)
-            if nm: btn.setIcon(_get_icon(nm,self.S(28),FG))
+            if nm: btn.setIcon(_get_icon(nm,self.S(28),self._get_btn_base_color(btn)))
 
     def _handle_key(self, e):
         key=e.key(); K=Qt.Key
         shift=bool(e.modifiers()&Qt.KeyboardModifier.ShiftModifier)
         ctrl =bool(e.modifiers()&Qt.KeyboardModifier.ControlModifier)
         vk=e.nativeVirtualKey()
+        _kp_mod=bool(e.modifiers() & Qt.KeyboardModifier.KeypadModifier)
+
+        # タップテンポモード中: タップ操作以外のキーで離脱
+        if self._tap_tempo_mode and not e.isAutoRepeat():
+            _is_tap = (shift and vk == 84)  # Shift+T
+            _is_kp8 = (_kp_mod and key == K.Key_8)  # テンキー8（Enter+8含む）
+            _is_kp_enter = (_kp_mod and key in (K.Key_Enter, K.Key_Return))
+            if not _is_tap and not _is_kp8 and not _is_kp_enter:
+                self._tap_tempo_exit()
 
         # キー押下中フラッシュ（自動リピートでなければ）
         if not e.isAutoRepeat():
@@ -7568,6 +8536,7 @@ class MainWindow(QMainWindow):
                     _b=getattr(self,"_reset_btn",None)
                     if _b is not None: self._flash_off(_b)
                 return True
+            if vk==84: self._tap_tempo_enter_or_tap(); return True  # Shift+T → タップテンポ
             if key==K.Key_Space: self._seek_to_start(); return True  # Shift+Space → 先頭リセット
             # NSFモード: Shift+←/→ で曲切り替え, Shift+[,][.] で10曲ずつ
             nsf_s=self.engine._nsf
@@ -7702,7 +8671,16 @@ class MainWindow(QMainWindow):
                 if _b is not None: self._flash_off(_b)
             return True
         if vk==90: self._toggle_zoom(); return True  # Z → Zoom
-        if key==K.Key_Escape:  # ESC → 再生中のみ停止
+        if vk==83:  # S → Save（モーダルダイアログ後に確実に色を戻す）
+            try: self._save_audio()
+            finally:
+                _b=getattr(self,"_save_btn",None)
+                if _b is not None: self._flash_off(_b)
+            return True
+        if key==K.Key_Escape:  # ESC → MIDI 変換中なら中止、それ以外は再生中のみ停止
+            if getattr(self,"_saving",False) and getattr(self,"_mid_stop",None) is False:
+                self._mid_stop=True; self._st("Cancelling MIDI save...")
+                return True
             if self.engine.playing and not self.engine.paused:
                 self.engine.pause_toggle()
                 self._upd_play(False)
@@ -7751,7 +8729,13 @@ class MainWindow(QMainWindow):
                         _b=getattr(self,"_open_btn",None)
                         if _b is not None: self._flash_off(_b)
                 return True
-            if key==K.Key_8: self._tempo_detect(); return True
+            if key==K.Key_8:
+                if enter_recent:
+                    self._kp_enter_time=0.0
+                    self._tap_tempo_enter_or_tap()
+                else:
+                    self._tempo_detect()
+                return True
             if key==K.Key_9:
                 if enter_recent:
                     self._kp_enter_time=0.0
@@ -7877,8 +8861,7 @@ def main():
             base = os.path.dirname(os.path.abspath(__file__))
             candidates += [
                 os.path.join(base, "morokoshi.ico"),
-                os.path.join(base, "..", "icon", "morokoshi.ico"),
-                os.path.join(base, "icon", "morokoshi.ico"),
+                os.path.join(base, "..", "docs", "icons", "morokoshi.ico"),
             ]
         for p in candidates:
             if os.path.exists(p):
@@ -7895,6 +8878,9 @@ def main():
         win.setWindowIcon(_app_icon)
     app.installEventFilter(win)
     win.show()
+    # 最大化ボタン → Zoom（最大化前に横取り）。参照を保持しないと GC で外れる
+    win._max_filter = _MaxToZoomFilter(win, int(win.winId()))
+    app.installNativeEventFilter(win._max_filter)
 
     if len(sys.argv)>1 and os.path.exists(sys.argv[1]):
         QTimer.singleShot(500, lambda: win._load(sys.argv[1]))

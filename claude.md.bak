@@ -104,117 +104,16 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.9 (2026-11-01) ← 最新（プロンプト直接指示）
-- Save ダイアログの初期フォルダを、前回 Save したフォルダにする（settings.json の last_save_folder に保存し、アプリ再起動後も再現）
-  - 従来は同じ起動中のみ記憶（メモリ上）で、再起動後は前回開いたファイルのフォルダになっていた
-  - 保存先フォルダが無い・消えている場合は、前回開いたファイルのフォルダ → ユーザーフォルダの順にフォールバック
-  - WAV/MP3/M4A/MIDI 共通。保存ダイアログで保存を確定した時点で記録
-- APP_VERSION v2.7.9
-
-### v2.7.8 (2026-11-01)（プロンプト直接指示）
-- 最大化ボタンでの Zoom 時に一瞬別のウィンドウが出る現象を修正
-  - 原因: v2.7.2 の方式は「Windows が実際に最大化 → changeEvent で検出して戻す → Zoom」だったため、
-    一瞬ウィンドウが画面左上へ移動し最大化アニメーションも出ていた（Z キーの Zoom では発生しない）
-  - 対策: QAbstractNativeEventFilter（_MaxToZoomFilter）で、最大化ボタンの押下（WM_NCLBUTTONDOWN/HTMAXBUTTON）と
-    タイトルバーのダブルクリック（WM_NCLBUTTONDBLCLK/HTCAPTION）を最大化前に握りつぶして Zoom を実行
-    - 最大化ボタンの WM_SYSCOMMAND は SendMessage で直接届きフィルターを通らないため、元のマウスメッセージで判定
-    - PyQt6 では event_type が QByteArray のため bytes() で比較。フィルター内で winId() 等の Qt 呼び出しをすると
-      再帰・クラッシュするため、hwnd は表示後に取得して渡す
-  - changeEvent の最大化検出は保険として残す（Win+↑ など）
-- 確認: 最大化ボタン押下・タイトルバーのダブルクリックをメッセージ送信で再現し、WindowStateChange（最大化）が発生せず
-  位置も変わらずに Zoom が切り替わることを確認
-- APP_VERSION v2.7.8
-
-### v2.7.7 (2026-11-01)（プロンプト直接指示）
-- Speed の直接入力を拡張（_parse_speed）: 整数は分母とみなす（"1"→×1/1, "2"→×1/2, "4"→×1/4, "8"→×1/8）、
-  "1/2" "x1/2" "×1/4" "x2"(→×1/2) "0.5" も変換し、最寄りの段階に丸める。編集欄の表示も "1/2" 形式に
-  （DragLabel に parse / edit_fmt 引数を追加。Speed 以外は従来どおり）
-- Save のツールチップを "Save [S]" のみに（ファイル形式の行を削除）
-- MIDI 保存: 保存ダイアログのファイルの種類で MIDI を選んだ瞬間に、保存ダイアログの右横にオプションパネルを表示
-  （OK/Cancel 無し、確定は保存ダイアログの保存ボタン。他の種類に戻すと隠れる）
-  - QFileDialog.getSaveFileName → QFileDialog インスタンス＋filterSelected に変更（ネイティブダイアログのまま）
-  - パネルは保存ダイアログの子ウィンドウにする（親が別だと Qt のモーダル判定で入力がブロックされることを実験で確認）
-  - 保存ダイアログの位置は自プロセスの #32770 ウィンドウから取得。右に入らなければ左に表示
-  - MIDI を選んだ場合は拡張子を .mid にそろえる。種類を変えずにファイル名へ .mid を直接入力した場合は従来のオプションダイアログ（OK/Cancel 付き）を表示
-  - 拍子の書式が不正だと入力中から枠を赤表示し、保存時は中止してステータスに表示
-- 確認: Speed 入力の変換表、ネイティブ保存ダイアログ表示中にパネル表示・チェックボックス操作ができることをスクリーンショットで確認
-- APP_VERSION v2.7.7
-
-### v2.7.6 (2026-11-01)（プロンプト直接指示: nsf2mid 統合）
-- Save に MIDI (*.mid) を追加（NSF・NESM 形式のときのみ選択肢に出る。NSFe は nsf2mid 非対応のため出さない）
-  - mid を選ぶとオプションダイアログ（Loops / Max seconds / Rows per beat / Time signature / Triplets / Drum map /
-    No loop detection / Keep reverb tails / No quantize / Keep triangle drums as notes / Defaults）を表示。出力フォルダ・ダンプは無し
-  - 現在のトラック（cur_track+1）を別スレッドで変換し、.mid のみ保存。ステータスバーに経過秒、Esc で中止
-  - 拍子の書式が不正なら OK で閉じずに枠を赤表示。変換ログ（nsf2mid の出力）は morokoshi.log に記録
-  - オプションは settings.json の "nsf2mid" キーに保存（save_global_settings を既存キー保持のマージ書き込みに変更）
-- nsf2mid の変換モジュールを src/nsf2mid_core/ にコピーして取り込み（GUI・player は除外）
-  - 同期スクリプト tools/sync_nsf2mid.py を新規作成。nsf2mid を改修したら `python tools/sync_nsf2mid.py` で反映。
-    取り込んだバージョン・コミットは src/nsf2mid_core/SOURCE.txt に記録。nsf2mid_core 内は直接編集しない
-  - nsf2mid 側に --mid-out（指定パスに .mid のみ出力）を追加（nsf2mid v0.1.18）
-- morokoshi.spec: pathex に nsf2mid_core、hiddenimports に nsf2mid を追加。
-  あわせて datas / icon が旧パス（..\icon\morokoshi.ico、v2.7.1 で削除済み）のままだったのを ICON_PATH に修正（このままだとビルド失敗していた）
-- 確認: Dragon Warrior (EMU).zophar.zip の track 2/3 を MIDI 保存、中止、不正オプション、settings.json の既存キー保持、
-  ダイアログ表示（1x/2x）、スクラッチ領域への試験ビルドで nsf2mid 系 9 モジュールが同梱されることを確認
-- APP_VERSION v2.7.6
-
-### v2.7.5 (2026-11-01)（プロンプト直接指示）
-- トラック番号のツールチップが「>」ボタンに重なる不具合を修正
-  - 原因1: ツールチップをトラック番号欄の右隣（＝「>」ボタンの位置）に表示していた
-  - 原因2: NsfPanel の _track_leave で hide_tt を呼んでおらず、マウスが離れてもツールチップが残っていた（SpcPanel は呼んでいた）
-  - ツールチップの表示位置を「>」ボタンの右側に変更（NSF/SPC 両パネル、ドラッグ・ホイール時の再表示も含む）、NsfPanel の離脱時に hide_tt を追加
-- APP_VERSION v2.7.5
-
-### v2.7.4 (2026-11-01)（プロンプト直接指示）
-- SPC/GBS の gme_clear_blip_buffer 呼び出しも削除（_spc_render / _gbs_render / 未使用の ch 検出関数）
-  - 調査: SPC 118曲・GBS 117曲で有無を比較。曲頭ノイズ（クリック）の検出数は有無で同じ（SPC 0/0, GBS 5/5）＝ノイズ除去効果なし
-  - 呼び出し有りだと一部の曲（SPC 13曲・GBS 3曲）で曲頭に 0.05〜0.27 秒の余分な無音が挿入されるだけ（波形は遅延以外完全一致）
-  - それ以外の曲は出力が完全一致（SPC 104/118, GBS 90/117 ※残りは遅延のみ or 微差）
-- APP_VERSION v2.7.4
-
-### v2.7.3 (2026-11-01)（プロンプト直接指示）
-- NSF 曲頭の音切れ修正（Dragon Warrior (EMU).zophar.zip でほぼ全曲、曲頭〜数秒が無音）
-  - 原因: Python 側の gme_clear_blip_buffer 呼び出し（v1.5.14 の曲頭ノイズ対策 STEP2 の名残）。
-    v2.0.8〜v2.2.1 で INIT ノイズは改造 DLL の start_track 内で処理済みのため二重処理になり、
-    鳴りっぱなしの音（持続音）が消えて次の発音まで無音になっていた。また曲頭も約50ms削っていた
-  - _nsf_render / _nsf_detect_ch_used（未使用関数）から呼び出しを削除。SPC/GBS は変更なし
-  - 検証: NSF 120ファイル×3曲で比較。呼び出し有りで曲頭が大きく欠ける曲 7件+DW → 削除後は解消。
-    削除で残る曲頭クリックは Fire Dragon の2曲のみ（10ms・約-29dB の小さなもの）
-- APP_VERSION v2.7.3
-
-### v2.7.2 (2026-11-01)（プロンプト直接指示）
-- Zoom アイコンを廃止し、ウィンドウ枠の最大化ボタン（タイトルバーのダブルクリックも）で Zoom(1x⇔2x) 切り替えに変更
-  - 固定サイズのため Qt が外す WS_MAXIMIZEBOX を Win32 API で付け直し、最大化された状態変化(changeEvent)を検出して通常状態に戻し Zoom を実行
-  - nativeEvent のオーバーライドは PyQt6 でアクセス違反クラッシュしたため不採用
-  - Z キー・テンキー * の Zoom はそのまま
-- 空いた位置に Save アイコンを配置（ショートカット S）。再生中の音声を曲全体で WAV / MP3 / M4A 保存
-  - Speed/Key/Fine を反映（ゲーム音楽はテンポ焼き込み済みのため Key/Fine のみ変換）、フィルターは反映しない
-  - サンプリングレートは再生中のもの、WAV は 16bit PCM、MP3(libmp3lame)/M4A(AAC) は 192kbps 固定（ffmpeg 使用）
-  - 初期ファイル名は読み込みファイル名（ゲーム音楽は _トラック番号＋曲名）
-- テストスクリプトで最大化→Zoom切替、3形式の保存（ffprobeで 44100Hz/192kbps 確認）を確認済み
-- APP_VERSION v2.7.2
-
-### v2.7.1 save.png 色調整 (2026-11-01)（プロンプト直接指示）
-- docs/icons/save.png の色を黒(#000000)→他アイコンと同じ #333333 に変更（アルファ保持）。元画像は docs/icons/bkup/save.png
-- save.png を 150x150 → 96x96 にリサイズ（他アイコンとサイズ統一、余白の比率も同等）
-- save アイコンはアプリ未使用（埋め込みBase64に無し）のため、ソース・バージョン変更なし
-
-### v2.7.1 (2026-11-01)（プロンプト直接指示）
-- アプリアイコン icon/morokoshi.ico を docs/icons/morokoshi.ico へ移動（icon/ フォルダは削除）
-- morokoshi.spec: アイコンパスを SPECPATH 基準の絶対パス（ICON_PATH）で解決し、カレントディレクトリに依存しないよう変更。
-  ファイルが見つからない場合はビルドをエラー停止（アイコン無しのexeが出来るのを防止）
-- morokoshi.py: 開発実行時のアイコン検索先を ../docs/icons/morokoshi.ico に変更
-- APP_VERSION を v2.7.1 に更新（ビルドは未実施）
-
-### v2.7.0 マニュアル修正 (2026-10-10)（プロンプト直接指示）
-- JP 更新履歴の文体を言い切り（体言止め）に統一（v1.4・v1.6.0 に残っていた「〜ます」も含む）
-- あとがきと更新履歴の間の空白ページを削除（日英）。原因: あとがき末尾の区切り線がページからはみ出し、直後の改ページdivでさらに改ページ。
-  区切り線と改ページdivを削除し、更新履歴見出し自体に page-break-before を指定
-- PDF 再生成（53→51ページ）、dist/morokoshi270 内のPDF差し替え・zip再作成（exeは変更なし）
-
-### v2.7.0 (2026-10-10)
-- APP_VERSION を v2.7.0 に更新（ビルド前に確認済み・exeのウィンドウタイトルで v2.7.0 表示を確認）
-- v2.6.1〜v2.6.14 の変更を公開: 波形上部の時間目盛り（全モード表示）、ズーム上限を表示幅1秒に変更、
-  フィルター処理のFFT畳み込み化（フィルター再生時の音声出力遅れを解消）、アイコン枠・最下段レイアウト等の軽微な修正
-- マニュアル更新（表紙・JP/EN 対象バージョン・波形エリアの時間目盛りとズーム上限・JP/EN 更新履歴 v2.7.0追加）・PDF 再生成
-- exe ビルド・morokoshi270.zip リリース
-- git tag v2.7.0
+### v2.8.0 (2026-11-01) ← 最新（プロンプト直接指示）
+- APP_VERSION を v2.8.0 に更新（ビルド前に確認済み・exe のウィンドウタイトルで v2.8.0 表示を確認）
+- v2.7.1〜v2.7.9 の変更を公開: Save（WAV/MP3/M4A、前回保存フォルダを記憶）、NSF の MIDI 保存（nsf2mid 統合、
+  保存ダイアログ横のオプションパネル）、Zoom を最大化ボタンへ移動、Speed 直接入力の書式拡張、
+  NSF 曲頭の音切れ修正・SPC/GBS 曲頭の余分な無音を削除、ツールチップの重なり修正など
+- マニュアル更新: 表紙・対象バージョン、特徴に Save/MIDI を追加、アイコン表の Zoom → Save（Zoom は最大化ボタンの説明に）、
+  Speed の直接入力、ffmpeg の用途、「5. 保存（Save）・MIDI 変換」を新設（欠番だった 5 章。MIDI 部分は nsf2mid マニュアルの
+  特徴・オプション・対処表・出力 MIDI を流用し、ラベルをもろこしのダイアログ表記に合わせた）、制限事項に MIDI 変換の範囲、
+  ショートカットに S、更新履歴 v2.8.0（JP/EN）。PDF 再生成（57 ページ）
+  - Main_Capture.png / GameMode_Capture.png: Zoom アイコンを現在のアプリの Save ボタン画像で置き換え、
+    タイトルバーの最大化ボタンを有効表示に修正（元画像は docs/icons/bkup/）
+- exe ビルド・dist/morokoshi280（exe・dll/・license.txt・PDF）と morokoshi280.zip を作成
+- git tag v2.8.0
