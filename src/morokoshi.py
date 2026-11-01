@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.5"
+APP_VERSION = "v2.7.6"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -38,7 +38,8 @@ def _fast_stretch(mono, sr, spd, semi):
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSlider, QLineEdit, QFrame, QSizePolicy,
-    QFileDialog, QStackedWidget, QScrollBar
+    QFileDialog, QStackedWidget, QScrollBar,
+    QDialog, QGridLayout, QSpinBox, QComboBox, QCheckBox, QAbstractSpinBox
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, pyqtSlot, QPointF, QEvent
 from PyQt6.QtGui import (
@@ -223,13 +224,60 @@ def load_global_settings():
     except Exception:
         return {"zoom": 2.0, "volume": 100}
 
-def save_global_settings(zoom, volume):
-    p = os.path.join(CACHE, "settings.json")
+def _read_settings():
+    """settings.json 全体を dict で返す（無い・壊れている場合は空）"""
     try:
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump({"zoom": zoom, "volume": volume}, f)
+        with open(os.path.join(CACHE, "settings.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+def _update_settings(**kw):
+    """settings.json の指定キーだけを書き換える（他のキーは保持）"""
+    d = _read_settings(); d.update(kw)
+    try:
+        with open(os.path.join(CACHE, "settings.json"), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
     except Exception:
         pass
+
+def save_global_settings(zoom, volume):
+    _update_settings(zoom=zoom, volume=volume)
+
+
+# ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
+NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "rows": "auto", "time_sig": "", "triplets": "auto",
+                    "drum_map": "", "no_loop": False, "keep_tail": False,
+                    "no_quantize": False, "no_tri_drums": False}
+NSF2MID_ROWS = ("auto", "2", "3", "4", "6", "8", "9", "12", "16", "24")
+NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
+
+def _import_nsf2mid():
+    core = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nsf2mid_core")
+    if os.path.isdir(core) and core not in sys.path:
+        sys.path.append(core)
+    import nsf2mid
+    return nsf2mid
+
+def _nsf2mid_opts():
+    o = dict(NSF2MID_DEFAULTS)
+    saved = _read_settings().get("nsf2mid")
+    if isinstance(saved, dict):
+        o.update({k: v for k, v in saved.items() if k in NSF2MID_DEFAULTS})
+    return o
+
+def _nsf2mid_argv(o):
+    """オプション dict → nsf2mid のコマンドライン引数"""
+    a = ["-s", str(int(o["seconds"])), "--loops", str(int(o["loops"]))]
+    if str(o["rows"]) != "auto": a += ["--rows-per-beat", str(o["rows"])]
+    if str(o["time_sig"]).strip(): a += ["--time-sig", str(o["time_sig"]).strip()]
+    if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
+    if str(o["drum_map"]).strip(): a += ["--drum-map", str(o["drum_map"]).strip()]
+    for k, flag in (("no_loop", "--no-loop"), ("keep_tail", "--keep-tail"),
+                    ("no_quantize", "--no-quantize"), ("no_tri_drums", "--no-tri-drums")):
+        if o[k]: a.append(flag)
+    return a
 
 def _fhash(path):
     st = os.stat(path)
@@ -4602,6 +4650,113 @@ def _attach_tt(w, text):
     w.enterEvent = enter
     w.leaveEvent = leave
 
+class Nsf2MidDialog(QDialog):
+    """Save で MIDI を選んだときのオプション（nsf2mid の変換オプション。出力フォルダ・ダンプは無し）"""
+    def __init__(self, opts, scale=1.0, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("MIDI options (nsf2mid)")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        S = lambda px: int(round(px*scale))
+        fs = S(13)
+        self.setStyleSheet(
+            f"QDialog{{background:{BG};}}"
+            f"QLabel{{color:{FG}; font-size:{fs}px;}}"
+            f"QCheckBox{{color:{FG}; font-size:{fs}px; spacing:{S(6)}px;}}"
+            f"QCheckBox::indicator{{width:{S(13)}px; height:{S(13)}px; background:{BG3}; border:1px solid {BORDER};}}"
+            f"QCheckBox::indicator:hover{{border:1px solid {FG2};}}"
+            f"QCheckBox::indicator:checked{{background:#FFD700; border:1px solid #FFD700;}}"
+            f"QLineEdit, QSpinBox, QComboBox{{color:{FG}; background:{BG3}; border:1px solid {BORDER};"
+            f" padding:{S(2)}px {S(4)}px; font-size:{fs}px;}}"
+            f"QLineEdit:hover, QSpinBox:hover, QComboBox:hover{{border:1px solid {FG2};}}"
+            f"QLineEdit:focus, QSpinBox:focus, QComboBox:focus{{border:1px solid #FFD700;}}"
+            f"QComboBox QAbstractItemView{{color:{FG}; background:{BG3}; selection-background-color:{BG2};"
+            f" border:1px solid {BORDER};}}"
+            f"QPushButton{{color:{FG}; background:{BG3}; border:1px solid {BORDER}; border-radius:3px;"
+            f" padding:{S(3)}px {S(12)}px; font-size:{fs}px;}}"
+            f"QPushButton:hover{{background:{BG2}; border:1px solid {FG2};}}"
+            f"QPushButton:pressed{{color:#FFD700; border:1px solid #FFD700;}}")
+        g = QGridLayout(self)
+        g.setContentsMargins(S(14), S(12), S(14), S(12))
+        g.setHorizontalSpacing(S(10)); g.setVerticalSpacing(S(6))
+        self._r = 0
+        def add(label, w, tip):
+            lb = QLabel(label)
+            _attach_tt(lb, tip); _attach_tt(w, tip)
+            g.addWidget(lb, self._r, 0); g.addWidget(w, self._r, 1)
+            self._r += 1
+            return w
+        def check(label, tip):
+            c = QCheckBox(label)
+            _attach_tt(c, tip)
+            g.addWidget(c, self._r, 0, 1, 2)
+            self._r += 1
+            return c
+        def spin(lo, hi, step=1):
+            sp = QSpinBox(); sp.setRange(lo, hi); sp.setSingleStep(step)
+            sp.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+            return sp
+        self.sp_loops = add("Loops", spin(1, 16), "How many times to write the loop body\nWheel: change")
+        self.sp_seconds = add("Max seconds", spin(10, 3600, 60),
+            "Max length to emulate (seconds)\nStops automatically when a loop or the song end is found\nWheel: change")
+        self.cb_rows = add("Rows per beat", QComboBox(),
+            "Rows per beat (auto = detect)\nSet this when the tempo comes out doubled or halved")
+        self.cb_rows.addItems(NSF2MID_ROWS)
+        self.ed_timesig = add("Time signature", QLineEdit(),
+            'Time signature per section, e.g. "6/8,4/4"\n"-" or empty = auto')
+        self.cb_triplets = add("Triplets", QComboBox(),
+            "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
+        self.cb_triplets.addItems([t[0] for t in NSF2MID_TRIPLETS])
+        self.ed_drummap = add("Drum map", QLineEdit(),
+            'Override the drum assignment\ne.g. "3:0=42,12:0=36,DMC:E000:129:15=38"')
+        self.ck_noloop = check("No loop detection", "Convert the full max seconds without loop detection")
+        self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
+        self.ck_noquant = check("No quantize", "Do not snap notes to the detected grid")
+        self.ck_notridrums = check("Keep triangle drums as notes", "Do not convert triangle glides to kick drums")
+        bl = QHBoxLayout(); bl.setSpacing(S(6))
+        b_def = QPushButton("Defaults"); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
+        b_ok = QPushButton("OK"); b_ok.clicked.connect(self.accept); b_ok.setDefault(True)
+        b_cancel = QPushButton("Cancel"); b_cancel.clicked.connect(self.reject)
+        for b in (b_def, b_ok, b_cancel): b.setAutoDefault(False)
+        b_ok.setDefault(True)
+        bl.addWidget(b_def); bl.addStretch(1); bl.addWidget(b_ok); bl.addWidget(b_cancel)
+        g.addLayout(bl, self._r, 0, 1, 2)
+        g.setColumnMinimumWidth(1, S(150))
+        self._apply(opts)
+
+    def _apply(self, o):
+        self.sp_loops.setValue(int(o["loops"]))
+        self.sp_seconds.setValue(int(o["seconds"]))
+        self.cb_rows.setCurrentIndex(max(0, self.cb_rows.findText(str(o["rows"]))))
+        self.ed_timesig.setText(str(o["time_sig"]))
+        self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
+        self.ed_drummap.setText(str(o["drum_map"]))
+        self.ck_noloop.setChecked(bool(o["no_loop"]))
+        self.ck_tail.setChecked(bool(o["keep_tail"]))
+        self.ck_noquant.setChecked(bool(o["no_quantize"]))
+        self.ck_notridrums.setChecked(bool(o["no_tri_drums"]))
+
+    def values(self):
+        return {"loops": self.sp_loops.value(), "seconds": self.sp_seconds.value(),
+                "rows": self.cb_rows.currentText(), "time_sig": self.ed_timesig.text().strip(),
+                "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
+                "drum_map": self.ed_drummap.text().strip(),
+                "no_loop": self.ck_noloop.isChecked(), "keep_tail": self.ck_tail.isChecked(),
+                "no_quantize": self.ck_noquant.isChecked(), "no_tri_drums": self.ck_notridrums.isChecked()}
+
+    def accept(self):
+        # 拍子の書式チェック（例 "6/8,4/4"、"-" = 自動）。不正なら閉じずに枠を赤くする
+        import re
+        ts=self.ed_timesig.text().strip()
+        if ts and not re.fullmatch(r"\s*(-|\d+/\d+)(\s*,\s*(-|\d+/\d+))*\s*", ts):
+            self.ed_timesig.setStyleSheet("border:1px solid #E04040;")
+            self.ed_timesig.setFocus(); return
+        self.ed_timesig.setStyleSheet("")
+        super().accept()
+
+    def done(self, r):
+        hide_tt(); super().done(r)
+
+
 class TipButton(QPushButton):
     def __init__(self, tip="", parent=None):
         super().__init__(parent); self._tip=tip
@@ -6835,15 +6990,20 @@ class MainWindow(QMainWindow):
         start_dir=getattr(self,"_last_save_folder",None) or self._load_last_folder()
         if not start_dir or not os.path.isdir(start_dir):
             start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
+        # MIDI は NSF（NESM 形式）のときのみ（nsf2mid は NSFe 非対応）
+        mid_ok=eng._nsf is not None and eng._nsf.fmt=="NESM"
         path,flt=QFileDialog.getSaveFileName(self,"Save Audio",
             os.path.join(start_dir, self._save_default_name()+".wav"),
-            "WAV (*.wav);;MP3 (*.mp3);;M4A (*.m4a)")
+            "WAV (*.wav);;MP3 (*.mp3);;M4A (*.m4a)"+(";;MIDI (*.mid)" if mid_ok else ""))
         if not path: return
         ext=os.path.splitext(path)[1].lower().lstrip(".")
-        if ext not in ("wav","mp3","m4a"):
-            ext="mp3" if flt.startswith("MP3") else "m4a" if flt.startswith("M4A") else "wav"
+        if ext not in (("wav","mp3","m4a","mid") if mid_ok else ("wav","mp3","m4a")):
+            ext=("mp3" if flt.startswith("MP3") else "m4a" if flt.startswith("M4A")
+                 else "mid" if flt.startswith("MIDI") else "wav")
             path+="."+ext
         self._last_save_folder=os.path.dirname(path)
+        if ext=="mid":
+            self._save_midi(path); return
         # 再生中の状態（Speed/Key/Fine）を保存開始時点で確定。フィルターは反映しない
         with eng._lock:
             data=eng.data; sr=eng.sr
@@ -6888,6 +7048,52 @@ class MainWindow(QMainWindow):
                 try: os.remove(tmp)
                 except Exception: pass
             self._saving=False
+
+    def _save_midi(self, path):
+        """NSF の現在のトラックを nsf2mid で MIDI に変換して保存（オプションダイアログを表示）"""
+        nsf=self.engine._nsf
+        if nsf is None: return
+        dlg=Nsf2MidDialog(_nsf2mid_opts(), self._scale, self)
+        if dlg.exec()!=QDialog.DialogCode.Accepted:
+            self._st("MIDI save cancelled"); return
+        opts=dlg.values()
+        _update_settings(nsf2mid=opts)
+        self._saving=True; self._mid_stop=False
+        threading.Thread(target=self._save_midi_th,
+            args=(nsf.path, nsf.cur_track+1, path, opts), daemon=True).start()
+
+    def _save_midi_th(self, src, track, path, opts):
+        import io, contextlib, time as _time
+        t0=_time.time(); buf=io.StringIO()
+        def should_stop():
+            self._st(f"Saving MIDI... {int(_time.time()-t0)}s (Esc: cancel)")
+            return self._mid_stop
+        try:
+            n2m=_import_nsf2mid()
+            argv=[src,"-t",str(track),"--mid-out",path]+_nsf2mid_argv(opts)
+            try:
+                args=n2m.build_parser().parse_args(argv)
+            except SystemExit:
+                raise RuntimeError("invalid MIDI options")
+            should_stop()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    code,outs=n2m.convert(args, should_stop)
+            except n2m.Cancelled:
+                _log(f"save midi cancelled: {path}")
+                self._st("MIDI save cancelled"); return
+            _log(f"save midi: {path} src={src} track={track} argv={argv}\n{buf.getvalue().rstrip()}")
+            if code!=0:
+                lines=[l for l in buf.getvalue().splitlines() if l.strip()]
+                raise RuntimeError(lines[-1] if lines else f"exit code {code}")
+            if not any(o.lower().endswith(".mid") for o in outs):
+                raise RuntimeError("not enough notes to detect the tempo")
+            self._st(f"Saved: {os.path.basename(path)} ({_time.time()-t0:.1f}s)")
+        except Exception as ex:
+            _log(f"save midi err: {ex}\n{buf.getvalue().rstrip()}")
+            self._st(f"MIDI save failed: {ex}")
+        finally:
+            self._saving=False; self._mid_stop=False
 
     def _rebuild_window(self):
         # 現在の表示状態を保持しつつウィンドウUIを再構築
@@ -8344,7 +8550,10 @@ class MainWindow(QMainWindow):
                 _b=getattr(self,"_save_btn",None)
                 if _b is not None: self._flash_off(_b)
             return True
-        if key==K.Key_Escape:  # ESC → 再生中のみ停止
+        if key==K.Key_Escape:  # ESC → MIDI 変換中なら中止、それ以外は再生中のみ停止
+            if getattr(self,"_saving",False) and getattr(self,"_mid_stop",None) is False:
+                self._mid_stop=True; self._st("Cancelling MIDI save...")
+                return True
             if self.engine.playing and not self.engine.paused:
                 self.engine.pause_toggle()
                 self._upd_play(False)

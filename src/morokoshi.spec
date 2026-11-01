@@ -10,10 +10,10 @@ if not os.path.isfile(ICON_PATH):
 
 a = Analysis(
     ['morokoshi.py'],
-    pathex=[],
+    pathex=[os.path.join(SPECPATH, 'nsf2mid_core')],   # NSF -> MIDI (copied from nsf2mid by tools/sync_nsf2mid.py)
     binaries=[],
-    datas=[('..\\icon\\morokoshi.ico', '.')],
-    hiddenimports=[],
+    datas=[(ICON_PATH, '.')],
+    hiddenimports=['nsf2mid'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -42,5 +42,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['..\\icon\\morokoshi.ico'],
+    icon=[ICON_PATH],
 )
