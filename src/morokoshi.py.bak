@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.10"
+APP_VERSION = "v2.8.11"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -3402,11 +3402,13 @@ class NsfChButton(QPushButton):
 
 
 class _NsfMarquee(QWidget):
-    """長いテキストを横スクロール表示するラベル"""
-    def __init__(self, parent=None):
+    """長いテキストを横スクロール表示するラベル（NSFタイトル・最下段のメッセージ）"""
+    def __init__(self, parent=None, fg=None):
         super().__init__(parent)
-        self._text=""; self._offset=0; self._delay=0
+        self._text=""; self._offset=0; self._delay=0; self._fg=fg
         self._timer=QTimer(self); self._timer.timeout.connect(self._tick)
+    def text(self):
+        return self._text
     def setText(self, t):
         self._text=t; self._offset=0; self._delay=0
         self._timer.stop(); self.update()
@@ -3425,7 +3427,7 @@ class _NsfMarquee(QWidget):
     def paintEvent(self, e):
         p=QPainter(self); p.fillRect(0,0,self.width(),self.height(),QColor(BG))
         if not self._text: p.end(); return
-        p.setPen(QColor(FG)); p.setClipRect(0,0,self.width(),self.height())
+        p.setPen(QColor(self._fg or FG)); p.setClipRect(0,0,self.width(),self.height())
         fm=p.fontMetrics()
         y=(self.height()+fm.ascent()-fm.descent())//2
         tw=fm.horizontalAdvance(self._text)
@@ -4886,10 +4888,19 @@ class LanguagePopup(QFrame):
         lo.setContentsMargins(0, 4, 0, 4)
         lo.setSpacing(0)
         for code, name, _ in _lang.LANGUAGES:
-            mark = "✓ " if code == _lang.current() else "    "
-            btn = QPushButton(mark + name)
+            # ✓ は固定幅の列に置き、言語名の左端を揃える
+            btn = QPushButton()
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setMinimumWidth(140)
+            row = QHBoxLayout(btn); row.setContentsMargins(10, 5, 10, 5); row.setSpacing(4)
+            for txt, w in (("✓" if code == _lang.current() else "", 14), (name, None)):
+                lb = QLabel(txt)
+                lb.setStyleSheet(f"color:{FG}; background:transparent; font-size:13px;")
+                lb.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                if w: lb.setFixedWidth(w)
+                row.addWidget(lb)
+            row.addStretch()
+            btn.setMinimumHeight(row.sizeHint().height())
             btn.clicked.connect(lambda _checked, c=code: self._select(c))
             lo.addWidget(btn)
 
@@ -5579,11 +5590,13 @@ class MainWindow(QMainWindow):
         # 左端をSpeed/Key行と同じ2px、右端も同じ2px余白に。
         # 中身は上寄せ（上15pxに収め、下にウィンドウ下端までの余白4pxを取る）
         msg_lo=QHBoxLayout(msg_row); msg_lo.setContentsMargins(self.S(2),0,self.S(8),self.S(4)); msg_lo.setSpacing(self.S(4))
-        self._msg=QLabel(tr("Drop a file or click Open to load"))
-        self._msg.setStyleSheet(f"color:{FG2}; background:{BG}; padding:1px 0px; font-size:{self.S(11)}px;")
-        self._msg.setMaximumWidth(self.S(230))  # 音量バーに被らないよう制限
-        msg_lo.addWidget(self._msg)
-        msg_lo.addStretch()
+        # 表示しきれない長さのときは横スクロール（NSFタイトルと同じ）。幅は音量バーの手前まで
+        self._msg=_NsfMarquee(fg=FG2)
+        _mf=self._msg.font(); _mf.setPixelSize(self.S(11)); self._msg.setFont(_mf)
+        self._msg.setMinimumWidth(0)
+        self._msg.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._msg.setText(tr("Drop a file or click Open to load"))
+        msg_lo.addWidget(self._msg, 1)
         msg_lo.addWidget(self._vol_slider)
         msg_lo.addWidget(self._vol_pct)
         # Show ffmpeg path on hover (only before any file is loaded)
