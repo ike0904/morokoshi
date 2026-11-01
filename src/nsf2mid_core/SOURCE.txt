@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.19
-commit:  f97acae 2026-11-01 v0.1.19: --tempo auto/half/double (scale detected tempo per segment), --loops 0 = no loop detection; GUI: Tempo (auto/half/double) replaces rows per beat, drop the no-loop checkbox
+version: v0.1.20
+commit:  4712476 2026-11-01 v0.1.20: pitch-drop drums on the pulse channels too; P1/P2/TRI drop drums keep their pitch on MIDI ch 11/12/13 (--no-drop-drums)
 files:   apu_state.py, cpu6502.py, drums.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py

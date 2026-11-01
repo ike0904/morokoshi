@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.4 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.5 (2026-11-01) ← 最新（プロンプト直接指示）
+- MIDI options から Time signature を削除（拍子は常に自動判定）
+  - 区間（テンポが変わる所で区切った部分）ごとの指定だが、もろこしでは区間を確認する手段が無いため
+  - 書式チェック（赤枠・OK/保存の中止）も削除。旧設定の time_sig は無視される。nsf2mid 本体の拍子指定はそのまま
+- マニュアル（md のみ）: オプション表・対処表の Time signature の行を削除（JP/EN）
+- APP_VERSION v2.8.5
+
+### v2.8.4 (2026-11-01)（プロンプト直接指示）
 - MIDI options から Drum map を削除（もろこしではドラムの種類を確認する手段が無く、実質使えないため）
   - 旧設定に保存された drum_map は無視される。nsf2mid 本体（ログで種類を確認できる）の Drum map はそのまま
 - マニュアル（md のみ）: オプション表・対処表の Drum map の行と「Drum map の書き方」節を削除（JP/EN）

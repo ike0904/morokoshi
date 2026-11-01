@@ -462,7 +462,6 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | **Loops** | 1 | ループ部分を何回書き出すか。1 なら「イントロ＋ループ 1 回」。<br>0 ならループを探さず、Max seconds の長さをそのまま変換 |
 | **Max seconds** | 600 | エミュレートする最大の長さ（秒）。ループが確定するか曲が終わると、その時点で自動的に止まります |
 | **Tempo** | Auto | Auto（自動検出したテンポ）/ Half（その半分）/ Double（その 2 倍）。<br>テンポが倍・半分に検出されたときに指定します |
-| **Time signature** | （空欄） | 区間ごとの拍子をカンマ区切りで指定。例 `6/8,4/4`。`-` または空欄 = 自動。書式が正しくないと枠が赤くなります |
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
 | **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
@@ -474,7 +473,6 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | :---------------- | :------------------------------------------- |
 | テンポが倍・半分になる | 「Tempo」を「Half」/「Double」に |
 | 3 連の曲が 2 分割になる / その逆 | 「Triplets」を「On」/「Off」に |
-| 拍子が違う | 「Time signature」に区間ごとの拍子を指定（例 `6/8,4/4`） |
 | 音符が細切れ / 長さが不自然 | 「No quantize」「Keep reverb tails」を試す |
 | ループしない曲が途中で切れる / ループ判定が誤る | 「Loops」を 0 にして「Max seconds」で長さを指定 |
 
@@ -1153,7 +1151,6 @@ The current song is converted to MIDI.
 | **Loops** | 1 | How many times to write the loop body. 1 = intro + 1 loop.<br>0 = do not look for a loop; convert the full "Max seconds" |
 | **Max seconds** | 600 | Maximum length to emulate (seconds). Stops automatically when the loop is confirmed or the song ends |
 | **Tempo** | Auto | Auto (detected tempo) / Half / Double (of the detected tempo).<br>Set it when the tempo is detected doubled or halved |
-| **Time signature** | (empty) | Meter per section, comma-separated. e.g. `6/8,4/4`. `-` or empty = auto. The box turns red if the format is wrong |
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
 | **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
@@ -1165,7 +1162,6 @@ The current song is converted to MIDI.
 | :---------------- | :------------------------------------------- |
 | Tempo is doubled / halved | Set "Tempo" to "Half" / "Double" |
 | A triplet song comes out in straight time / or the opposite | Set "Triplets" to "On" / "Off" |
-| Wrong time signature | Enter the meter per section in "Time signature" (e.g. `6/8,4/4`) |
 | Notes are chopped / lengths look odd | Try "No quantize" and "Keep reverb tails" |
 | A non-looping song is cut / the loop is wrong | Set "Loops" to 0 and set the length with "Max seconds" |
 
