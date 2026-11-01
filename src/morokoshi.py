@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.12"
+APP_VERSION = "v2.8.13"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4831,7 +4831,49 @@ class TipButton(QPushButton):
         hide_tt(); super().leaveEvent(e)
 
 
-class FileHistoryPopup(QFrame):
+class _PopupKeys:
+    """履歴・言語ポップアップのキー操作: ↑↓で選択、Enter/Space で決定、1〜9・0 で直接選択、Esc で閉じる"""
+    def _init_keys(self, buttons, start=0):
+        self._kbtns = buttons
+        for b in buttons:
+            b.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            b.installEventFilter(self)
+        self._kstart = start
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if getattr(self, "_kbtns", None):
+            i = max(0, min(self._kstart, len(self._kbtns) - 1))
+            QTimer.singleShot(0, lambda: self._kbtns[i].setFocus())
+
+    def eventFilter(self, obj, e):
+        from PyQt6.QtCore import QEvent
+        t = e.type()
+        if t == QEvent.Type.Enter and obj in self._kbtns:
+            obj.setFocus()   # マウスで指した項目にキーの選択も合わせる（ハイライトを1つに）
+        elif t == QEvent.Type.KeyPress and obj in self._kbtns:
+            k = e.key(); K = Qt.Key
+            i = self._kbtns.index(obj)
+            n = len(self._kbtns)
+            if k == K.Key_Down:
+                self._kbtns[(i + 1) % n].setFocus(); return True
+            if k == K.Key_Up:
+                self._kbtns[(i - 1) % n].setFocus(); return True
+            if k in (K.Key_Return, K.Key_Enter, K.Key_Space):
+                obj.click(); return True
+            if K.Key_1 <= k <= K.Key_9 or k == K.Key_0:
+                j = 9 if k == K.Key_0 else k - K.Key_1
+                if j < n: self._kbtns[j].click()
+                return True
+            if k == K.Key_Escape:
+                self.close(); return True
+            if k == K.Key_Tab or k == K.Key_Backtab:
+                return False
+            return True   # その他のキーは無視（ポップアップ表示中に本体の操作をしない）
+        return False
+
+
+class FileHistoryPopup(_PopupKeys, QFrame):
     """OPENボタン右クリックで表示するファイル履歴ポップアップ（最大10件）"""
     file_selected = pyqtSignal(str)
 
@@ -4841,8 +4883,8 @@ class FileHistoryPopup(QFrame):
         self.setStyleSheet(
             f"FileHistoryPopup{{background:{BG2}; border:1px solid {BORDER};}}"
             f"QPushButton{{background:transparent; color:{FG}; border:none; text-align:left;"
-            f" padding:5px 10px; font-size:13px;}}"
-            f"QPushButton:hover{{background:{BG3};}}")
+            f" padding:5px 10px; font-size:13px; outline:none;}}"
+            f"QPushButton:hover, QPushButton:focus{{background:{BG3};}}")
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 4, 0, 4)
         lo.setSpacing(0)
@@ -4851,6 +4893,7 @@ class FileHistoryPopup(QFrame):
             lbl.setStyleSheet(f"color:{FG2}; padding:5px 14px; font-size:13px;")
             lo.addWidget(lbl)
         else:
+            btns = []
             for p in paths:
                 name = os.path.basename(p)
                 btn = QPushButton(name)
@@ -4859,7 +4902,8 @@ class FileHistoryPopup(QFrame):
                 btn.clicked.connect(lambda _checked, pp=p: self._select(pp))
                 btn.enterEvent = lambda e, pp=p: show_tt(pp, self)
                 btn.leaveEvent = lambda e: hide_tt()
-                lo.addWidget(btn)
+                lo.addWidget(btn); btns.append(btn)
+            self._init_keys(btns)
 
     def _select(self, path):
         self.file_selected.emit(path)
@@ -4872,7 +4916,7 @@ class FileHistoryPopup(QFrame):
             super().mousePressEvent(e)
 
 
-class LanguagePopup(QFrame):
+class LanguagePopup(_PopupKeys, QFrame):
     """Helpボタン右クリックで表示する言語の選択（各言語の名前はその言語で表示）"""
     language_selected = pyqtSignal(str)
 
@@ -4882,11 +4926,12 @@ class LanguagePopup(QFrame):
         self.setStyleSheet(
             f"LanguagePopup{{background:{BG2}; border:1px solid {BORDER};}}"
             f"QPushButton{{background:transparent; color:{FG}; border:none; text-align:left;"
-            f" padding:5px 10px; font-size:13px;}}"
-            f"QPushButton:hover{{background:{BG3};}}")
+            f" padding:5px 10px; font-size:13px; outline:none;}}"
+            f"QPushButton:hover, QPushButton:focus{{background:{BG3};}}")
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 4, 0, 4)
         lo.setSpacing(0)
+        btns = []
         for code, name, _ in _lang.LANGUAGES:
             # ✓ は固定幅の列に置き、言語名の左端を揃える
             btn = QPushButton()
@@ -4902,7 +4947,8 @@ class LanguagePopup(QFrame):
             row.addStretch()
             btn.setMinimumHeight(row.sizeHint().height())
             btn.clicked.connect(lambda _checked, c=code: self._select(c))
-            lo.addWidget(btn)
+            lo.addWidget(btn); btns.append(btn)
+        self._init_keys(btns, _lang.codes().index(_lang.current()))   # 最初は今の言語を選択
 
     def _select(self, code):
         self.language_selected.emit(code)
@@ -5362,9 +5408,9 @@ class MainWindow(QMainWindow):
         # ※ None=空（透明）スロット。A/B押しボタンはテンキー(4/6)との整合性のためEarの左右に配置。
         icon_grid = [
             [None,
-             ("help","Help [H]\nR-Click: Language","_help_btn",self._show_help),
+             ("help","Help [H]\nR-Click [Alt+H]: Language","_help_btn",self._show_help),
              ("save","Save [S]","_save_btn",self._save_audio)],
-            [("open","Open[O]\nShift: Folder\nR-Click: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
+            [("open","Open[O]\nShift: Folder\nR-Click [Alt+O]: History","_open_btn",lambda: self._open_folder() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._open()),
              ("tempo_search","Tempo detection [T]\nShift: Tap tempo","_tempo_btn",self._tempo_btn_action),
              ("reset","Reset[R]\nShift: Clear Cache","_reset_btn",
               lambda: self._do_cache_clear() if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else self._do_reset())],
@@ -8476,6 +8522,7 @@ class MainWindow(QMainWindow):
         if event.type()!=QEvent.Type.KeyPress: return False
         focused=QApplication.focusWidget()
         if isinstance(focused, QLineEdit): return False
+        if QApplication.activePopupWidget() is not None: return False  # 履歴・言語ポップアップのキー操作を優先
         return self._handle_key(event)
 
     def _key_btn(self, vk, key, shift=False, keypad=False):
@@ -8566,6 +8613,15 @@ class MainWindow(QMainWindow):
             _kp=bool(e.modifiers() & Qt.KeyboardModifier.KeypadModifier)
             _b=self._key_btn(vk, key, shift, keypad=_kp)
             if _b is not None: self._flash_on(_b)
+
+        # Alt+O / Alt+H → 右クリックと同じ（ファイル履歴・言語の選択）
+        if e.modifiers() & Qt.KeyboardModifier.AltModifier and not ctrl and not e.isAutoRepeat():
+            if vk==79 or vk==72:
+                if vk==79: self._show_open_history()
+                else: self._show_language_menu()
+                _b=getattr(self, "_open_btn" if vk==79 else "_help_btn", None)
+                if _b is not None: self._flash_off(_b)
+                return True
 
         # Shift+A/B → マーカーをSet（現在時間を記録）
         if shift:

@@ -159,7 +159,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 
 | 項目 | 説明 |
 | :---------------------- | :-------------------------------------------------------- |
-| <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。 |
+| <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。<br>**右クリック**で表示言語（English / 日本語）を切り替えます。初めて起動したときは、パソコンの言語が日本語なら日本語、それ以外は English で表示します。 |
 | <img src="icons/save.png" width="20"> **Save** | 曲全体を WAV / MP3 / M4A で保存します。NSF では MIDI にも変換できます（「5. 保存（Save）・MIDI 変換」参照）。 |
 | <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。**Shift+クリック**でフォルダ選択ダイアログを開きます。**右クリック**で最近開いたファイルの履歴を表示します（最大10件）。 |
 | <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。検出中はアイコンが**赤**になります。**Shift+クリック**でタップテンポ（アイコンが**青**）になります。 |
@@ -849,7 +849,7 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 
 | Item | Description |
 | :---------------------- | :-------------------------------------------------------- |
-| <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`. |
+| <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`.<br>**Right-click** to switch the display language (English / 日本語). On first start, Japanese is used if Windows is set to Japanese, otherwise English. |
 | <img src="icons/save.png" width="20"> **Save** | Saves the whole song as WAV / MP3 / M4A. NSF songs can also be converted to MIDI (see "5. Save & MIDI Conversion"). |
 | <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. **Shift+click** opens a folder-selection dialog. **Right-click** shows a history of recently opened files (up to 10 entries). |
 | <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. The icon turns **red** during detection. **Shift+click** for Tap Tempo (the icon turns **blue**). |
