@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.7.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.8.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v2.7.0)
+(対象バージョン: v2.8.0)
 
 ---
 
@@ -30,6 +30,7 @@
 * アプリを閉じても、**前回作業時の各種情報（再生位置・マーカー・速度・キー・Fine・フィルターなど）を曲ごとに記憶**します。次に同じファイルを開くと、続きからすぐ作業できます。
 * **NSF（NES/ファミコン）・SPC（SNES/スーパーファミコン）・GBS（Game Boy）のゲーム音楽ファイルに対応**。チャンネル個別ON/OFF・複数曲の切り替えなど、耳コピに役立つ機能が揃っています（詳細は「6. ゲームモードの使い方」参照）。
 * **ZIPファイルをそのまま開ける**ので、解凍の手間なくゲーム音楽を楽しめます。
+* 速度・キーを変えた音声を **WAV / MP3 / M4A で保存**できます。NSF は **MIDI に変換**して保存することもできます（テンポ検出付き。詳細は「5. 保存（Save）・MIDI 変換」参照）。
 * **省スペースでシンプル**、かつ直感的で使いやすいデザイン。映像ウィンドウに画面を圧迫されることもありません。
 
 ---
@@ -41,7 +42,7 @@
 ### 必須環境
 
 * **OS**: Windows 10 / 11（64bit）
-* **ffmpeg**: メディアファイルを内部的にWAVへ変換するために使用します。NSF/SPC/GBSファイルを使う場合は不要です。
+* **ffmpeg**: メディアファイルを内部的にWAVへ変換するため、および MP3・M4A で保存するために使用します。NSF/SPC/GBSファイルの再生には不要です。
 
 ### ffmpegについて
 
@@ -143,7 +144,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | **Tempo** | 曲のテンポ（BPM）。30～300。**シングルクリック**するとテンポ検出を実行します。 |
 | **Beat** | 拍子（1小節あたりの拍数）。1～16。 |
 | **Bar** | 早送り・早戻しの小節数。0.1～100。 |
-| **Speed** | 再生速度。×1/8 / ×1/4 / ×1/2 / ×1/1 の4段階。 |
+| **Speed** | 再生速度。×1/8 / ×1/4 / ×1/2 / ×1/1 の4段階。直接入力では `8`（＝×1/8）・`1/2`・`x1/4`・`0.5` などの書き方ができます（近い段階に丸めます）。 |
 
 これらの数値ボックスは、共通して次の操作ができます（詳しくは「4. 基本的な使い方」で解説します）。
 
@@ -159,7 +160,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | 項目 | 説明 |
 | :---------------------- | :-------------------------------------------------------- |
 | <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。 |
-| <img src="icons/zoom.png" width="20"> **Zoom** | 画面全体の表示倍率を2倍 ⇔ 1倍で切り替えます。文字やボタンが小さくて見づらいときに使います。 |
+| <img src="icons/save.png" width="20"> **Save** | 曲全体を WAV / MP3 / M4A で保存します。NSF では MIDI にも変換できます（「5. 保存（Save）・MIDI 変換」参照）。 |
 | <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。**Shift+クリック**でフォルダ選択ダイアログを開きます。**右クリック**で最近開いたファイルの履歴を表示します（最大10件）。 |
 | <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。検出中はアイコンが**赤**になります。**Shift+クリック**でタップテンポ（アイコンが**青**）になります。 |
 | <img src="icons/reset.png" width="20"> **すべてリセット** | マーカー・速度・キー・Fine・テンポ・フィルターなどを初期状態に戻します。 |
@@ -171,6 +172,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | <img src="icons/ff.png" width="20"> **早送り** | 設定した小節数（Rew/FF）だけ後ろに移動します。 |
 
 > 💡 **A**・**B** ボタンは、左側情報エリアのA・Bの時間表示（マーカーを**セット**する場所）とは別の、マーカーへ**移動（ジャンプ）する**専用ボタンです。
+> 💡 **Zoom**（画面全体の表示倍率を2倍 ⇔ 1倍で切り替え）は、ウィンドウ右上の**最大化ボタン**、または**タイトルバーのダブルクリック**で行います（**Z** キーでも可）。文字やボタンが小さくて見づらいときに使います。
 
 ### 中央: スペクトラムアナライザー（フィルター操作エリア）
 
@@ -420,6 +422,83 @@ Ear Mode中は、A・Bが常に「セットで」動きます。
 
 <div style="page-break-before: always;"></div>
 
+## 5. 保存（Save）・MIDI 変換
+
+### 音声を保存する（WAV / MP3 / M4A）
+
+1. <img src="icons/save.png" width="20"> **Save** アイコンをクリックします（または **S** キー）。
+2. 保存ダイアログで、ファイル名と「ファイルの種類」（WAV / MP3 / M4A）を選んで保存します。
+
+* 保存されるのは**曲全体**です（A-B 区間だけではありません）。
+* **Speed・Key・Fine** は保存する音声に反映されます。**フィルター**は反映されません。
+* 形式: WAV は 16bit、MP3・M4A は 192kbps。サンプリングレートは再生中のものと同じです。MP3・M4A の保存には ffmpeg を使います。
+* 最初に表示されるファイル名は、開いているファイルの名前です（ゲーム音楽では「_曲番号 曲名」が付きます）。
+* 保存ダイアログは、**前回保存したフォルダ**で開きます（アプリを再起動しても記憶しています）。
+* 保存の進み具合は、最下部のメッセージ欄に表示されます。
+
+### MIDI に変換して保存する（NSF のみ）
+
+NSF ファイルを開いているときは、「ファイルの種類」に **MIDI (\*.mid)** が加わります。
+姉妹ツール **nsf2mid** と同じ変換エンジンで、表示中の曲を MIDI に変換します。
+
+1. <img src="icons/save.png" width="20"> **Save** で保存ダイアログを開き、「ファイルの種類」で **MIDI** を選びます。
+2. 保存ダイアログの横に **MIDI options**（変換オプション）が表示されます。必要に応じて変更します。
+3. 保存ダイアログの「保存」を押すと変換が始まります。1 曲あたり数秒〜十数秒かかり、メッセージ欄に経過秒数が表示されます。**Esc** キーで中止できます。
+
+* オプションは次回も引き継がれます。「Defaults」ですべて初期値に戻ります。
+* 「ファイルの種類」を変えずにファイル名へ `.mid` と入力した場合は、OK / Cancel 付きのオプション画面が表示されます。
+* 変換の特徴:
+  * **テンポ検出付き**: 発音タイミングからテンポ・拍子を検出し、拍に合わせた（クオンタイズ済みの）MIDI を出力します。
+    曲の途中でテンポや拍子が変わる曲、3 連ノリ・シャッフルの曲にも対応します。
+  * **自然なノート判定**: 音色（duty 比）の変化、音量の揺れ、ビブラートは 1 つの音の中の変化として扱います。
+    小さな音量で鳴らし続ける「リバーブ余韻」もノートの長さから除きます。
+  * **ドラム変換**: ノイズ・DPCM（サンプル）・三角波キックを、GM ドラムに自動で割り当てます。
+  * **ループ検出**: ループ点とループ長を検出し、「イントロ＋ループ 1 回」のように必要な長さだけを書き出します。
+
+#### MIDI options（変換オプション）
+
+| 項目 | 既定値 | 内容 |
+| :---------------- | :---- | :------------------------------------------- |
+| **Loops** | 1 | ループ部分を何回書き出すか。1 なら「イントロ＋ループ 1 回」 |
+| **Max seconds** | 600 | エミュレートする最大の長さ（秒）。ループが確定するか曲が終わると、その時点で自動的に止まります |
+| **Rows per beat** | auto | 1 拍を何個の細かい単位（行）に分けるか。auto = 自動検出。<br>テンポが倍・半分に検出されたときに指定します |
+| **Time signature** | （空欄） | 区間ごとの拍子をカンマ区切りで指定。例 `6/8,4/4`。`-` または空欄 = 自動。書式が正しくないと枠が赤くなります |
+| **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
+| **Drum map** | （空欄） | ドラムの割当を上書き。例 `3:0=42,DMC:E000:129:15=38`（書き方は nsf2mid のマニュアル参照） |
+| **No loop detection** | オフ | ループを探さず、Max seconds の長さをそのまま変換 |
+| **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
+| **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
+| **Keep triangle drums as notes** | オフ | 三角波の「キック」（急に音程が下がる短い音）をドラムに変換せず、三角波の音符のまま残します |
+
+#### うまく変換できないとき
+
+| 症状 | 対処 |
+| :---------------- | :------------------------------------------- |
+| テンポが倍・半分になる | 「Rows per beat」を変える（例: auto → 4 や 2） |
+| 3 連の曲が 2 分割になる / その逆 | 「Triplets」を「On」/「Off」に |
+| 拍子が違う | 「Time signature」に区間ごとの拍子を指定（例 `6/8,4/4`） |
+| ドラムの種類が違う | 「Drum map」で個別に上書き（ドラムの種類は nsf2mid のログ欄で確認できます） |
+| 音符が細切れ / 長さが不自然 | 「No quantize」「Keep reverb tails」を試す |
+| ループしない曲が途中で切れる / ループ判定が誤る | 「No loop detection」＋「Max seconds」で長さを指定 |
+
+#### 出力される MIDI
+
+| トラック | 内容 | MIDI ch |
+| :---------------- | :------------------------------------------- | :---- |
+| Track 0 | 曲名・テンポマップ・拍子・ループマーカー（`loopStart` / `loopEnd`） | — |
+| Ch1 Pulse / Ch2 Pulse | 矩形波 1 / 矩形波 2 | 1 / 2 |
+| Ch3 Wave | 三角波 | 3 |
+| Ch4 Noise drums / Ch5 DPCM drums / Ch3 Wave drums | ノイズ / DPCM / 三角波のドラム（その種類のドラムがある場合のみ） | 10 |
+
+* 音色（プログラムチェンジ）は出力しません。楽譜ソフトが音色番号から楽器を推測し、移調楽器として表示したり、トラックを並べ替えたりするのを防ぐためです。
+* 三角波は APU の実際の音高で出力します。強弱は NSF の音量からベロシティに変換します。
+
+> 💡 複数の曲をまとめて変換したいとき、ドラム割当を詳しく調整したいときは、**nsf2mid** 単体（GUI・コマンドライン）とそのマニュアルをご利用ください。
+
+---
+
+<div style="page-break-before: always;"></div>
+
 ## 6. ゲームモードの使い方（NSF・SPC・GBS）
 
 「もろこしタイム」は、NSF（NES/ファミコン）・SPC（SNES/スーパーファミコン）・GBS（Game Boy）の3種類のゲーム音楽フォーマットに対応しています。これらのファイルを開くと、スペクトラムアナライザーのエリアが**ゲームパネル**に切り替わります。
@@ -516,6 +595,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | :---------------------- | :--------------------------------------------------------------- |
 | **チャンネル認識の誤検出** | 特定のゲーム音楽ファイルで、一部のチャンネルが「使用している」と誤って認識され、正しくグレーアウトされない場合があります。この場合、手動でOFFにすることができます。 |
 | **ゲームモードのスペクトラムアナライザー非対応** | NSF/SPC/GBSモード中はスペクトラムアナライザーおよびフィルターは使用できません。 |
+| **MIDI 変換の対応範囲** | MIDI に変換できるのは NSF（NESM 形式）のみです。NSFe・SPC・GBS、NSF の拡張音源（VRC6 など）の音は変換されません（2A03 本体の音のみ）。テンポが倍・半分に検出されることがあります（「5. 保存（Save）・MIDI 変換」参照）。 |
 | **テンポ検出の精度** | テンポ検出はオンセット検出とビートトラッキングによる推定です。複雑なリズムの曲や一定でないテンポの曲では、誤った値が検出される場合があります。 |
 
 ---
@@ -545,7 +625,8 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **R** | **9** | すべてリセット |
 | **Shift+R** | **Enter+9** | キャッシュクリア |
 | **H** | **／**（スラッシュ） | Help（取扱説明書を開く） |
-| **Z** | **＊**（アスタリスク） | Zoom（画面表示倍率を切り替え） |
+| **Z** | **＊**（アスタリスク） | Zoom（画面表示倍率を切り替え。ウィンドウの最大化ボタンでも可） |
+| **S** | （対応無し） | Save（保存） |
 | **1** ～ **¥**（最上段） | （対応無し） | ゲームモード: チャンネルをソロ（そのchのみON、他は全てOFF） |
 | **Shift+1 ～ ¥** | （対応無し） | ゲームモード: チャンネルのON/OFFを切り替え |
 | **,** | （対応無し） | 前の曲（ゲームモード時のみ） |
@@ -596,7 +677,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v2.7.0**  
+**Morokoshi Time v2.8.0**  
 *Created by Ike-san*
 
 ## 更新履歴 {style="page-break-before: always;"}
@@ -617,6 +698,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v2.5.0** | 2026/9/22 | **Tempo欄をダブルクリックで直接入力**できるように変更（1クリックのテンポ検出と競合しない）。<br>**Ear Mode 中のA・Bマーカー操作を改善**。A・Bを動かすと現在位置が常に相対的に連動して動く。また、Ear Mode 突入時に現在位置がA～B区間外にある場合は自動的にAへ移動。Ear Mode 中は波形クリックや直接入力でもA～B区間外に出られない。<br>波形のA-B帯（黄色い部分）を左右にドラッグして区間ごとパン移動できる操作を復活。 |
 | **v2.6.0** | 2026/10/4 | **タップテンポ**機能を追加（Shift+T / テンポ検出アイコンのShift+クリック / テンキーEnter+8）。<br>テンポ検出中はテンポ検出アイコンを赤、タップテンポ中は青で表示。<br>**スクロールバーの端をドラッグ**して表示範囲（ズーム幅）を調整可能に。再生中は再生位置が画面外に出ないよう制限。<br>波形エリアの**右クリックでA・B両方のマーカーをリセット**可能に。 |
 | **v2.7.0** | 2026/10/10 | 波形の上に**時間目盛り**を追加。拡大率に応じて目盛りの間隔を自動で切り替え。ゲームモードでも表示。<br>波形の拡大上限を「画面の幅が**1秒**になるまで」に変更。<br>**フィルター使用中に再生が途切れる・もたつく**問題を修正（フィルター処理を大幅に高速化）。<br>その他軽微な修正。 |
+| **v2.8.0** | 2026/11/1 | **Save（保存）機能を追加**。曲全体を WAV / MP3 / M4A で保存（Speed・Key・Fine を反映）。前回保存したフォルダを記憶。<br>**NSF を MIDI に変換して保存**（nsf2mid と同じ変換エンジン。テンポ検出・ドラム変換・ループ検出付き）。<br>Zoom をウィンドウの**最大化ボタン**（タイトルバーのダブルクリック）に移動。空いた位置に Save アイコンを配置。<br>Speed の直接入力で `8`・`1/2`・`x1/4` などの書き方に対応。<br>NSF の一部の曲で**曲頭〜数秒が無音**になる問題を修正。SPC・GBS の一部の曲で曲頭に余分な無音が入る問題を修正。<br>その他軽微な修正。 |
 
 ---
 
@@ -625,7 +707,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v2.7.0)
+(Target version: v2.8.0)
 
 ---
 
@@ -645,6 +727,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 * **Per-file state persistence.** Playback position, markers, speed, key, Fine, filters, and more are remembered for each file. The next time you open the same file, you pick up exactly where you left off.
 * **NSF (NES/Famicom), SPC (SNES/Super Famicom), and GBS (Game Boy) game music support.** Features include per-channel ON/OFF muting and multi-track switching — everything you need for game music transcription. (See "6. Game Mode" for details.)
 * **Open ZIP files directly** — no need to extract game music files first.
+* **Save** the audio with your speed / key settings as **WAV / MP3 / M4A**. NSF songs can also be **converted to MIDI** with tempo detection (see "5. Save & MIDI Conversion").
 * **Compact and simple design** that stays out of your way, with no video window crowding your screen.
 
 ---
@@ -656,7 +739,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 ### System Requirements
 
 * **OS**: Windows 10 / 11 (64-bit)
-* **ffmpeg**: Required to convert media files to WAV internally. Not required for NSF/SPC/GBS files.
+* **ffmpeg**: Used to convert media files to WAV internally and to save as MP3 / M4A. Not required to play NSF/SPC/GBS files.
 
 ### About ffmpeg
 
@@ -757,7 +840,7 @@ This area is arranged in **two vertical columns** (left column and center column
 | **Tempo** | Song tempo (BPM). Range: 30–300. **Single-click** to run tempo detection. |
 | **Beat** | Time signature (beats per measure). Range: 1–16. |
 | **Bar** | Number of measures per Rew/FF jump. Range: 0.1–100. |
-| **Speed** | Playback speed. 4 fixed steps: ×1/8, ×1/4, ×1/2, ×1/1. |
+| **Speed** | Playback speed. 4 fixed steps: ×1/8, ×1/4, ×1/2, ×1/1. When typing a value, `8` (= ×1/8), `1/2`, `x1/4`, `0.5`, etc. are accepted (rounded to the nearest step). |
 
 All numeric input boxes share the same interaction methods (details in "4. Basic Usage"):
 
@@ -773,7 +856,7 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 | Item | Description |
 | :---------------------- | :-------------------------------------------------------- |
 | <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`. |
-| <img src="icons/zoom.png" width="20"> **Zoom** | Toggles display scaling between 2× and 1×. Use when text and buttons are too small to read comfortably. |
+| <img src="icons/save.png" width="20"> **Save** | Saves the whole song as WAV / MP3 / M4A. NSF songs can also be converted to MIDI (see "5. Save & MIDI Conversion"). |
 | <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. **Shift+click** opens a folder-selection dialog. **Right-click** shows a history of recently opened files (up to 10 entries). |
 | <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. The icon turns **red** during detection. **Shift+click** for Tap Tempo (the icon turns **blue**). |
 | <img src="icons/reset.png" width="20"> **Reset All** | Resets markers, speed, key, Fine, tempo, filters, and more to their defaults. |
@@ -784,7 +867,8 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 | <img src="icons/ab_repeat.png" width="20"> **AB Repeat** | Loops the A–B region. Icon turns **yellow** when ON. |
 | <img src="icons/ff.png" width="20"> **Fast-Forward** | Moves forward by the Rew/FF distance. |
 
-> 💡 The **A** and **B** buttons (on either side of the Ear Mode icon) are for **jumping to** markers. They are separate from the A/B time fields in the Info Area, which are for **setting** markers.
+> 💡 The **A** and **B** buttons (on either side of the Ear Mode icon) are for **jumping to** markers. They are separate from the A/B time fields in the Info Area, which are for **setting** markers.  
+> 💡 **Zoom** (toggle display scaling between 2× and 1×) is done with the window's **maximize button** or by **double-clicking the title bar** (or the **Z** key). Use it when text and buttons are too small to read.
 
 ### Center: Spectrum Analyzer / Filter Area
 
@@ -1034,6 +1118,83 @@ During playback, **15 bars** appear in real time showing how much of each freque
 
 <div style="page-break-before: always;"></div>
 
+## 5. Save & MIDI Conversion
+
+### Saving audio (WAV / MP3 / M4A)
+
+1. Click the <img src="icons/save.png" width="20"> **Save** icon (or press **S**).
+2. In the save dialog, choose a file name and the file type (WAV / MP3 / M4A), then save.
+
+* The **whole song** is saved (not only the A-B region).
+* **Speed, Key and Fine** are applied to the saved audio. The **filter** is not applied.
+* Formats: WAV is 16-bit; MP3 / M4A are 192 kbps. The sample rate is the same as during playback. ffmpeg is used to save MP3 / M4A.
+* The initial file name is the name of the opened file (game music adds "_track number title").
+* The save dialog opens in the **folder you last saved to** (remembered across restarts).
+* Progress is shown in the message area at the bottom.
+
+### Converting to MIDI (NSF only)
+
+While an NSF file is open, **MIDI (\*.mid)** is added to the file types.
+The current song is converted with the same engine as the sister tool **nsf2mid**.
+
+1. Open the save dialog with <img src="icons/save.png" width="20"> **Save** and choose **MIDI** as the file type.
+2. The **MIDI options** panel appears next to the save dialog. Change the options if needed.
+3. Press "Save" in the save dialog to start. Each song takes a few to about ten seconds; the elapsed time is shown in the message area. Press **Esc** to cancel.
+
+* The options are kept for next time. "Defaults" resets them all.
+* If you type a `.mid` file name without changing the file type, an options window with OK / Cancel is shown instead.
+* Conversion features:
+  * **Tempo detection**: Detects the tempo and time signature from the note timing and writes quantized MIDI aligned to the beat.
+    Tempo / meter changes, triplet feel and shuffle are supported.
+  * **Natural note detection**: Changes of the duty cycle (timbre), volume and vibrato are treated as changes inside one note.
+    Quiet "reverb tails" that some drivers keep playing are cut from the note length.
+  * **Drums**: Noise, DPCM (samples) and triangle kicks are mapped to GM drums automatically.
+  * **Loop detection**: Detects the loop point and loop length, and writes only what is needed (e.g. "intro + 1 loop").
+
+#### MIDI options
+
+| Item | Default | Description |
+| :---------------- | :---- | :------------------------------------------- |
+| **Loops** | 1 | How many times to write the loop body. 1 = intro + 1 loop |
+| **Max seconds** | 600 | Maximum length to emulate (seconds). Stops automatically when the loop is confirmed or the song ends |
+| **Rows per beat** | auto | How many rows (grid steps) one beat is divided into. auto = detect.<br>Set it when the tempo is detected doubled or halved |
+| **Time signature** | (empty) | Meter per section, comma-separated. e.g. `6/8,4/4`. `-` or empty = auto. The box turns red if the format is wrong |
+| **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
+| **Drum map** | (empty) | Override the drum mapping. e.g. `3:0=42,DMC:E000:129:15=38` (see the nsf2mid manual for the format) |
+| **No loop detection** | Off | Do not look for a loop; convert the full "Max seconds" |
+| **Keep reverb tails** | Off | Include the quiet tails in the note length |
+| **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
+| **Keep triangle drums as notes** | Off | Keep triangle "kicks" (short notes with a sharp pitch drop) as triangle notes instead of drums |
+
+#### If the result is not right
+
+| Symptom | What to do |
+| :---------------- | :------------------------------------------- |
+| Tempo is doubled / halved | Change "Rows per beat" (e.g. auto → 4 or 2) |
+| A triplet song comes out in straight time / or the opposite | Set "Triplets" to "On" / "Off" |
+| Wrong time signature | Enter the meter per section in "Time signature" (e.g. `6/8,4/4`) |
+| Wrong drum sounds | Override them with "Drum map" (the drum kinds are shown in nsf2mid's log) |
+| Notes are chopped / lengths look odd | Try "No quantize" and "Keep reverb tails" |
+| A non-looping song is cut / the loop is wrong | Use "No loop detection" and set the length with "Max seconds" |
+
+#### Output MIDI
+
+| Track | Contents | MIDI ch |
+| :---------------- | :------------------------------------------- | :---- |
+| Track 0 | Title, tempo map, time signatures, loop markers (`loopStart` / `loopEnd`) | — |
+| Ch1 Pulse / Ch2 Pulse | Pulse 1 / Pulse 2 | 1 / 2 |
+| Ch3 Wave | Triangle | 3 |
+| Ch4 Noise drums / Ch5 DPCM drums / Ch3 Wave drums | Noise / DPCM / triangle drums (only when that kind of drum is used) | 10 |
+
+* No program changes (instruments) are written, so notation software does not guess instruments from them, show transposing instruments, or reorder tracks.
+* The triangle is written at the APU's actual pitch. NSF volume is converted to note velocity.
+
+> 💡 To convert many songs at once or to fine-tune the drum mapping, use **nsf2mid** itself (GUI / command line) and its manual.
+
+---
+
+<div style="page-break-before: always;"></div>
+
 ## 6. Game Mode (NSF, SPC, GBS)
 
 "Morokoshi Time" supports three game music formats: NSF (NES/Famicom), SPC (SNES/Super Famicom), and GBS (Game Boy). When one of these files is open, the spectrum analyzer area switches to the **Game Panel**.
@@ -1130,6 +1291,7 @@ NSF files support the following expansion audio chips:
 | :---------------------- | :--------------------------------------------------------------- |
 | **False channel detection** | For certain game music files, some channels may be incorrectly identified as "in use" and not greyed out properly. These can be manually turned OFF. |
 | **No spectrum analyzer in Game Mode** | The spectrum analyzer and filter are unavailable while an NSF/SPC/GBS file is open. |
+| **MIDI conversion scope** | Only NSF (NESM format) can be converted to MIDI. NSFe, SPC, GBS and NSF expansion audio (VRC6, etc.) are not converted (only the 2A03 sound). The tempo may be detected doubled or halved (see "5. Save & MIDI Conversion"). |
 | **Tempo detection accuracy** | Tempo detection uses onset detection and beat tracking and is an estimate. It may return incorrect values for songs with complex rhythms or non-constant tempos. |
 
 ---
@@ -1159,7 +1321,8 @@ In addition to standard shortcuts, "Morokoshi Time" provides **hidden numpad sho
 | **R** | **9** | Reset all |
 | **Shift+R** | **Enter+9** | Clear cache |
 | **H** | **/** (slash) | Help (open user manual) |
-| **Z** | **\*** (asterisk) | Zoom (toggle display scaling) |
+| **Z** | **\*** (asterisk) | Zoom (toggle display scaling; also the window's maximize button) |
+| **S** | (none) | Save |
 | **1** – **\\** (top row) | (none) | Game Mode: solo that channel (this ch ON, all others OFF) |
 | **Shift+1 – \\** | (none) | Game Mode: toggle that channel ON/OFF |
 | **,** | (none) | Previous track (Game Mode only) |
@@ -1208,7 +1371,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v2.7.0**
+**Morokoshi Time v2.8.0**
 *Created by Ike-san*
 
 ## Update History {style="page-break-before: always;"}
@@ -1229,3 +1392,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v2.5.0** | 2026/9/22 | **Tempo field can now be directly edited by double-clicking** (no longer conflicts with single-click tempo detection).<br>**Improved Ear Mode A/B marker behavior.** Moving A or B now always shifts the current playback position relatively. When entering Ear Mode, if the current position is outside the A–B range, it automatically moves to A. While in Ear Mode, seeking via waveform click or direct input is now clamped to the A–B range.<br>Restored the ability to **pan the A-B region by dragging within the yellow band** in the waveform area. |
 | **v2.6.0** | 2026/10/4 | Added **Tap Tempo** (Shift+T / Shift+click on the Detect Tempo icon / numpad Enter+8).<br>The Detect Tempo icon now turns red during tempo detection and blue during Tap Tempo.<br>**Drag the scroll bar edges** to adjust the visible range (zoom width). During playback, zooming is limited so the playback position stays on screen.<br>**Right-click the waveform area to reset both A and B markers.** |
 | **v2.7.0** | 2026/10/10 | Added a **time ruler** above the waveform. The tick interval switches automatically with the zoom level. It is also shown in Game Mode.<br>The maximum zoom is now "until the visible width is **1 second**".<br>Fixed **choppy / lagging playback while the filter is in use** (filter processing is now much faster).<br>Other minor fixes. |
+| **v2.8.0** | 2026/11/1 | **Added Save**: save the whole song as WAV / MP3 / M4A (Speed, Key and Fine applied). The last save folder is remembered.<br>**Convert NSF to MIDI and save it** (same engine as nsf2mid, with tempo detection, drum conversion and loop detection).<br>Zoom moved to the window's **maximize button** (or double-click on the title bar). The Save icon takes its old place.<br>Speed input accepts `8`, `1/2`, `x1/4`, etc.<br>Fixed **silence at the start (up to a few seconds)** of some NSF songs. Fixed extra silence at the start of some SPC / GBS songs.<br>Other minor fixes. |
