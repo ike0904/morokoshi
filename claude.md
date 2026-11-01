@@ -104,7 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.0 マニュアル修正 (2026-10-10) ← 最新（プロンプト直接指示）
+### v2.7.1 (2026-11-01) ← 最新（プロンプト直接指示）
+- アプリアイコン icon/morokoshi.ico を docs/icons/morokoshi.ico へ移動（icon/ フォルダは削除）
+- morokoshi.spec: アイコンパスを SPECPATH 基準の絶対パス（ICON_PATH）で解決し、カレントディレクトリに依存しないよう変更。
+  ファイルが見つからない場合はビルドをエラー停止（アイコン無しのexeが出来るのを防止）
+- morokoshi.py: 開発実行時のアイコン検索先を ../docs/icons/morokoshi.ico に変更
+- APP_VERSION を v2.7.1 に更新（ビルドは未実施）
+
+### v2.7.0 マニュアル修正 (2026-10-10)（プロンプト直接指示）
 - JP 更新履歴の文体を言い切り（体言止め）に統一（v1.4・v1.6.0 に残っていた「〜ます」も含む）
 - あとがきと更新履歴の間の空白ページを削除（日英）。原因: あとがき末尾の区切り線がページからはみ出し、直後の改ページdivでさらに改ページ。
   区切り線と改ページdivを削除し、更新履歴見出し自体に page-break-before を指定

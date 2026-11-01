@@ -1,4 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
+# App icon lives in docs/icons. Resolve from the spec file location so the build
+# does not depend on the current working directory.
+ICON_PATH = os.path.abspath(os.path.join(SPECPATH, '..', 'docs', 'icons', 'morokoshi.ico'))
+if not os.path.isfile(ICON_PATH):
+    raise SystemExit(f'Icon file not found: {ICON_PATH}')
 
 
 a = Analysis(

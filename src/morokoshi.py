@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.7.0"
+APP_VERSION = "v2.7.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -8397,8 +8397,7 @@ def main():
             base = os.path.dirname(os.path.abspath(__file__))
             candidates += [
                 os.path.join(base, "morokoshi.ico"),
-                os.path.join(base, "..", "icon", "morokoshi.ico"),
-                os.path.join(base, "icon", "morokoshi.ico"),
+                os.path.join(base, "..", "docs", "icons", "morokoshi.ico"),
             ]
         for p in candidates:
             if os.path.exists(p):
