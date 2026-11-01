@@ -159,9 +159,9 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 
 | 項目 | 説明 |
 | :---------------------- | :-------------------------------------------------------- |
-| <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。<br>**右クリック**で表示言語（English / 日本語）を切り替えます。初めて起動したときは、パソコンの言語が日本語なら日本語、それ以外は English で表示します。 |
+| <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。<br>**右クリック**（または **Alt+H**）で表示言語（English / 日本語）を切り替えます。初めて起動したときは、パソコンの言語が日本語なら日本語、それ以外は English で表示します。 |
 | <img src="icons/save.png" width="20"> **Save** | 曲全体を WAV / MP3 / M4A で保存します。NSF では MIDI にも変換できます（「5. 保存（Save）・MIDI 変換」参照）。 |
-| <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。**Shift+クリック**でフォルダ選択ダイアログを開きます。**右クリック**で最近開いたファイルの履歴を表示します（最大10件）。 |
+| <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。**Shift+クリック**でフォルダ選択ダイアログを開きます。**右クリック**（または **Alt+O**）で最近開いたファイルの履歴を表示します（最大10件）。 |
 | <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。検出中はアイコンが**赤**になります。**Shift+クリック**でタップテンポ（アイコンが**青**）になります。 |
 | <img src="icons/reset.png" width="20"> **すべてリセット** | マーカー・速度・キー・Fine・テンポ・フィルターなどを初期状態に戻します。 |
 | **A** ボタン | **Aマーカーへ移動**します。再生中はそのまま再生を続けながら、停止中は停止したまま、再生位置だけがAマーカーの位置にジャンプします。 |
@@ -220,7 +220,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 > 💡 初めて開くファイルは内部でWAV変換が行われるため、少し時間がかかることがあります。2回目以降は高速に開きます。  
 > 💡 前回そのファイルで作業していた場合、**再生位置・マーカー・速度・キー・Fineなどが自動的に復元**されます。  
 > 💡 **Shift+クリック**でフォルダ選択ダイアログが開き、フォルダ内のファイルを一括認識します（ゲーム音楽ファイル向け）。  
-> 💡 **右クリック**で最近開いたファイルの履歴（最大10件）を表示します。右クリックまたはウィンドウ外クリックでキャンセルできます。  
+> 💡 **右クリック**（または **Alt+O**）で最近開いたファイルの履歴（最大10件）を表示します。クリック、または **↑↓** で選んで **Enter**（数字キー **1**〜**9**・**0** で直接選択）で開きます。右クリック・ウィンドウ外クリック・**Esc** でキャンセルできます。  
 > 💡 NSF/SPC/GBSファイルを開く場合は「6. ゲームモードの使い方」を参照してください。  
 
 ### ステップ2: 再生・一時停止と速度・キー・Fineの調整
@@ -614,11 +614,13 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **B** | **6** | Bマーカーへ移動 |
 | **Shift+B** | **Enter+6** | Bマーカーをセット |
 | **O** | **7** | ファイルを開く |
+| **Alt+O** | （対応無し） | 最近開いたファイルの履歴 |
 | **T** | **8** | テンポ検出 |
 | **Shift+T** | **Enter+8** | タップテンポ（Beat 2以上） |
 | **R** | **9** | すべてリセット |
 | **Shift+R** | **Enter+9** | キャッシュクリア |
 | **H** | **／**（スラッシュ） | Help（取扱説明書を開く） |
+| **Alt+H** | （対応無し） | 表示言語の切り替え（English / 日本語） |
 | **Z** | （対応無し） | Zoom（画面表示倍率を切り替え。ウィンドウの最大化ボタンでも可） |
 | **S** | **＊**（アスタリスク） | Save（保存） |
 | **1** ～ **¥**（最上段） | （対応無し） | ゲームモード: チャンネルをソロ（そのchのみON、他は全てOFF） |
@@ -849,9 +851,9 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 
 | Item | Description |
 | :---------------------- | :-------------------------------------------------------- |
-| <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`.<br>**Right-click** to switch the display language (English / 日本語). On first start, Japanese is used if Windows is set to Japanese, otherwise English. |
+| <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`.<br>**Right-click** (or **Alt+H**) to switch the display language (English / 日本語). On first start, Japanese is used if Windows is set to Japanese, otherwise English. |
 | <img src="icons/save.png" width="20"> **Save** | Saves the whole song as WAV / MP3 / M4A. NSF songs can also be converted to MIDI (see "5. Save & MIDI Conversion"). |
-| <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. **Shift+click** opens a folder-selection dialog. **Right-click** shows a history of recently opened files (up to 10 entries). |
+| <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. **Shift+click** opens a folder-selection dialog. **Right-click** (or **Alt+O**) shows a history of recently opened files (up to 10 entries). |
 | <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. The icon turns **red** during detection. **Shift+click** for Tap Tempo (the icon turns **blue**). |
 | <img src="icons/reset.png" width="20"> **Reset All** | Resets markers, speed, key, Fine, tempo, filters, and more to their defaults. |
 | **A** button | **Go to A marker.** Jumps playback position to the A marker. Playback state does not change. |
@@ -910,7 +912,7 @@ The horizontal band between the Info Area and the Waveform Area (standard audio/
 > 💡 The first time a file is opened it is converted to WAV internally — this may take a moment. Subsequent opens are much faster.
 > 💡 If you previously worked with this file, **playback position, markers, speed, key, Fine, and other settings are automatically restored.**
 > 💡 **Shift+click** opens a folder-selection dialog to batch-recognize game music files inside.
-> 💡 **Right-click** shows a history of recently opened files (up to 10 entries); dismiss by right-clicking or clicking outside.
+> 💡 **Right-click** (or **Alt+O**) shows a history of recently opened files (up to 10 entries). Click one, or choose with **↑↓** and press **Enter** (number keys **1**–**9**, **0** select directly). Dismiss by right-clicking, clicking outside, or pressing **Esc**.
 > 💡 For NSF/SPC/GBS files, see "6. Game Mode."
 
 ### Step 2: Play/Pause, Speed, Key, and Fine
@@ -1304,11 +1306,13 @@ In addition to standard shortcuts, "Morokoshi Time" provides **hidden numpad sho
 | **B** | **6** | Go to B marker |
 | **Shift+B** | **Enter+6** | Set B marker |
 | **O** | **7** | Open file |
+| **Alt+O** | (none) | Recently opened files |
 | **T** | **8** | Detect tempo |
 | **Shift+T** | **Enter+8** | Tap Tempo (Beat 2 or more) |
 | **R** | **9** | Reset all |
 | **Shift+R** | **Enter+9** | Clear cache |
 | **H** | **/** (slash) | Help (open user manual) |
+| **Alt+H** | (none) | Switch display language (English / 日本語) |
 | **Z** | (none) | Zoom (toggle display scaling; also the window's maximize button) |
 | **S** | **\*** (asterisk) | Save |
 | **1** – **\\** (top row) | (none) | Game Mode: solo that channel (this ch ON, all others OFF) |
