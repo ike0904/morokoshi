@@ -104,7 +104,11 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.1 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.7.1 save.png 色調整 (2026-11-01) ← 最新（プロンプト直接指示）
+- docs/icons/save.png の色を黒(#000000)→他アイコンと同じ #333333 に変更（アルファ保持）。元画像は docs/icons/bkup/save.png
+- save アイコンはアプリ未使用（埋め込みBase64に無し）のため、ソース・バージョン変更なし
+
+### v2.7.1 (2026-11-01)（プロンプト直接指示）
 - アプリアイコン icon/morokoshi.ico を docs/icons/morokoshi.ico へ移動（icon/ フォルダは削除）
 - morokoshi.spec: アイコンパスを SPECPATH 基準の絶対パス（ICON_PATH）で解決し、カレントディレクトリに依存しないよう変更。
   ファイルが見つからない場合はビルドをエラー停止（アイコン無しのexeが出来るのを防止）
