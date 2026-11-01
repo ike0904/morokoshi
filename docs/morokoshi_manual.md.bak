@@ -439,7 +439,7 @@ Ear Mode中は、A・Bが常に「セットで」動きます。
 ### MIDI に変換して保存する（NSF のみ）
 
 NSF ファイルを開いているときは、「ファイルの種類」に **MIDI (\*.mid)** が加わります。
-姉妹ツール **nsf2mid** と同じ変換エンジンで、表示中の曲を MIDI に変換します。
+表示中の曲を MIDI に変換します。
 
 1. <img src="icons/save.png" width="20"> **Save** で保存ダイアログを開き、「ファイルの種類」で **MIDI** を選びます。
 2. 保存ダイアログの横に **MIDI options**（変換オプション）が表示されます。必要に応じて変更します。
@@ -459,13 +459,12 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 
 | 項目 | 既定値 | 内容 |
 | :---------------- | :------- | :------------------------------------------ |
-| **Loops** | 1 | ループ部分を何回書き出すか。1 なら「イントロ＋ループ 1 回」 |
+| **Loops** | 1 | ループ部分を何回書き出すか。1 なら「イントロ＋ループ 1 回」。<br>0 ならループを探さず、Max seconds の長さをそのまま変換 |
 | **Max seconds** | 600 | エミュレートする最大の長さ（秒）。ループが確定するか曲が終わると、その時点で自動的に止まります |
-| **Rows per beat** | auto | 1 拍を何個の細かい単位（行）に分けるか。auto = 自動検出。<br>テンポが倍・半分に検出されたときに指定します |
+| **Tempo** | Auto | Auto（自動検出したテンポ）/ Half（その半分）/ Double（その 2 倍）。<br>テンポが倍・半分に検出されたときに指定します |
 | **Time signature** | （空欄） | 区間ごとの拍子をカンマ区切りで指定。例 `6/8,4/4`。`-` または空欄 = 自動。書式が正しくないと枠が赤くなります |
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
-| **Drum map** | （空欄） | ドラムの割当を上書き。例 `3:0=42,DMC:E000:129:15=38`（書き方は nsf2mid のマニュアル参照） |
-| **No loop detection** | オフ | ループを探さず、Max seconds の長さをそのまま変換 |
+| **Drum map** | （空欄） | ドラムの割当を上書き。例 `3:0=42,DMC:E000:129:15=38`（下記「Drum map の書き方」参照） |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
 | **No quantize** | オフ | 音符を拍のグリッドに合わせません（テンポは検出します） |
 | **Keep triangle drums as notes** | オフ | 三角波の「キック」（急に音程が下がる短い音）をドラムに変換せず、三角波の音符のまま残します |
@@ -474,12 +473,19 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 
 | 症状 | 対処 |
 | :---------------- | :------------------------------------------- |
-| テンポが倍・半分になる | 「Rows per beat」を変える（例: auto → 4 や 2） |
+| テンポが倍・半分になる | 「Tempo」を「Half」/「Double」に |
 | 3 連の曲が 2 分割になる / その逆 | 「Triplets」を「On」/「Off」に |
 | 拍子が違う | 「Time signature」に区間ごとの拍子を指定（例 `6/8,4/4`） |
-| ドラムの種類が違う | 「Drum map」で個別に上書き（ドラムの種類は nsf2mid のログ欄で確認できます） |
+| ドラムの種類が違う | 「Drum map」で個別に上書き |
 | 音符が細切れ / 長さが不自然 | 「No quantize」「Keep reverb tails」を試す |
-| ループしない曲が途中で切れる / ループ判定が誤る | 「No loop detection」＋「Max seconds」で長さを指定 |
+| ループしない曲が途中で切れる / ループ判定が誤る | 「Loops」を 0 にして「Max seconds」で長さを指定 |
+
+#### Drum map の書き方
+
+`種類=GMノート番号` をカンマ区切りで指定します（よく使う番号: 36 キック / 38 スネア / 42 クローズドハイハット / 46 オープンハイハット / 49 クラッシュ / 45 ロータム）。
+
+* ノイズ: `周期番号:モード=番号`（例 `3:0=42`。周期番号は 0〜15、モードは 0 = 通常 / 1 = 短周期）
+* DPCM: `DMC:アドレス(16進):長さ:レート=番号`（例 `DMC:E000:129:15=38`）
 
 #### 出力される MIDI
 
@@ -492,8 +498,6 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 
 * 音色（プログラムチェンジ）は出力しません。楽譜ソフトが音色番号から楽器を推測し、移調楽器として表示したり、トラックを並べ替えたりするのを防ぐためです。
 * 三角波は APU の実際の音高で出力します。強弱は NSF の音量からベロシティに変換します。
-
-> 💡 複数の曲をまとめて変換したいとき、ドラム割当を詳しく調整したいときは、**nsf2mid** 単体（GUI・コマンドライン）とそのマニュアルをご利用ください。
 
 ---
 
@@ -698,7 +702,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v2.5.0** | 2026/9/22 | **Tempo欄をダブルクリックで直接入力**できるように変更（1クリックのテンポ検出と競合しない）。<br>**Ear Mode 中のA・Bマーカー操作を改善**。A・Bを動かすと現在位置が常に相対的に連動して動く。また、Ear Mode 突入時に現在位置がA～B区間外にある場合は自動的にAへ移動。Ear Mode 中は波形クリックや直接入力でもA～B区間外に出られない。<br>波形のA-B帯（黄色い部分）を左右にドラッグして区間ごとパン移動できる操作を復活。 |
 | **v2.6.0** | 2026/10/4 | **タップテンポ**機能を追加（Shift+T / テンポ検出アイコンのShift+クリック / テンキーEnter+8）。<br>テンポ検出中はテンポ検出アイコンを赤、タップテンポ中は青で表示。<br>**スクロールバーの端をドラッグ**して表示範囲（ズーム幅）を調整可能に。再生中は再生位置が画面外に出ないよう制限。<br>波形エリアの**右クリックでA・B両方のマーカーをリセット**可能に。 |
 | **v2.7.0** | 2026/10/10 | 波形の上に**時間目盛り**を追加。拡大率に応じて目盛りの間隔を自動で切り替え。ゲームモードでも表示。<br>波形の拡大上限を「画面の幅が**1秒**になるまで」に変更。<br>**フィルター使用中に再生が途切れる・もたつく**問題を修正（フィルター処理を大幅に高速化）。<br>その他軽微な修正。 |
-| **v2.8.0** | 2026/11/1 | **Save（保存）機能を追加**。曲全体を WAV / MP3 / M4A で保存（Speed・Key・Fine を反映）。前回保存したフォルダを記憶。<br>**NSF を MIDI に変換して保存**（nsf2mid と同じ変換エンジン。テンポ検出・ドラム変換・ループ検出付き）。<br>Zoom をウィンドウの**最大化ボタン**（タイトルバーのダブルクリック）に移動。空いた位置に Save アイコンを配置。<br>Speed の直接入力で `8`・`1/2`・`x1/4` などの書き方に対応。<br>NSF の一部の曲で**曲頭〜数秒が無音**になる問題を修正。SPC・GBS の一部の曲で曲頭に余分な無音が入る問題を修正。<br>その他軽微な修正。 |
+| **v2.8.0** | 2026/11/1 | **Save（保存）機能を追加**。曲全体を WAV / MP3 / M4A で保存（Speed・Key・Fine を反映）。前回保存したフォルダを記憶。<br>**NSF を MIDI に変換して保存**（テンポ検出・ドラム変換・ループ検出付き）。<br>Zoom をウィンドウの**最大化ボタン**（タイトルバーのダブルクリック）に移動。空いた位置に Save アイコンを配置。<br>Speed の直接入力で `8`・`1/2`・`x1/4` などの書き方に対応。<br>NSF の一部の曲で**曲頭〜数秒が無音**になる問題を修正。SPC・GBS の一部の曲で曲頭に余分な無音が入る問題を修正。<br>その他軽微な修正。 |
 
 ---
 
@@ -1135,7 +1139,7 @@ During playback, **15 bars** appear in real time showing how much of each freque
 ### Converting to MIDI (NSF only)
 
 While an NSF file is open, **MIDI (\*.mid)** is added to the file types.
-The current song is converted with the same engine as the sister tool **nsf2mid**.
+The current song is converted to MIDI.
 
 1. Open the save dialog with <img src="icons/save.png" width="20"> **Save** and choose **MIDI** as the file type.
 2. The **MIDI options** panel appears next to the save dialog. Change the options if needed.
@@ -1155,13 +1159,12 @@ The current song is converted with the same engine as the sister tool **nsf2mid*
 
 | Item | Default | Description |
 | :---------------- | :------- | :------------------------------------------ |
-| **Loops** | 1 | How many times to write the loop body. 1 = intro + 1 loop |
+| **Loops** | 1 | How many times to write the loop body. 1 = intro + 1 loop.<br>0 = do not look for a loop; convert the full "Max seconds" |
 | **Max seconds** | 600 | Maximum length to emulate (seconds). Stops automatically when the loop is confirmed or the song ends |
-| **Rows per beat** | auto | How many rows (grid steps) one beat is divided into. auto = detect.<br>Set it when the tempo is detected doubled or halved |
+| **Tempo** | Auto | Auto (detected tempo) / Half / Double (of the detected tempo).<br>Set it when the tempo is detected doubled or halved |
 | **Time signature** | (empty) | Meter per section, comma-separated. e.g. `6/8,4/4`. `-` or empty = auto. The box turns red if the format is wrong |
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
-| **Drum map** | (empty) | Override the drum mapping. e.g. `3:0=42,DMC:E000:129:15=38` (see the nsf2mid manual for the format) |
-| **No loop detection** | Off | Do not look for a loop; convert the full "Max seconds" |
+| **Drum map** | (empty) | Override the drum mapping. e.g. `3:0=42,DMC:E000:129:15=38` (see "Drum map format" below) |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
 | **No quantize** | Off | Do not snap notes to the beat grid (the tempo is still detected) |
 | **Keep triangle drums as notes** | Off | Keep triangle "kicks" (short notes with a sharp pitch drop) as triangle notes instead of drums |
@@ -1170,12 +1173,19 @@ The current song is converted with the same engine as the sister tool **nsf2mid*
 
 | Symptom | What to do |
 | :---------------- | :------------------------------------------- |
-| Tempo is doubled / halved | Change "Rows per beat" (e.g. auto → 4 or 2) |
+| Tempo is doubled / halved | Set "Tempo" to "Half" / "Double" |
 | A triplet song comes out in straight time / or the opposite | Set "Triplets" to "On" / "Off" |
 | Wrong time signature | Enter the meter per section in "Time signature" (e.g. `6/8,4/4`) |
-| Wrong drum sounds | Override them with "Drum map" (the drum kinds are shown in nsf2mid's log) |
+| Wrong drum sounds | Override them with "Drum map" |
 | Notes are chopped / lengths look odd | Try "No quantize" and "Keep reverb tails" |
-| A non-looping song is cut / the loop is wrong | Use "No loop detection" and set the length with "Max seconds" |
+| A non-looping song is cut / the loop is wrong | Set "Loops" to 0 and set the length with "Max seconds" |
+
+#### Drum map format
+
+Give `kind=GM note number`, separated by commas (common numbers: 36 kick / 38 snare / 42 closed hi-hat / 46 open hi-hat / 49 crash / 45 low tom).
+
+* Noise: `period:mode=number` (e.g. `3:0=42`; period 0-15, mode 0 = normal / 1 = short loop)
+* DPCM: `DMC:address(hex):length:rate=number` (e.g. `DMC:E000:129:15=38`)
 
 #### Output MIDI
 
@@ -1188,8 +1198,6 @@ The current song is converted with the same engine as the sister tool **nsf2mid*
 
 * No program changes (instruments) are written, so notation software does not guess instruments from them, show transposing instruments, or reorder tracks.
 * The triangle is written at the APU's actual pitch. NSF volume is converted to note velocity.
-
-> 💡 To convert many songs at once or to fine-tune the drum mapping, use **nsf2mid** itself (GUI / command line) and its manual.
 
 ---
 
@@ -1392,4 +1400,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v2.5.0** | 2026/9/22 | **Tempo field can now be directly edited by double-clicking** (no longer conflicts with single-click tempo detection).<br>**Improved Ear Mode A/B marker behavior.** Moving A or B now always shifts the current playback position relatively. When entering Ear Mode, if the current position is outside the A–B range, it automatically moves to A. While in Ear Mode, seeking via waveform click or direct input is now clamped to the A–B range.<br>Restored the ability to **pan the A-B region by dragging within the yellow band** in the waveform area. |
 | **v2.6.0** | 2026/10/4 | Added **Tap Tempo** (Shift+T / Shift+click on the Detect Tempo icon / numpad Enter+8).<br>The Detect Tempo icon now turns red during tempo detection and blue during Tap Tempo.<br>**Drag the scroll bar edges** to adjust the visible range (zoom width). During playback, zooming is limited so the playback position stays on screen.<br>**Right-click the waveform area to reset both A and B markers.** |
 | **v2.7.0** | 2026/10/10 | Added a **time ruler** above the waveform. The tick interval switches automatically with the zoom level. It is also shown in Game Mode.<br>The maximum zoom is now "until the visible width is **1 second**".<br>Fixed **choppy / lagging playback while the filter is in use** (filter processing is now much faster).<br>Other minor fixes. |
-| **v2.8.0** | 2026/11/1 | **Added Save**: save the whole song as WAV / MP3 / M4A (Speed, Key and Fine applied). The last save folder is remembered.<br>**Convert NSF to MIDI and save it** (same engine as nsf2mid, with tempo detection, drum conversion and loop detection).<br>Zoom moved to the window's **maximize button** (or double-click on the title bar). The Save icon takes its old place.<br>Speed input accepts `8`, `1/2`, `x1/4`, etc.<br>Fixed **silence at the start (up to a few seconds)** of some NSF songs. Fixed extra silence at the start of some SPC / GBS songs.<br>Other minor fixes. |
+| **v2.8.0** | 2026/11/1 | **Added Save**: save the whole song as WAV / MP3 / M4A (Speed, Key and Fine applied). The last save folder is remembered.<br>**Convert NSF to MIDI and save it** (with tempo detection, drum conversion and loop detection).<br>Zoom moved to the window's **maximize button** (or double-click on the title bar). The Save icon takes its old place.<br>Speed input accepts `8`, `1/2`, `x1/4`, etc.<br>Fixed **silence at the start (up to a few seconds)** of some NSF songs. Fixed extra silence at the start of some SPC / GBS songs.<br>Other minor fixes. |

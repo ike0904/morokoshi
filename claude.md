@@ -104,7 +104,13 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.8.3 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.8.4 (2026-11-01) ← 最新（プロンプト直接指示）
+- MIDI options から Drum map を削除（もろこしではドラムの種類を確認する手段が無く、実質使えないため）
+  - 旧設定に保存された drum_map は無視される。nsf2mid 本体（ログで種類を確認できる）の Drum map はそのまま
+- マニュアル（md のみ）: オプション表・対処表の Drum map の行と「Drum map の書き方」節を削除（JP/EN）
+- APP_VERSION v2.8.4
+
+### v2.8.3 (2026-11-01)（プロンプト直接指示）
 - MIDI options の「Rows per beat」を「Tempo」（Auto / Half / Double）に変更
   - nsf2mid 本体を v0.1.19 に改修（--tempo auto/half/double・--loops 0 = ループ検出なし、GUI も同じ仕様）し、
     tools/sync_nsf2mid.py で nsf2mid_core に同期。自動検出の結果を区間ごとに半分/2倍にするので、区間・3連・シャッフルの検出はそのまま

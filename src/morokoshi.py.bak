@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.2"
+APP_VERSION = "v2.8.3"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -262,10 +262,10 @@ def save_global_settings(zoom, volume):
 
 
 # ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
-NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "rows": "auto", "time_sig": "", "triplets": "auto",
+NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "time_sig": "", "triplets": "auto",
                     "drum_map": "", "keep_tail": False,
                     "no_quantize": False, "no_tri_drums": False}
-NSF2MID_ROWS = ("auto", "2", "3", "4", "6", "8", "9", "12", "16", "24")
+NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
 
 def _import_nsf2mid():
@@ -286,10 +286,8 @@ def _nsf2mid_opts():
 
 def _nsf2mid_argv(o):
     """オプション dict → nsf2mid のコマンドライン引数（Loops=0 はループ検出なし）"""
-    loops = int(o["loops"])
-    a = ["-s", str(int(o["seconds"])), "--loops", str(max(1, loops))]
-    if loops <= 0: a.append("--no-loop")
-    if str(o["rows"]) != "auto": a += ["--rows-per-beat", str(o["rows"])]
+    a = ["-s", str(int(o["seconds"])), "--loops", str(max(0, int(o["loops"])))]
+    if o["tempo"] != "auto": a += ["--tempo", o["tempo"]]
     if str(o["time_sig"]).strip(): a += ["--time-sig", str(o["time_sig"]).strip()]
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
     if str(o["drum_map"]).strip(): a += ["--drum-map", str(o["drum_map"]).strip()]
@@ -4738,9 +4736,9 @@ class Nsf2MidDialog(QDialog):
             "How many times to write the loop body\n0: no loop detection (convert the full max seconds)\nWheel: change")
         self.sp_seconds = add("Max seconds", spin(10, 3600, 60),
             "Max length to emulate (seconds)\nStops automatically when a loop or the song end is found\nWheel: change")
-        self.cb_rows = add("Rows per beat", QComboBox(),
-            "Rows per beat (auto = detect)\nSet this when the tempo comes out doubled or halved")
-        self.cb_rows.addItems(NSF2MID_ROWS)
+        self.cb_tempo = add("Tempo", QComboBox(),
+            "Auto: detected tempo\nHalf / Double: use when the tempo comes out doubled or halved")
+        self.cb_tempo.addItems([t[0] for t in NSF2MID_TEMPO])
         self.ed_timesig = add("Time signature", QLineEdit(),
             'Time signature per section, e.g. "6/8,4/4"\n"-" or empty = auto')
         self.cb_triplets = add("Triplets", QComboBox(),
@@ -4778,7 +4776,7 @@ class Nsf2MidDialog(QDialog):
     def _apply(self, o):
         self.sp_loops.setValue(int(o["loops"]))
         self.sp_seconds.setValue(int(o["seconds"]))
-        self.cb_rows.setCurrentIndex(max(0, self.cb_rows.findText(str(o["rows"]))))
+        self.cb_tempo.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TEMPO) if t[1] == o["tempo"]), 0))
         self.ed_timesig.setText(str(o["time_sig"]))
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
         self.ed_drummap.setText(str(o["drum_map"]))
@@ -4788,7 +4786,7 @@ class Nsf2MidDialog(QDialog):
 
     def values(self):
         return {"loops": self.sp_loops.value(), "seconds": self.sp_seconds.value(),
-                "rows": self.cb_rows.currentText(), "time_sig": self.ed_timesig.text().strip(),
+                "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1], "time_sig": self.ed_timesig.text().strip(),
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "drum_map": self.ed_drummap.text().strip(),
                 "keep_tail": self.ck_tail.isChecked(),
