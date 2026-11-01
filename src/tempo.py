@@ -232,8 +232,11 @@ class Segment:
         return f"Segment(start={self.start}, unit={self.unit:.4g}, bpm={self.bpm:.2f}, fit={self.score:.2f})"
 
 
-def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto"):
-    """triplets: "auto" (detect), "on" (always triplet feel) or "off" (always binary)."""
+def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto",
+                     tempo="auto"):
+    """triplets: "auto" (detect), "on" (always triplet feel) or "off" (always binary).
+    tempo: "auto", "half" (rows per beat x2) or "double" (rows per beat /2, only where the rows are even).
+    Applied per segment after detection, so segments / triplets / shuffle are still detected."""
     onsets = sorted(set(onsets))
     if len(onsets) < 4:
         return None
@@ -273,7 +276,17 @@ def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_
             s.rows = choose_rows(s.unit, frame_rate, ternary, prev, onsets)
         s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
         prev = s.bpm
-    return {"global": g, "segments": segs, "ternary": ternary, "shuffle": shuffle, "triplet": bool(trip_d)}
+    kept = 0  # segments left as detected ("double" on an odd number of rows, e.g. 3 rows per beat)
+    if not rows_per_beat and tempo in ("half", "double"):
+        for s in segs:
+            if tempo == "half":
+                s.rows *= 2
+            elif s.rows % 2 == 0:
+                s.rows //= 2
+            else:
+                kept += 1
+            s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
+    return {"tempo_kept": kept, "global": g, "segments": segs, "ternary": ternary, "shuffle": shuffle, "triplet": bool(trip_d)}
 
 
 def _segment(onsets, frame_rate, g):
