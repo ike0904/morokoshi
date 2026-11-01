@@ -104,7 +104,19 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.7.1 save.png 色調整 (2026-11-01) ← 最新（プロンプト直接指示）
+### v2.7.2 (2026-11-01) ← 最新（プロンプト直接指示）
+- Zoom アイコンを廃止し、ウィンドウ枠の最大化ボタン（タイトルバーのダブルクリックも）で Zoom(1x⇔2x) 切り替えに変更
+  - 固定サイズのため Qt が外す WS_MAXIMIZEBOX を Win32 API で付け直し、最大化された状態変化(changeEvent)を検出して通常状態に戻し Zoom を実行
+  - nativeEvent のオーバーライドは PyQt6 でアクセス違反クラッシュしたため不採用
+  - Z キー・テンキー * の Zoom はそのまま
+- 空いた位置に Save アイコンを配置（ショートカット S）。再生中の音声を曲全体で WAV / MP3 / M4A 保存
+  - Speed/Key/Fine を反映（ゲーム音楽はテンポ焼き込み済みのため Key/Fine のみ変換）、フィルターは反映しない
+  - サンプリングレートは再生中のもの、WAV は 16bit PCM、MP3(libmp3lame)/M4A(AAC) は 192kbps 固定（ffmpeg 使用）
+  - 初期ファイル名は読み込みファイル名（ゲーム音楽は _トラック番号＋曲名）
+- テストスクリプトで最大化→Zoom切替、3形式の保存（ffprobeで 44100Hz/192kbps 確認）を確認済み
+- APP_VERSION v2.7.2
+
+### v2.7.1 save.png 色調整 (2026-11-01)（プロンプト直接指示）
 - docs/icons/save.png の色を黒(#000000)→他アイコンと同じ #333333 に変更（アルファ保持）。元画像は docs/icons/bkup/save.png
 - save.png を 150x150 → 96x96 にリサイズ（他アイコンとサイズ統一、余白の比率も同等）
 - save アイコンはアプリ未使用（埋め込みBase64に無し）のため、ソース・バージョン変更なし

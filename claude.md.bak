@@ -106,6 +106,7 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ### v2.7.1 save.png 色調整 (2026-11-01) ← 最新（プロンプト直接指示）
 - docs/icons/save.png の色を黒(#000000)→他アイコンと同じ #333333 に変更（アルファ保持）。元画像は docs/icons/bkup/save.png
+- save.png を 150x150 → 96x96 にリサイズ（他アイコンとサイズ統一、余白の比率も同等）
 - save アイコンはアプリ未使用（埋め込みBase64に無し）のため、ソース・バージョン変更なし
 
 ### v2.7.1 (2026-11-01)（プロンプト直接指示）
