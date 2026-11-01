@@ -445,7 +445,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 2. 保存ダイアログの横に **MIDI options**（変換オプション）が表示されます。必要に応じて変更します。
 3. 保存ダイアログの「保存」を押すと変換が始まります。1 曲あたり数秒〜十数秒かかり、メッセージ欄に経過秒数が表示されます。**Esc** キーで中止できます。
 
-* オプションは次回も引き継がれます。「Defaults」ですべて初期値に戻ります。
+* オプションは次回も引き継がれます。「Defaults」ですべて初期値に戻ります。各項目（または項目名）を**右クリック**すると、その項目だけ初期値に戻ります。
 * 「ファイルの種類」を変えずにファイル名へ `.mid` と入力した場合は、OK / Cancel 付きのオプション画面が表示されます。
 * 変換の特徴:
   * **テンポ検出付き**: 発音タイミングからテンポ・拍子を検出し、拍に合わせた（クオンタイズ済みの）MIDI を出力します。
@@ -1137,7 +1137,7 @@ The current song is converted to MIDI.
 2. The **MIDI options** panel appears next to the save dialog. Change the options if needed.
 3. Press "Save" in the save dialog to start. Each song takes a few to about ten seconds; the elapsed time is shown in the message area. Press **Esc** to cancel.
 
-* The options are kept for next time. "Defaults" resets them all.
+* The options are kept for next time. "Defaults" resets them all. **Right-click** an option (or its name) to reset just that one.
 * If you type a `.mid` file name without changing the file type, an options window with OK / Cancel is shown instead.
 * Conversion features:
   * **Tempo detection**: Detects the tempo and time signature from the note timing and writes quantized MIDI aligned to the beat.

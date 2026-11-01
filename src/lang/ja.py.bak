@@ -7,9 +7,14 @@ are kept in English, because the manual uses these names.
 
 STRINGS = {
     # ---------------------------------------------------------------- icons (main screen)
-    "Help [H]\nR-Click: Language": "ヘルプ [H]\n右クリック: 言語 (Language)",
+    "Help [H]\nR-Click [Alt+H]: Language": "ヘルプ [H]\n右クリック [Alt+H]: 言語 (Language)",
     "Save [S]": "保存 [S]",
-    "Open[O]\nShift: Folder\nR-Click: History": "開く [O]\nShift+クリック: フォルダを開く\n右クリック: 履歴",
+    "Open[O]\nShift: Folder\nR-Click [Alt+O]: History": "開く [O]\nShift+クリック: フォルダを開く\n右クリック [Alt+O]: 履歴",
+    "Play/Pause [Space]\nShift: Back to Start": "再生 / 一時停止 [Space]\nShift+クリック: 先頭に戻る",
+    "ffmpeg: not found (will auto-download on first file open)":
+        "ffmpeg: 見つかりません（最初にファイルを開いたときに自動でダウンロードします）",
+    "ffmpeg (PATH): {0}": "ffmpeg（PATH 上）: {0}",
+    "ffmpeg: {0}": "ffmpeg の場所: {0}",
     "Tempo detection [T]\nShift: Tap tempo": "テンポ検出 [T]\nShift+クリック: タップテンポ",
     "Reset[R]\nShift: Clear Cache": "リセット [R]\nShift+クリック: キャッシュクリア",
     "Ear mode [↑]": "Ear Mode（耳コピモード）[↑]",

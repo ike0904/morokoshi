@@ -30,10 +30,9 @@ STRINGS = {
     "Shift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset Tempo/Beat/Bar\n→Tempo is recalculated":
         "Rew/FF の移動量\nクリック: A<->B の長さをコピー → Tempo を再計算\nダブルクリック: 編集（秒）\n"
         "ドラッグ↑↓/ホイール: ±0.1秒\nShift+ドラッグ↑↓/ホイール: ±1.0秒\n右クリック: Tempo/Beat/Bar をリセット\n→ Tempo が再計算されます",
-    "A<->B duration\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset A & B\n"
-    "B marker moves, A stays fixed":
+    "A<->B duration\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset A & B":
         "A<->B の長さ\nダブルクリック: 編集（秒）\nドラッグ↑↓/ホイール: ±0.1秒\nShift+ドラッグ↑↓/ホイール: ±1.0秒\n"
-        "右クリック: A と B をリセット\nB マーカーが動き、A は固定",
+        "右クリック: A と B をリセット",
     "{0}\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nR-Click: Reset":
         "{0}\nダブルクリック: 編集\nドラッグ↑↓/ホイール: ±1\n右クリック: リセット",
     "{0}\n1-Click: Tempo Detection\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1\nShift+Drag↑↓/Wheel: +/-1.0\nR-Click: Reset":
@@ -43,7 +42,7 @@ STRINGS = {
     "Key\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nShift+Drag↑↓/Wheel: +/-12\nR-Click: Reset":
         "Key（移調）\nダブルクリック: 編集\nドラッグ↑↓/ホイール: ±1\nShift+ドラッグ↑↓/ホイール: ±12\n右クリック: リセット",
     "Fine\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.01\nShift+Drag↑↓/Wheel: +/-0.1\nR-Click: Reset":
-        "Fine（微調整）\nダブルクリック: 編集\nドラッグ↑↓/ホイール: ±0.01\nShift+ドラッグ↑↓/ホイール: ±0.1\n右クリック: リセット",
+        "Fine（キー微調整）\nダブルクリック: 編集\nドラッグ↑↓/ホイール: ±0.01\nShift+ドラッグ↑↓/ホイール: ±0.1\n右クリック: リセット",
     "Speed\n2-Click: Edit\nDrag↑↓/Wheel: step\nR-Click: Reset":
         "Speed（再生速度）\nダブルクリック: 編集\nドラッグ↑↓/ホイール: 段階的に変更\n右クリック: リセット",
     "Waveform\nClick: Seek\nDrag↑↓/Wheel: Zoom\nShift+Wheel: Scroll\nDrag←→: Set A-B range\n2-click: Set marker\n"
@@ -56,7 +55,8 @@ STRINGS = {
     "Total time\n(NSF/GBS)\nDrag↑↓/Wheel: change duration\nR-Click: Back to initial time":
         "総再生時間\n（NSF/GBS）\nドラッグ↑↓/ホイール: 長さを変更\n右クリック: 最初の長さに戻す",
     "Volume\nDrag←→: change\nR-Click: 100%": "音量\nドラッグ←→: 変更\n右クリック: 100%",
-    "Volume\nR-Click: 100%": "音量\n右クリック: 100%",
+    "Volume\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nShift+Drag↑↓/Wheel: +/-10\nR-Click: 100%":
+        "音量\nダブルクリック: 編集\nドラッグ↑↓/ホイール: ±1\nShift+ドラッグ↑↓/ホイール: ±10\n右クリック: 100%",
     "Marker {0}\nClick: Set\n2-Click: Edit\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Clear":
         "マーカー {0}\nクリック: 現在位置を設定\nダブルクリック: 編集\nドラッグ↑↓/ホイール: ±0.1秒\n"
         "Shift+ドラッグ↑↓/ホイール: ±1.0秒\n右クリック: 消去",

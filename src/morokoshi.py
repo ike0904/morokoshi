@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.14"
+APP_VERSION = "v2.8.15"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -5301,7 +5301,7 @@ class MainWindow(QMainWindow):
         self._abdiff_lbl.mouseReleaseEvent    = lambda e: None
         self._abdiff_lbl.mouseDoubleClickEvent= lambda e: self._abdiff_dblclick(e)
         self._abdiff_lbl.wheelEvent           = lambda e: self._abdiff_wheel(e)
-        self._attach_tip(self._abdiff_lbl, "A<->B duration\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset A & B\nB marker moves, A stays fixed")
+        self._attach_tip(self._abdiff_lbl, "A<->B duration\n2-Click: Edit(sec)\nDrag↑↓/Wheel: +/-0.1s\nShift+Drag↑↓/Wheel: +/-1.0s\nR-Click: Reset A & B")
 
         for attr, default, dstep, dmin, dmax, tipname, tipshift in [
             ("_tempo_edit","120.0", 0.1, 30.0, 300.0, "Tempo", "Shift+Drag↑↓:+/-1.0"),
@@ -5618,22 +5618,32 @@ class MainWindow(QMainWindow):
         self._vol_slider.setStyleSheet(
             f"QSlider::groove:horizontal{{height:{self.S(4)}px;background:{BG3};}}"
             f"QSlider::handle:horizontal{{width:{self.S(12)}px;height:{self.S(12)}px;margin:-{self.S(4)}px 0;background:{FG};border-radius:{self.S(6)}px;}}")
-        self._vol_slider.valueChanged.connect(lambda v: (setattr(self.engine,'volume',v/100.0), self._vol_pct.setText(f"{v}%"), self._on_volume_changed(v)))
-        self._vol_pct=QLabel("100%"); self._vol_pct.setStyleSheet(f"color:{FG2}; padding:1px 0px; font-size:{self.S(11)}px;")  # メッセージと同じフォント
+        self._vol_slider.valueChanged.connect(lambda v: (setattr(self.engine,'volume',v/100.0), self._vol_pct.setText(f"{v}%"),
+                                                         self._vol_pct.set_value(v), self._on_volume_changed(v)))
+        # 音量の%表示: ダブルクリックで直接入力（% は有っても無くても可）、ドラッグ↑↓/ホイールで ±1（Shift で ±10）、
+        # 右クリックで 100%。音量バーと連動。0〜200 以外・数値でない入力は何もせず元の表示のまま
+        def _parse_vol(t):
+            t=t.strip().rstrip("%％").strip()
+            v=float(t)
+            if not (0 <= v <= 200): raise ValueError(t)
+            return v
+        self._vol_pct=DragLabel("100%", step=1, lo=0, hi=200, default=100, big_step=10,
+                                parse=_parse_vol, edit_fmt=lambda v: str(int(round(v))))
+        self._vol_pct.set_value(100)
+        self._vol_pct.setStyleSheet(f"QLabel{{color:{FG2}; background:transparent; border:none; padding:0px;}}"
+                                    f"QLabel:hover{{color:{FG};}}")  # メッセージと同じ見た目（指したときだけ明るく）
+        _vf=self._vol_pct.font(); _vf.setPixelSize(self.S(11)); self._vol_pct.setFont(_vf)
+        self._vol_pct.setFixedHeight(self.S(15))
         self._vol_pct.setFixedWidth(self.S(40))  # 桁数で幅が変わって音量バーがずれないよう固定
         self._vol_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        # 右クリックで100%に戻す
-        def _vol_reset(e):
-            if e.button()==Qt.MouseButton.RightButton:
-                self._vol_slider.setValue(100)
+        self._vol_pct.value_changed.connect(lambda v: self._vol_slider.setValue(int(round(v))))
         def _vol_slider_press(e):
             if e.button()==Qt.MouseButton.RightButton:
                 self._vol_slider.setValue(100); return
             QSlider.mousePressEvent(self._vol_slider, e)
         self._vol_slider.mousePressEvent = _vol_slider_press
-        self._vol_pct.mousePressEvent = _vol_reset
         self._attach_tip(self._vol_slider, "Volume\nDrag←→: change\nR-Click: 100%")
-        self._attach_tip(self._vol_pct, "Volume\nR-Click: 100%")
+        self._attach_tip(self._vol_pct, "Volume\n2-Click: Edit\nDrag↑↓/Wheel: +/-1\nShift+Drag↑↓/Wheel: +/-10\nR-Click: 100%")
         def _mk_lbl_wrap(lbl, w):
             pad=self.S(4); ctr=QWidget(); ctr.setFixedWidth(w); ctr.setStyleSheet(f"background:{BG};")
             lo2=QVBoxLayout(ctr); lo2.setContentsMargins(0,pad,0,0); lo2.setSpacing(0)

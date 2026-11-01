@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.8.13"
+APP_VERSION = "v2.8.14"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4766,6 +4766,28 @@ class Nsf2MidDialog(QDialog):
         g.addLayout(bl, self._r, 0, 1, 2)
         g.setColumnMinimumWidth(1, S(150))
         self._apply(opts)
+        # 右クリックでその項目だけ既定値に戻す（メイン画面と同じ。項目名の右クリックでも可）
+        self._rclick = {}
+        for key, w in (("loops", self.sp_loops), ("seconds", self.sp_seconds), ("tempo", self.cb_tempo),
+                       ("triplets", self.cb_triplets), ("drop_drums", self.sp_dropdrums),
+                       ("keep_tail", self.ck_tail), ("quantize", self.ck_quant)):
+            targets = [w]
+            if isinstance(w, QSpinBox): targets.append(w.lineEdit())   # 右クリックは中の入力欄に届く
+            lb = g.itemAtPosition(g.getItemPosition(g.indexOf(w))[0], 0).widget()
+            if lb is not w: targets.append(lb)
+            for t in targets:
+                t.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+                t.installEventFilter(self)
+                self._rclick[t] = key
+
+    def eventFilter(self, obj, e):
+        from PyQt6.QtCore import QEvent
+        key = getattr(self, "_rclick", {}).get(obj)
+        if key and e.type() == QEvent.Type.MouseButtonPress and e.button() == Qt.MouseButton.RightButton:
+            o = self.values(); o[key] = NSF2MID_DEFAULTS[key]
+            self._apply(o)
+            return True
+        return False
 
     def _apply(self, o):
         self.sp_loops.setValue(int(o["loops"]))
