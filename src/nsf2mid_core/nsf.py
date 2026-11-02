@@ -122,15 +122,25 @@ def _cstr(b):
 
 
 class NSFBus:
-    """Memory map for an NSF tune (2A03 only for now)."""
+    """Memory map for an NSF tune (2A03, plus the FDS layout when the FDS bit is set).
 
-    def __init__(self, header, rom_data, on_apu_write, on_status_read=None):
+    FDS tunes (v0.1.25): $6000-$FFFF is writable RAM (the FDS loads its program from disk into
+    RAM), the tune may load below $8000, and bank writes ($5FF6-$5FFF, $5FF6/$5FF7 = $6000/$7000)
+    copy a 4KB bank of the file into that RAM. FDS sound registers $4040-$408A are passed on.
+    """
+
+    def __init__(self, header, rom_data, on_apu_write, on_status_read=None, on_exp_read=None):
         self.h = header
         self.ram = bytearray(0x800)
         self.sram = bytearray(0x2000)       # $6000-$7FFF
         self.on_apu_write = on_apu_write
         self.on_status_read = on_status_read
+        self.on_exp_read = on_exp_read
         self.cpu = None
+        self.fds = bool(header.expansion & 0x04)
+        if self.fds:
+            self._init_fds(header, rom_data)
+            return
 
         if header.bankswitched:
             pad = header.load_addr & 0x0FFF
@@ -156,9 +166,35 @@ class NSFBus:
     def _set_bank(self, slot, bank):
         self.slot[slot] = (bank % self.n_banks) * 0x1000
 
+    def _init_fds(self, header, rom_data):
+        self.mem = bytearray(0xA000)        # $6000-$FFFF, all RAM
+        if header.bankswitched:
+            img = bytes(header.load_addr & 0x0FFF) + rom_data
+            self.n_banks = max(1, (len(img) + 0xFFF) // 0x1000)
+            self.image = img + bytes(self.n_banks * 0x1000 - len(img))
+            # $6000/$7000 start with the $E000/$F000 bank values ($76/$77), as the NSF spec says
+            for slot, b in enumerate([header.banks[6], header.banks[7]] + list(header.banks)):
+                self._fds_bank(slot, b)
+        else:
+            off = header.load_addr - 0x6000
+            if off < 0:
+                raise ValueError(f"Load address ${header.load_addr:04X} below $6000 is not supported")
+            data = rom_data[:0xA000 - off]
+            self.mem[off:off + len(data)] = data
+
+    def _fds_bank(self, slot, bank):
+        """Copy 4KB bank `bank` of the file to $6000 + slot * $1000 (slot 0-9)."""
+        base = (bank % self.n_banks) * 0x1000
+        self.mem[slot * 0x1000:(slot + 1) * 0x1000] = self.image[base:base + 0x1000]
+
     def read(self, addr):
         if addr < 0x2000:
             return self.ram[addr & 0x7FF]
+        if self.fds:
+            if addr >= 0x6000:
+                return self.mem[addr - 0x6000]
+            if 0x4040 <= addr <= 0x4097 and self.on_exp_read:
+                return self.on_exp_read(addr)
         if addr >= 0x8000:
             base = self.slot[(addr - 0x8000) >> 12]
             if base is None:
@@ -175,6 +211,13 @@ class NSFBus:
     def write(self, addr, val):
         if addr < 0x2000:
             self.ram[addr & 0x7FF] = val
+        elif self.fds and addr >= 0x6000:
+            self.mem[addr - 0x6000] = val
+        elif self.fds and 0x4040 <= addr <= 0x408A:
+            self.on_apu_write(addr, val)
+        elif self.fds and 0x5FF6 <= addr <= 0x5FFF:
+            if self.h.bankswitched:
+                self._fds_bank(addr - 0x5FF6, val)
         elif 0x4000 <= addr <= 0x4017:
             self.on_apu_write(addr, val)
         elif 0x5FF8 <= addr <= 0x5FFF:
@@ -222,6 +265,13 @@ class NSFPlayer:
         rd = self.bus.read
         self.dmc_samples[key] = bytes(rd(0x8000 | ((addr + i) & 0x7FFF)) for i in range(length))
 
+    @property
+    def fds(self):
+        return bool(self.header.expansion & 0x04)
+
+    def _exp_read(self, addr):
+        return self.apu.read_expansion(self.cpu.cycles, addr)
+
     def _status_read(self):
         # Drivers that read $4015 (length counter status) need a live APU model
         return self.apu.read_status(self.cpu.cycles)
@@ -244,18 +294,19 @@ class NSFPlayer:
         """Load the tune and run INIT for `track` (1-based)."""
         h = self.header
         self.warnings = []
-        if h.expansion:
+        other = [n for n in h.expansion_names if n != "FDS"]
+        if other:
             self.warnings.append(
-                f"Expansion audio ({', '.join(h.expansion_names)}) is not emulated; "
-                f"only 2A03 channels are logged.")
+                f"Expansion audio ({', '.join(other)}) is not emulated; "
+                f"only 2A03{' and FDS' if self.fds else ''} channels are logged.")
         self.writes = []
         self.dmc_samples = {}
         self.t0 = None
         self.frames_done = 0
         self.stuck = 0
         self.aborted = False
-        self.apu = APUState(self.cpu_hz)
-        self.bus = NSFBus(h, self.rom, self._log_write, self._status_read)
+        self.apu = APUState(self.cpu_hz, fds=self.fds)
+        self.bus = NSFBus(h, self.rom, self._log_write, self._status_read, self._exp_read)
         self.cpu = CPU6502(self.bus)
         cpu = self.cpu
 
@@ -266,6 +317,11 @@ class NSFPlayer:
         self.bus.write(0x4015, 0x00)
         self.bus.write(0x4015, 0x0F)
         self.bus.write(0x4017, 0x40)
+        if self.fds:
+            # FDS sound on, as the FDS BIOS leaves it: master envelope speed $E8, volume gain 0
+            self.bus.write(0x4089, 0x00)
+            self.bus.write(0x408A, 0xE8)
+            self.bus.write(0x4080, 0x80)
 
         # INIT
         cpu.a = (track - 1) & 0xFF

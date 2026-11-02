@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.24
-commit:  48c82ed 2026-11-02 v0.1.24: pitched DPCM tracks use the pitch estimated from the waveform (period in bits x rate); no clear period -> lowest rate = 48
+version: v0.1.25
+commit:  ce484d4 2026-11-02 v0.1.25: FDS support (FDS memory map incl. loads below $8000, FDS channel model with wavetable cycle count, track Ch6 FDS on MIDI ch 6)
 files:   apu_state.py, cpu6502.py, drums.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
