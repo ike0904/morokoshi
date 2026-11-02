@@ -265,115 +265,12 @@ class DMC:
                 self.end_cycle = cyc + self.sample_len * 8 * DMC_RATE_NTSC[self.rate_idx]
 
 
-FDS_WAVE_DIV = 65536 * 64   # FDS pitch: f = CPU * F / (65536 * 64), 64-step wavetable
-
-
-class FDS:
-    """FDS (Famicom Disk System) wavetable channel: pitch, volume envelope and the wavetable.
-
-    The modulation unit ($4084-$4088, vibrato / bends) is only recorded: notes use the
-    centre frequency (v0.1.25)."""
-
-    def __init__(self):
-        self.wave = [0] * 64
-        self.wave_write = False   # $4089 bit 7: wavetable writable, output held
-        self.master_vol = 0       # $4089 bits 0-1: 2/2, 2/3, 2/4, 2/5
-        self.freq = 0             # 12 bit
-        self.halt = False         # $4083 bit 7: wave halted
-        self.env_off = False      # $4083 bit 6: envelopes halted
-        self.env_speed = 0xE8     # $408A
-        self.vol_direct = True    # $4080 bit 7
-        self.vol_up = False
-        self.vol_rate = 0
-        self.gain = 0
-        self.env_acc = 0
-        self.mod_gain = 0
-        self.mod_freq = 0
-        self.mod_off = True
-        self.now = None
-        self.wave_ids = {}
-
-    def advance(self, cyc):
-        if self.now is None:
-            self.now = cyc
-            return
-        dt = cyc - self.now
-        self.now = cyc
-        if dt <= 0 or self.vol_direct or self.env_off or self.env_speed == 0 or self.wave_write:
-            return
-        period = 8 * (self.vol_rate + 1) * self.env_speed
-        self.env_acc += dt
-        ticks = int(self.env_acc // period)
-        if ticks:
-            self.env_acc -= ticks * period
-            self.gain = min(32, self.gain + ticks) if self.vol_up else max(0, self.gain - ticks)
-
-    def write(self, addr, v):
-        if addr < 0x4080:
-            if self.wave_write:
-                self.wave[addr - 0x4040] = v & 0x3F
-            return
-        reg = addr - 0x4080
-        if reg == 0:
-            self.vol_direct = bool(v & 0x80)
-            self.vol_up = bool(v & 0x40)
-            self.vol_rate = v & 0x3F
-            self.env_acc = 0
-            if self.vol_direct:
-                self.gain = v & 0x3F
-        elif reg == 2:
-            self.freq = (self.freq & 0xF00) | v
-        elif reg == 3:
-            self.freq = (self.freq & 0xFF) | ((v & 0x0F) << 8)
-            self.halt = bool(v & 0x80)
-            self.env_off = bool(v & 0x40)
-        elif reg == 4:
-            if v & 0x80:
-                self.mod_gain = v & 0x3F
-        elif reg == 6:
-            self.mod_freq = (self.mod_freq & 0xF00) | v
-        elif reg == 7:
-            self.mod_freq = (self.mod_freq & 0xFF) | ((v & 0x0F) << 8)
-            self.mod_off = bool(v & 0x80)
-        elif reg == 9:
-            self.wave_write = bool(v & 0x80)
-            self.master_vol = v & 0x03
-        elif reg == 10:
-            self.env_speed = v
-
-    def read(self, addr):
-        if addr < 0x4080:
-            return self.wave[addr - 0x4040] | 0x40
-        if addr == 0x4090:
-            return self.gain | 0x40
-        if addr == 0x4092:
-            return self.mod_gain | 0x40
-        return 0x40
-
-    def volume(self):
-        """0-15 like the 2A03 channels (gain 0-32 is the hardware range)."""
-        if self.halt or self.wave_write or self.freq == 0 or not any(self.wave):
-            return 0
-        g = min(32, self.gain)
-        return max(1, int(round(g * 15 / 32))) if g else 0
-
-    def wave_id(self):
-        return self.wave_ids.setdefault(tuple(self.wave), len(self.wave_ids))
-
-    def wave_cycles(self):
-        """How many times the wavetable repeats exactly (1, 2, 4, ...). A table holding 2 cycles of
-        a wave sounds an octave higher (e.g. Bio Miracle Bokutte Upa: 2 and 4 cycles)."""
-        w = self.wave
-        n = 64
-        while n > 1 and all(w[i] == w[i + n // 2] for i in range(n // 2)):
-            n //= 2
-        return 64 // n
-
-
 class APUState:
-    def __init__(self, cpu_hz=1789773.0, fds=False):
+    def __init__(self, cpu_hz=1789773.0, expansion=0):
+        """expansion: the NSF header's expansion byte (chips in expansion.py, v0.1.25-)."""
+        from expansion import make_chips
         self.cpu_hz = cpu_hz
-        self.fds = FDS() if fds else None
+        self.chips = make_chips(expansion)
         self.p1 = Pulse(True)
         self.p2 = Pulse(False)
         self.tri = Triangle()
@@ -399,8 +296,8 @@ class APUState:
 
     def advance(self, cyc):
         """Run the frame sequencer up to (not including) CPU cycle `cyc`."""
-        if self.fds:
-            self.fds.advance(cyc)
+        for c in self.chips:
+            c.advance(cyc)
         if self.now is None:
             self.now = cyc
             self.seq_origin = cyc
@@ -432,11 +329,14 @@ class APUState:
 
     # --------------------------------------------------------------- writes
     def write(self, cyc, addr, v):
+        """Apply a register write. Returns the expansion channels it (re)triggers."""
         self.advance(cyc)
-        if addr >= 0x4040:
-            if self.fds:
-                self.fds.write(addr, v)
-        elif addr <= 0x4003:
+        if not 0x4000 <= addr <= 0x4017:
+            for c in self.chips:
+                if c.handles(addr):
+                    return c.write(addr, v)
+            return ()
+        if addr <= 0x4003:
             self.p1.write(addr - 0x4000, v)
         elif addr <= 0x4007:
             self.p2.write(addr - 0x4004, v)
@@ -461,8 +361,13 @@ class APUState:
                 self._clock_half()
 
     def read_expansion(self, cyc, addr):
+        """Readable expansion registers; None if no chip answers."""
         self.advance(cyc)
-        return self.fds.read(addr) if self.fds and addr <= 0x4092 else 0x40
+        for c in self.chips:
+            v = c.read(addr)
+            if v is not None:
+                return v
+        return None
 
     def read_status(self, cyc):
         self.advance(cyc)
@@ -521,17 +426,6 @@ class APUState:
             "dac": d.dac,
             "starts": d.start_count,
         }
-        if self.fds:
-            fd = self.fds
-            f = hz * fd.freq / FDS_WAVE_DIV * fd.wave_cycles()
-            out["FDS"] = {
-                "period": fd.freq,
-                "freq": f,
-                "note": freq_to_note(f) if fd.freq else None,
-                "vol": fd.volume(),
-                "gain": fd.gain,
-                "duty": fd.wave_id(),
-                "master": fd.master_vol,
-                "mod": 0 if fd.mod_off else fd.mod_gain,
-            }
+        for c in self.chips:
+            out.update(c.snapshot(hz))
         return out
