@@ -24,6 +24,9 @@ DPCM
   Looping samples are treated as tonal samples and skipped.
   v0.1.23: a sample (address, length) played at more than one rate is a pitched sample: its
   hits get a pitch from the rate (dmc_rate_pitch) and their own track, so the melody is kept.
+  v0.1.24: the pitch comes from the waveform: the period of the decoded sample in bits
+  (dpcm_period, autocorrelation) and the rate give the real frequency. Samples without a clear
+  period (drums played at several rates) start at PITCHED_FALLBACK_LOW for their lowest rate.
 
 Pitch-drop drums (v0.1.20: also on the pulse channels)
   Short notes (<= TRI_DRUM_MAX frames) that glide down by >= DROP_DRUM_MIN
@@ -170,11 +173,49 @@ def classify_dpcm(freq, dur):
     return 42 if dur < 0.08 else 46
 
 
-def dmc_rate_pitch(rate, cpu_hz):
-    """MIDI note of a DPCM rate: the rate table is tuned so that 32 output bits = one cycle of a
-    note (rate 0 = C3 ... rate 15 = C6). Only the intervals between rates are meaningful."""
-    hz = cpu_hz / DMC_RATE_NTSC[rate] / 32
-    return int(round(69 + 12 * math.log2(hz / 440.0)))
+PERIOD_MIN_AC = 0.5          # autocorrelation needed to trust the estimated period
+PITCHED_FALLBACK_LOW = 48    # no clear period: the lowest rate of the sample becomes this note
+_period_cache = {}
+
+
+def dmc_rate_pitch(rate, cpu_hz, period=32.0):
+    """MIDI note (float) of a sample whose waveform repeats every `period` bits, played at `rate`.
+    period 32 = the rate table's own tuning (rate 0 = C3 ... rate 15 = C6)."""
+    hz = cpu_hz / DMC_RATE_NTSC[rate] / period
+    return 69 + 12 * math.log2(hz / 440.0)
+
+
+def dpcm_period(data):
+    """Period of the decoded sample in bits (autocorrelation), or None if it has no clear period.
+    The first peak reaching 90% of the highest one is taken (prefers the fundamental over its
+    multiples; the octave can still be off by one). Needs numpy (None without it)."""
+    key = bytes(data)
+    if key in _period_cache:
+        return _period_cache[key]
+    res = None
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+    if np is not None and len(data) >= 8:
+        x = np.array(dpcm_decode(data[:1024]), float)
+        n = len(x)
+        w = min(1024, n)
+        x = x - np.convolve(x, np.ones(w) / w, "same")
+        x -= x.mean()
+        ac = np.correlate(x, x, "full")[n - 1:]
+        if ac[0] > 0:
+            ac = ac / ac[0]
+            hi = min(n // 2, 1200)
+            peaks = [k for k in range(16, hi) if ac[k] > ac[k - 1] and ac[k] >= ac[k + 1]]
+            top = max((ac[k] for k in peaks), default=0)
+            if top >= PERIOD_MIN_AC:
+                k = next(k for k in peaks if ac[k] >= 0.9 * top)
+                a, b, c = ac[k - 1], ac[k], ac[k + 1]
+                den = a - 2 * b + c
+                res = k + (0.5 * (a - c) / den if den else 0.0)   # parabolic peak refinement
+    _period_cache[key] = res
+    return res
 
 
 def dmc_hits(frames, samples, cpu_hz, drum_map=None):
@@ -208,9 +249,21 @@ def dmc_hits(frames, samples, cpu_hz, drum_map=None):
     rates = {}
     for h in hits:
         rates.setdefault(h.kind[1:3], set()).add(h.kind[3])
+    shift = {}
+    for key, rs in rates.items():
+        if len(rs) < 2:
+            continue
+        period = dpcm_period(samples.get(key, b""))
+        if period:
+            shift[key] = (period, 0.0, True)
+        else:   # no clear period: keep the intervals of the rates, lowest rate = PITCHED_FALLBACK_LOW
+            shift[key] = (32.0, PITCHED_FALLBACK_LOW - dmc_rate_pitch(min(rs), cpu_hz), False)
     for h in hits:
-        if len(rates[h.kind[1:3]]) > 1 and not (drum_map and h.kind in drum_map):
-            h.pitch = dmc_rate_pitch(h.kind[3], cpu_hz)
+        key = h.kind[1:3]
+        if key in shift and not (drum_map and h.kind in drum_map):
+            period, off, found = shift[key]
+            h.pitch = max(0, min(127, int(round(dmc_rate_pitch(h.kind[3], cpu_hz, period) + off))))
+            h.info += f" period {period:.1f} bits" if found else " no clear period"
     return hits
 
 
