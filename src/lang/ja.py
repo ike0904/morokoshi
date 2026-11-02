@@ -102,9 +102,9 @@ STRINGS = {
     "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never":
         "3 連ノリの曲を「1 拍 = 3 音」で出力するか\n自動: 検出 / オン: 常に / オフ: しない",
     "Pitch-drop drums": "下降音ドラム（半音）",
-    "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to the drum tracks "
-    "(MIDI ch 11-13)\n0: off\nWheel: change":
-        "鳴り始めから、この半音数以上下がり続ける短い音\n（三角波のキック・矩形波のタム）をドラム用トラック（MIDI ch 11〜13）に分けます\n"
+    "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to their own drum tracks\n"
+    "(MIDI ch stays 1-3)\n0: off\nWheel: change":
+        "鳴り始めから、この半音数以上下がり続ける短い音\n（三角波のキック・矩形波のタム）をドラム用トラックに分けます（MIDI ch は 1〜3 のまま）\n"
         "0: 分けない\nホイール: 変更",
     "Keep reverb tails": "リバーブ余韻を残す",
     "Include reverb tails in the note length": "小さな音量で鳴らし続ける余韻も、音の長さに含めます",

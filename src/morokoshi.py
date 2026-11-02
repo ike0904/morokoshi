@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.0"
+APP_VERSION = "v2.9.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -4750,7 +4750,7 @@ class Nsf2MidDialog(QDialog):
             "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
         self.cb_triplets.addItems([tr(t[0]) for t in NSF2MID_TRIPLETS])
         self.sp_dropdrums = add("Pitch-drop drums", spin(0, 24),
-            "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to the drum tracks (MIDI ch 11-13)\n0: off\nWheel: change")
+            "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to their own drum tracks\n(MIDI ch stays 1-3)\n0: off\nWheel: change")
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
         self.ck_quant = check("Quantize", "Snap notes to the detected beat grid\nOff: keep the exact timing (the tempo is still detected)")
         bl = QHBoxLayout(); bl.setSpacing(S(6))
