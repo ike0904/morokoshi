@@ -967,9 +967,12 @@ class MainWindow(QMainWindow):
         self.ed_file.setText(self.nsf_path)
         info = f"<b>{_esc(hdr.title)}</b>　{_esc(hdr.artist)}　{_esc(hdr.copyright)}　" \
                f"曲数 {hdr.total_songs}（開始 {hdr.start_song}）　{'PAL' if hdr.is_pal else 'NTSC'}"
-        if hdr.expansion_names:
+        other = [n for n in hdr.expansion_names if n != "FDS"]
+        if other:
             info += f"　<span style='color:#E08040'>拡張音源 {', '.join(hdr.expansion_names)}" \
-                    f"（未対応: 2A03 の音のみ変換）</span>"
+                    f"（未対応: 2A03{' と FDS' if 'FDS' in hdr.expansion_names else ''} の音のみ変換）</span>"
+        elif hdr.expansion_names:
+            info += "　拡張音源 FDS（ch 6 に出力）"
         self.lb_info.setText(info)
 
         playlist = [e for e in read_m3u(self.nsf_path) if 1 <= e[0] <= hdr.total_songs]
