@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.23
-commit:  0d38161 2026-11-02 v0.1.23: MIDI channels follow the NES channels (pitch-drop drums ch 1-3, noise ch 4, DPCM ch 5); DPCM samples played at several rates get their own pitched tracks
+version: v0.1.24
+commit:  48c82ed 2026-11-02 v0.1.24: pitched DPCM tracks use the pitch estimated from the waveform (period in bits x rate); no clear period -> lowest rate = 48
 files:   apu_state.py, cpu6502.py, drums.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
