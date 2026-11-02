@@ -1,8 +1,10 @@
 """
 Drum extraction (Phase 3): noise channel, DPCM samples and pitch-drop "drums" (P1 / P2 / TRI).
 
-Noise and DPCM hits are mapped to General MIDI percussion (MIDI channel 10).
-Pitch-drop drums keep their original pitch and go to their own MIDI channels (11-13).
+Noise and DPCM hits are mapped to General MIDI percussion note numbers (v0.1.23: written on the
+NES channel's own MIDI channel, noise = ch 4, DPCM = ch 5; v0.1.22 and before: ch 10).
+Pitch-drop drums keep their original pitch and stay on their channel (P1 / P2 / TRI = ch 1-3,
+own tracks; v0.1.20-0.1.22: ch 11-13).
 
 Noise
   Hit start: hi reg ($400F) write while audible, silence -> sound, or a volume
@@ -20,6 +22,8 @@ DPCM
     < 4500 Hz : snare
     otherwise : hi-hat (short) / open hi-hat
   Looping samples are treated as tonal samples and skipped.
+  v0.1.23: a sample (address, length) played at more than one rate is a pitched sample: its
+  hits get a pitch from the rate (dmc_rate_pitch) and their own track, so the melody is kept.
 
 Pitch-drop drums (v0.1.20: also on the pulse channels)
   Short notes (<= TRI_DRUM_MAX frames) that glide down by >= DROP_DRUM_MIN
@@ -30,6 +34,8 @@ Pitch-drop drums (v0.1.20: also on the pulse channels)
   that steps down once and holds, or falls only at its end (glissando into the
   next note, e.g. Gradius II), is not a drum.
 """
+
+import math
 
 from apu_state import DMC_RATE_NTSC
 from notes import find_gate_end
@@ -48,9 +54,9 @@ GLIDE_TOL = 0.5         # semitones: smaller frame-to-frame changes count as "fl
 
 
 class DrumHit:
-    __slots__ = ("src", "start", "end", "gm", "vel", "kind", "info", "note")
+    __slots__ = ("src", "start", "end", "gm", "vel", "kind", "info", "note", "pitch")
 
-    def __init__(self, src, start, end, gm, vel, kind, info="", note=None):
+    def __init__(self, src, start, end, gm, vel, kind, info="", note=None, pitch=None):
         self.src = src          # "NOI" / "DMC" / "P1" / "P2" / "TRI" (the last three: pitch-drop drums)
         self.start = start
         self.end = end
@@ -59,6 +65,8 @@ class DrumHit:
         self.kind = kind        # key used for remapping / reporting
         self.info = info
         self.note = note        # pitch-drop drums: the original Note (pitch, peak volume)
+        # MIDI note to write instead of gm: pitch-drop drums (original pitch), pitched DPCM samples
+        self.pitch = note.pitch if pitch is None and note is not None else pitch
 
 
 def _vel(v):
@@ -162,6 +170,13 @@ def classify_dpcm(freq, dur):
     return 42 if dur < 0.08 else 46
 
 
+def dmc_rate_pitch(rate, cpu_hz):
+    """MIDI note of a DPCM rate: the rate table is tuned so that 32 output bits = one cycle of a
+    note (rate 0 = C3 ... rate 15 = C6). Only the intervals between rates are meaningful."""
+    hz = cpu_hz / DMC_RATE_NTSC[rate] / 32
+    return int(round(69 + 12 * math.log2(hz / 440.0)))
+
+
 def dmc_hits(frames, samples, cpu_hz, drum_map=None):
     hits = []
     prev = None
@@ -186,6 +201,16 @@ def dmc_hits(frames, samples, cpu_hz, drum_map=None):
             hits.append(DrumHit("DMC", fr["frame"], fr["frame"] + frames_len, gm, 110, dkey,
                                 f"${d['addr']:04X} len {d['len']} rate {d['rate']} ~{freq:.0f}Hz {dur * 1000:.0f}ms"))
         prev = d["starts"]
+    # the DMC plays one sample at a time: a new sample start cuts the previous one
+    for h, nxt in zip(hits, hits[1:]):
+        h.end = max(h.start + 1, min(h.end, nxt.start))
+    # the same sample at several rates = pitched sample (unless remapped with --drum-map)
+    rates = {}
+    for h in hits:
+        rates.setdefault(h.kind[1:3], set()).add(h.kind[3])
+    for h in hits:
+        if len(rates[h.kind[1:3]]) > 1 and not (drum_map and h.kind in drum_map):
+            h.pitch = dmc_rate_pitch(h.kind[3], cpu_hz)
     return hits
 
 
@@ -262,14 +287,15 @@ def parse_drum_map(text):
 
 
 def summarize(hits):
-    """Per kind: (count, gm, example info) for the console report."""
+    """Per kind: (count, gm, example info, pitch) for the console report.
+    pitch: the MIDI note of a pitched DPCM sample, else None."""
     table = {}
     for h in hits:
-        t = table.setdefault((h.src, h.kind), [0, {}, h.info])
+        t = table.setdefault((h.src, h.kind), [0, {}, h.info, h.pitch])
         t[0] += 1
         t[1][h.gm] = t[1].get(h.gm, 0) + 1
     out = []
-    for (src, kind), (cnt, gms, info) in sorted(table.items(), key=lambda x: -x[1][0]):
+    for (src, kind), (cnt, gms, info, pitch) in sorted(table.items(), key=lambda x: -x[1][0]):
         gm = max(gms, key=gms.get)
-        out.append((src, kind, cnt, gm, info))
+        out.append((src, kind, cnt, gm, info, pitch if src == "DMC" else None))
     return out

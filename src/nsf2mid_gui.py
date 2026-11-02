@@ -818,7 +818,7 @@ class MainWindow(QMainWindow):
         self.ed_drummap = add("ドラム割当", QLineEdit(), 'ドラム割当の上書き（--drum-map）。例 "3:0=42,12:0=36,DMC:E000:129:15=38"')
         self.sp_dropdrums = add("下降音ドラム（半音）", QSpinBox(),
                                 "1〜3ch の短く音程が下がり続ける音（三角波キック・矩形波タム）を、"
-                                "この半音数以上下がるなら MIDI ch 11〜13 に分ける（--drop-drums）。0 = 分けない")
+                                "この半音数以上下がるならドラム用トラックに分ける（MIDI ch は元のまま 1〜3、--drop-drums）。0 = 分けない")
         self.sp_dropdrums.setRange(0, 24)
         self.ck_tail = check("リバーブ余韻を残す", "余韻もノート長に含める（--keep-tail）")
         self.ck_quant = check("クオンタイズする", "音符を検出した拍のグリッドに合わせる。オフ = 実際のタイミングのまま（--no-quantize）")

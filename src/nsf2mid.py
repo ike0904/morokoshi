@@ -27,9 +27,12 @@ Usage:
   v0.1.21 (2026-11-01) - 下降音ドラムの判定を「最初から下がり続ける音」に限定 (メロディのグリッサンドを除外)、
                          閾値を --drop-drums N (半音、既定 3、0 = 無効) で指定。GUI もチェックボックス → 数値
   v0.1.22 (2026-11-01) - GUI: 「クオンタイズしない」→「クオンタイズする」(既定オン)。「下降音ドラム（半音）」をドラム割当の下へ
+  v0.1.23 (2026-11-02) - MIDI ch を NES のチャンネルに揃える: 下降音ドラムは ch 1/2/3 (トラックは別)、ノイズ ch 4、DPCM ch 5
+                         (従来はドラム ch 10・下降音ドラム ch 11〜13)。同じ DPCM サンプルを複数のレートで鳴らす音色は
+                         サンプルごとのトラックに分け、レートから音程を付ける
 """
 
-APP_VERSION = "v0.1.22"
+APP_VERSION = "v0.1.23"
 
 import argparse
 import csv
@@ -227,8 +230,10 @@ def vol_to_velocity(v):
 TRACK_NAMES = {"P1": "Ch1 Pulse", "P2": "Ch2 Pulse", "TRI": "Ch3 Wave"}
 DRUM_TRACKS = (("NOI", "Ch4 Noise drums"), ("DMC", "Ch5 DPCM drums"), ("P1", "Ch1 Pulse drums"),
                ("P2", "Ch2 Pulse drums"), ("TRI", "Ch3 Wave drums"))
-# Pitch-drop drums keep their pitch, so they get their own (non-percussion) MIDI channels 11-13
-DROP_DRUM_CH = {"P1": 10, "P2": 11, "TRI": 12}
+# v0.1.23: every track uses the MIDI channel of its NES channel (drums on their own tracks).
+# Noise / DPCM keep GM drum note numbers; pitch-drop drums and pitched DPCM samples their pitch.
+# (v0.1.22 and before: noise / DPCM on ch 10, pitch-drop drums on ch 11-13)
+DRUM_CH = {"P1": 0, "P2": 1, "TRI": 2, "NOI": 3, "DMC": 4}
 
 
 def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, programs):
@@ -265,19 +270,32 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
             vel = 100 if ch == "TRI" else vol_to_velocity(n.peak)
             tr.note(st, en, mch, max(0, min(127, n.pitch + transpose.get(ch, 0))), vel)
         tracks.append(tr)
-    for src, name in DRUM_TRACKS:
-        hits = [d for d in drums if d.src == src and d.start < end_frame]
-        if not hits:
-            continue
+    for src, name, hits in drum_track_groups(drums, end_frame):
         tr = Track(name)
         for d in hits:
             st, en = span(d.start, d.end)
-            if src in DROP_DRUM_CH:
-                tr.note(st, en, DROP_DRUM_CH[src], max(0, min(127, d.note.pitch + transpose.get(src, 0))), d.vel)
-            else:
-                tr.note(st, en, 9, d.gm, d.vel)
+            num = d.gm if d.pitch is None else d.pitch + transpose.get(src, 0)
+            tr.note(st, en, DRUM_CH[src], max(0, min(127, num)), d.vel)
         tracks.append(tr)
     return tracks
+
+
+def drum_track_groups(drums, end_frame):
+    """[(src, track name, hits)] of the non-empty drum tracks. A DPCM sample played at several
+    rates (pitched sample) gets its own track "Ch5 DPCM $ADDR" after the DPCM drums."""
+    out = []
+    for src, name in DRUM_TRACKS:
+        hits = [d for d in drums if d.src == src and d.start < end_frame]
+        if src != "DMC":
+            out.append((src, name, hits))
+            continue
+        out.append((src, name, [d for d in hits if d.pitch is None]))
+        samples = sorted({d.kind[1:3] for d in hits if d.pitch is not None})
+        addrs = [a for a, _ in samples]
+        for addr, length in samples:
+            label = f"Ch5 DPCM ${addr:04X}" + (f" len {length}" if addrs.count(addr) > 1 else "")
+            out.append((src, label, [d for d in hits if d.pitch is not None and d.kind[1:3] == (addr, length)]))
+    return [g for g in out if g[2]]
 
 
 def write_notes_csv(path, notes, drums, tmap, transpose):
@@ -294,8 +312,8 @@ def write_notes_csv(path, notes, drums, tmap, transpose):
                     "note", "midi", "peak_vol", "cue", "start_tick", "end_tick", "vols"])
         for _, ch, n in rows:
             if ch.startswith("DRUM_"):
-                if n.note is not None:  # pitch-drop drum: original pitch
-                    p = n.note.pitch + transpose.get(n.src, 0)
+                if n.pitch is not None:  # pitch-drop drum / pitched DPCM sample
+                    p = n.pitch + transpose.get(n.src, 0)
                     name, num = note_name(p), p
                 else:
                     name, num = GM_NAMES.get(n.gm, str(n.gm)), n.gm
@@ -366,7 +384,7 @@ def build_parser():
                     help="prefer triplet feel: auto = detect (default), on = always, off = never (binary)")
     ap.add_argument("--drop-drums", type=float, default=DROP_DRUM_MIN, metavar="SEMITONES",
                     help="pitch-drop drums (triangle kicks, pulse toms): short notes gliding down by at least "
-                         f"this many semitones go to MIDI ch 11-13 (default {DROP_DRUM_MIN}, 0 = off)")
+                         f"this many semitones go to their own tracks (default {DROP_DRUM_MIN}, 0 = off)")
     ap.add_argument("--no-drop-drums", "--no-tri-drums", dest="no_drop_drums", action="store_true",
                     help="same as --drop-drums 0")
     ap.add_argument("--drum-map", default="",
@@ -480,12 +498,16 @@ def convert(args, should_stop=None):
     in_range = [d for d in drums if d.start < end_frame]
     if in_range:
         print("Drums (source, kind, hits -> GM note):")
-        for src, kind, cnt, gm, info in summarize(in_range):
-            if src in DROP_DRUM_CH:
-                print(f"  {src:3} {'pitch-drop drum':28} {cnt:4} -> MIDI ch {DROP_DRUM_CH[src] + 1}, original pitch "
+        for src, kind, cnt, gm, info, pitch in summarize(in_range):
+            if src in DROP_DRUM_CHANNELS:
+                print(f"  {src:3} {'pitch-drop drum':28} {cnt:4} -> MIDI ch {DRUM_CH[src] + 1}, original pitch "
                       f"(e.g. {info})")
+            elif pitch is not None:
+                print(f"  {src:3} {str(kind):28} {cnt:4} -> MIDI ch {DRUM_CH[src] + 1}, pitched sample "
+                      f"{note_name(pitch)} ({info})")
             else:
-                print(f"  {src:3} {str(kind):28} {cnt:4} -> {gm:3} {GM_NAMES.get(gm, ''):16} ({info})")
+                print(f"  {src:3} {str(kind):28} {cnt:4} -> {gm:3} {GM_NAMES.get(gm, ''):16} "
+                      f"MIDI ch {DRUM_CH[src] + 1} ({info})")
     full = detect
 
     onsets = [o for o in tempo_onsets(full, frames) if o < end_frame]
