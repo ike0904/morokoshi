@@ -5,7 +5,7 @@ Phase 1: 6502 emulation + APU register log / per-frame channel state dump.
 Phase 2: note extraction (P1/P2/TRI), tempo detection, quantized MIDI output.
 Phase 3: drums (noise / DPCM / triangle glides -> GM percussion), loop / end detection.
 Phase 4: GUI (nsf2mid_gui.py). Started when no arguments are given.
-Phase 5: expansion audio. v0.1.25: FDS (MIDI ch 6).
+Phase 5: expansion audio (expansion.py): FDS, VRC6, VRC7, MMC5, N163, Sunsoft 5B on MIDI ch 6-.
 
 Usage:
     python nsf2mid.py                (GUI)
@@ -35,9 +35,11 @@ Usage:
                          周期が見つからないサンプルは一番低いレートを 48 (C3) とする
   v0.1.25 (2026-11-02) - FDS 対応: $6000〜$FFFF を RAM にしたメモリ配置 (ロード $6000〜も可)・FDS 音源のモデル
                          (周波数・音量エンベロープ・波形の周期数)・トラック Ch6 FDS (MIDI ch 6)。モジュレーションは出力しない
+  v0.1.26 (2026-11-02) - 全拡張音源に対応 (expansion.py): VRC6・VRC7・MMC5・N163・Sunsoft 5B。MIDI ch は morokoshi の
+                         チャンネルボタンの番号 (ch 6〜)。FDS も同じ仕組みへ移した
 """
 
-APP_VERSION = "v0.1.25"
+APP_VERSION = "v0.1.26"
 
 import argparse
 import csv
@@ -55,17 +57,18 @@ from midi import Track, write_smf  # noqa: E402
 from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split, parse_drum_map,  # noqa: E402
                    summarize, GM_NAMES, DROP_DRUM_CHANNELS, DROP_DRUM_MIN)
 from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
+from expansion import channel_table  # noqa: E402
 
 PPQ = 480
-MIDI_CH = {"P1": 0, "P2": 1, "TRI": 2, "FDS": 5}
-# tonal channels in output order. Expansion channels use MIDI ch 6- (the channel button numbers of
-# morokoshi: 2A03 = 1-5, then the expansion chip). v0.1.25: FDS = ch 6
-TONAL = ("P1", "P2", "TRI", "FDS")
+MIDI_CH = {"P1": 0, "P2": 1, "TRI": 2}
+# Expansion channels use MIDI ch 6- in the order of morokoshi's channel buttons (libgme voices):
+# expansion.channel_table() adds them to MIDI_CH / TRACK_NAMES (v0.1.25-)
+TONAL = ("P1", "P2", "TRI")
 # GM programs (0-based) for the tonal tracks; None = no program change (default).
 # Notation software (Sibelius) picks instruments from the program number (e.g. 38 Synth Bass is
 # notated an octave up) and re-sorts tracks by instrument family, so no program is written unless
 # requested with --programs.
-MIDI_PROG = {"P1": None, "P2": None, "TRI": None, "FDS": None}
+MIDI_PROG = {"P1": None, "P2": None, "TRI": None}
 CHUNK_SEC = 60.0      # emulate in chunks; stop when a loop or the end of the song is found
 SILENCE_SEC = 4.0     # this much silence after the last note = song ended
 CONFIRM_SEC = 20.0    # at least this much repeat after the first loop (short loops)
@@ -82,38 +85,55 @@ REG_NAMES = {
     0x4089: "FDS_WAVE_VOL", 0x408A: "FDS_ENV_SPEED",
 }
 REG_NAMES.update({a: f"FDS_WAVE_{a - 0x4040:02d}" for a in range(0x4040, 0x4080)})
+REG_NAMES.update({0x9000: "VRC6_P1_CTRL", 0x9001: "VRC6_P1_LO", 0x9002: "VRC6_P1_HI", 0x9003: "VRC6_FREQ_CTRL",
+                  0xA000: "VRC6_P2_CTRL", 0xA001: "VRC6_P2_LO", 0xA002: "VRC6_P2_HI",
+                  0xB000: "VRC6_SAW_RATE", 0xB001: "VRC6_SAW_LO", 0xB002: "VRC6_SAW_HI",
+                  0x9010: "VRC7_SELECT", 0x9030: "VRC7_DATA", 0x4800: "N163_DATA", 0xF800: "N163_ADDR",
+                  0xC000: "5B_SELECT", 0xE000: "5B_DATA", 0x5015: "MMC5_STATUS"})
+REG_NAMES.update({0x5000 + i: f"MMC5_P{i // 4 + 1}_{('CTRL', 'SWEEP', 'LO', 'HI')[i % 4]}" for i in range(8)})
+
+
+def expansion_channels(expansion):
+    """[(key, MIDI channel, track name)] of the NSF's expansion channels; registers them in
+    MIDI_CH / TRACK_NAMES."""
+    table = channel_table(expansion)
+    for key, mch, name in table:
+        MIDI_CH[key] = mch
+        TRACK_NAMES[key] = name
+    return table
 
 CH_RANGES = (("P1", 0x4000), ("P2", 0x4004), ("TRI", 0x4008), ("NOI", 0x400C), ("DMC", 0x4010))
 
 
 def ch_of(addr):
-    if 0x4080 <= addr <= 0x408A:
-        return "FDS", addr - 0x4080
     for name, base in CH_RANGES:
         if base <= addr < base + 4:
             return name, addr - base
     return None, None
 
 
-def build_frames(writes, n_frames, frame_cycles, cpu_hz, fds=False):
+def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0):
     """Replay writes through the APU model; return per-frame snapshots.
 
     Each entry: dict(frame, time, state, written={ch: set(reg)}, status_writes)
-    fds: also model the FDS channel (state / written key "FDS", reg = address - $4080)
+    expansion: the NSF header's expansion byte; its channels get their own state / written keys,
+    and a write that (re)triggers one of them is recorded as reg 3 (like $4003 on the 2A03)
     """
-    apu = APUState(cpu_hz, fds=fds)
+    apu = APUState(cpu_hz, expansion=expansion)
+    exp_keys = [k for c in apu.chips for k, _ in c.CHANNELS]
     frames = []
     wi = 0
     nw = len(writes)
     for f in range(n_frames):
         end = (f + 1) * frame_cycles
         written = {"P1": set(), "P2": set(), "TRI": set(), "NOI": set(), "DMC": set()}
-        if fds:
-            written["FDS"] = set()
+        for k in exp_keys:
+            written[k] = set()
         status = []
         while wi < nw and writes[wi][0] < end:
             cyc, addr, val = writes[wi]
-            apu.write(cyc, addr, val)
+            for k in apu.write(cyc, addr, val) or ():
+                written[k].add(3)
             ch, reg = ch_of(addr)
             if ch in written:
                 written[ch].add(reg)
@@ -157,10 +177,10 @@ def write_frames_csv(path, frames):
     cols += ["NOI_period", "NOI_mode", "NOI_vol", "NOI_envvol", "NOI_const", "NOI_len", "NOI_written"]
     cols += ["DMC_playing", "DMC_addr", "DMC_len", "DMC_rate", "DMC_loop", "DMC_starts", "DMC_written",
              "STATUS_writes"]
-    has_fds = bool(frames) and "FDS" in frames[0]["state"]
-    if has_fds:
-        cols += ["FDS_note", "FDS_cents", "FDS_freq", "FDS_vol", "FDS_gain", "FDS_wave", "FDS_master", "FDS_mod",
-                 "FDS_written"]
+    base = {"P1", "P2", "TRI", "NOI", "DMC"}
+    exp = [k for k in frames[0]["state"] if k not in base] if frames else []
+    for k in exp:
+        cols += [f"{k}_note", f"{k}_cents", f"{k}_freq", f"{k}_period", f"{k}_vol", f"{k}_timbre", f"{k}_trig"]
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(cols)
@@ -183,10 +203,10 @@ def write_frames_csv(path, frames):
             row += [int(d["playing"]), f"${d['addr']:04X}", d["len"], d["rate"], int(d["loop"]),
                     d["starts"], "".join(str(r) for r in sorted(wr["DMC"])),
                     " ".join(f"${v:02X}" for v in fr["status"])]
-            if has_fds:
-                c = s["FDS"]
-                row += [note_name(c["note"]), cents_of(c["note"]), f"{c['freq']:.1f}", c["vol"], c["gain"],
-                        c["duty"], c["master"], c["mod"], "".join(f"{r:X}" for r in sorted(wr["FDS"]))]
+            for k in exp:
+                c = s[k]
+                row += [note_name(c["note"]), cents_of(c["note"]), f"{c['freq']:.1f}", c["period"], c["vol"],
+                        c["duty"], int(3 in wr[k])]
             w.writerow(row)
 
 
@@ -243,13 +263,15 @@ def write_tracker_txt(path, frames, header, track, frame_rate):
             elif d["playing"]:
                 dmc = " |"
             fds = ""
-            if "FDS" in s:   # FDS cell: NOTE[~] vVOL Wwave [*]
-                c = s["FDS"]
+            for k in s:      # expansion cells: NOTE[~] vVOL Ttimbre [*]
+                if k in ("P1", "P2", "TRI", "NOI", "DMC"):
+                    continue
+                c = s[k]
                 if c["vol"]:
                     off = "~" if abs(cents_of(c["note"])) > 20 else " "
-                    fds = f" | {note_name(c['note'])}{off}v{c['vol']:X} W{c['duty']} {'*' if 3 in wr['FDS'] else ' '}"
+                    fds += f" | {note_name(c['note'])}{off}v{c['vol']:X} T{c['duty']:<2}{'*' if 3 in wr[k] else ' '}"
                 else:
-                    fds = f" | {'...':<14}"
+                    fds += f" | {'...':<14}"
             f.write(f"{fr['frame']:>6} {fr['time']:>8.3f} | {p1} | {p2} | {tri} | {noi} | {dmc:<6}{fds}\n")
             prev = s
 
@@ -260,7 +282,7 @@ def vol_to_velocity(v):
 
 # Track names avoid real instrument names: notation software (Sibelius) picks instruments from the
 # track name, and "Triangle" became the percussion triangle (moved into the percussion section).
-TRACK_NAMES = {"P1": "Ch1 Pulse", "P2": "Ch2 Pulse", "TRI": "Ch3 Wave", "FDS": "Ch6 FDS"}
+TRACK_NAMES = {"P1": "Ch1 Pulse", "P2": "Ch2 Pulse", "TRI": "Ch3 Wave"}
 DRUM_TRACKS = (("NOI", "Ch4 Noise drums"), ("DMC", "Ch5 DPCM drums"), ("P1", "Ch1 Pulse drums"),
                ("P2", "Ch2 Pulse drums"), ("TRI", "Ch3 Wave drums"))
 # v0.1.23: every track uses the MIDI channel of its NES channel (drums on their own tracks).
@@ -289,7 +311,7 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
             en = st + min_len
         return st, en
 
-    for ch in (c for c in TONAL if c in notes):
+    for ch in notes:
         tr = Track(TRACK_NAMES[ch])
         mch = MIDI_CH[ch]
         if programs.get(ch) is not None:
@@ -366,8 +388,10 @@ def analyze(player, n_frames, args, drum_map):
 
     detect: the notes seen by tempo / meter / loop detection. They use the fixed triangle-kick rule
     (detect_triangle_split) and keep the pulse notes, so detection does not depend on --drop-drums."""
-    frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz, player.fds)
-    notes, stats = extract_notes(frames, TONAL if player.fds else TONAL[:3], keep_tail=args.keep_tail)
+    expansion = player.header.expansion
+    frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz, expansion)
+    notes, stats = extract_notes(frames, TONAL + tuple(k for k, _, _ in expansion_channels(expansion)),
+                                 keep_tail=args.keep_tail)
     base = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
     detect = dict(notes)
     detect["TRI"], detect_tri = detect_triangle_split(notes["TRI"])

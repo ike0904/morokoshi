@@ -126,18 +126,26 @@ class NSFBus:
 
     FDS tunes (v0.1.25): $6000-$FFFF is writable RAM (the FDS loads its program from disk into
     RAM), the tune may load below $8000, and bank writes ($5FF6-$5FFF, $5FF6/$5FF7 = $6000/$7000)
-    copy a 4KB bank of the file into that RAM. FDS sound registers $4040-$408A are passed on.
+    copy a 4KB bank of the file into that RAM.
+    Expansion sound registers (exp_handles(addr) True) go to on_apu_write like the 2A03 ones;
+    on_exp_read answers readable ones (FDS $4040-$4092, N163 $4800). MMC5 also gets its
+    ExRAM ($5C00-$5FF5) and the 8x8 multiplier ($5205/$5206).
     """
 
-    def __init__(self, header, rom_data, on_apu_write, on_status_read=None, on_exp_read=None):
+    def __init__(self, header, rom_data, on_apu_write, on_status_read=None, on_exp_read=None,
+                 exp_handles=None):
         self.h = header
         self.ram = bytearray(0x800)
         self.sram = bytearray(0x2000)       # $6000-$7FFF
         self.on_apu_write = on_apu_write
         self.on_status_read = on_status_read
         self.on_exp_read = on_exp_read
+        self.exp_handles = exp_handles or (lambda addr: False)
         self.cpu = None
         self.fds = bool(header.expansion & 0x04)
+        self.mmc5 = bool(header.expansion & 0x08)
+        self.exram = bytearray(0x400)       # MMC5 $5C00-$5FFF
+        self.mul = [0xFF, 0xFF]             # MMC5 multiplier operands
         if self.fds:
             self._init_fds(header, rom_data)
             return
@@ -190,11 +198,17 @@ class NSFBus:
     def read(self, addr):
         if addr < 0x2000:
             return self.ram[addr & 0x7FF]
-        if self.fds:
-            if addr >= 0x6000:
-                return self.mem[addr - 0x6000]
-            if 0x4040 <= addr <= 0x4097 and self.on_exp_read:
-                return self.on_exp_read(addr)
+        if self.fds and addr >= 0x6000:
+            return self.mem[addr - 0x6000]
+        if (0x4040 <= addr <= 0x4097 or addr == 0x4800) and self.on_exp_read:
+            v = self.on_exp_read(addr)
+            if v is not None:
+                return v
+        if self.mmc5 and 0x5205 <= addr <= 0x5206:
+            prod = self.mul[0] * self.mul[1]
+            return prod & 0xFF if addr == 0x5205 else prod >> 8
+        if self.mmc5 and 0x5C00 <= addr <= 0x5FF5:
+            return self.exram[addr - 0x5C00]
         if addr >= 0x8000:
             base = self.slot[(addr - 0x8000) >> 12]
             if base is None:
@@ -211,10 +225,14 @@ class NSFBus:
     def write(self, addr, val):
         if addr < 0x2000:
             self.ram[addr & 0x7FF] = val
+        elif self.exp_handles(addr):
+            self.on_apu_write(addr, val)
         elif self.fds and addr >= 0x6000:
             self.mem[addr - 0x6000] = val
-        elif self.fds and 0x4040 <= addr <= 0x408A:
-            self.on_apu_write(addr, val)
+        elif self.mmc5 and 0x5205 <= addr <= 0x5206:
+            self.mul[addr - 0x5205] = val
+        elif self.mmc5 and 0x5C00 <= addr <= 0x5FF5:
+            self.exram[addr - 0x5C00] = val
         elif self.fds and 0x5FF6 <= addr <= 0x5FFF:
             if self.h.bankswitched:
                 self._fds_bank(addr - 0x5FF6, val)
@@ -270,7 +288,15 @@ class NSFPlayer:
         return bool(self.header.expansion & 0x04)
 
     def _exp_read(self, addr):
-        return self.apu.read_expansion(self.cpu.cycles, addr)
+        v = self.apu.read_expansion(self.cpu.cycles, addr)
+        if addr == 0x4800 and v is not None:
+            # N163 data reads advance the auto-increment address: log the new address so that
+            # the replay (build_frames) stays in step
+            n163 = next(c for c in self.apu.chips if c.NAME == "N163")
+            cyc = self.cpu.cycles
+            self.writes.append((cyc - self.t0 if self.t0 is not None else cyc, 0xF800,
+                                n163.addr | (0x80 if n163.inc else 0)))
+        return v
 
     def _status_read(self):
         # Drivers that read $4015 (length counter status) need a live APU model
@@ -294,19 +320,20 @@ class NSFPlayer:
         """Load the tune and run INIT for `track` (1-based)."""
         h = self.header
         self.warnings = []
-        other = [n for n in h.expansion_names if n != "FDS"]
-        if other:
+        if len(h.expansion_names) > 1:
             self.warnings.append(
-                f"Expansion audio ({', '.join(other)}) is not emulated; "
-                f"only 2A03{' and FDS' if self.fds else ''} channels are logged.")
+                f"Several expansion chips ({', '.join(h.expansion_names)}): not supported as a combination; "
+                f"MIDI channels are numbered on from ch 6.")
         self.writes = []
         self.dmc_samples = {}
         self.t0 = None
         self.frames_done = 0
         self.stuck = 0
         self.aborted = False
-        self.apu = APUState(self.cpu_hz, fds=self.fds)
-        self.bus = NSFBus(h, self.rom, self._log_write, self._status_read, self._exp_read)
+        self.apu = APUState(self.cpu_hz, expansion=h.expansion)
+        chips = self.apu.chips
+        self.bus = NSFBus(h, self.rom, self._log_write, self._status_read, self._exp_read,
+                          (lambda a: any(c.handles(a) for c in chips)) if chips else None)
         self.cpu = CPU6502(self.bus)
         cpu = self.cpu
 

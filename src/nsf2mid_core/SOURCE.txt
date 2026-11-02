@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.25
-commit:  ce484d4 2026-11-02 v0.1.25: FDS support (FDS memory map incl. loads below $8000, FDS channel model with wavetable cycle count, track Ch6 FDS on MIDI ch 6)
-files:   apu_state.py, cpu6502.py, drums.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
+version: v0.1.26
+commit:  2a9cc48 2026-11-02 v0.1.26: all expansion chips (VRC6, VRC7, MMC5, N163, Sunsoft 5B; FDS moved to expansion.py), MIDI ch = morokoshi channel buttons; tom candidate list docs/expansion_drops.md
+files:   apu_state.py, cpu6502.py, drums.py, expansion.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
