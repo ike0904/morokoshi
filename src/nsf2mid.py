@@ -6,10 +6,11 @@ Phase 2: note extraction (P1/P2/TRI), tempo detection, quantized MIDI output.
 Phase 3: drums (noise / DPCM / triangle glides -> GM percussion), loop / end detection.
 Phase 4: GUI (nsf2mid_gui.py). Started when no arguments are given.
 Phase 5: expansion audio (expansion.py): FDS, VRC6, VRC7, MMC5, N163, Sunsoft 5B on MIDI ch 6-.
+Phase 6: GBS (Game Boy, gbs.py / cpu_sm83.py / gb_apu.py): Square 1/2, Wave, Noise on MIDI ch 1-4.
 
 Usage:
     python nsf2mid.py                (GUI)
-    python nsf2mid.py FILE.nsf|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
+    python nsf2mid.py FILE.nsf|FILE.gbs|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
                       [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
                       [--loops N] [--no-loop] [--drop-drums N] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
 
@@ -37,9 +38,12 @@ Usage:
                          (周波数・音量エンベロープ・波形の周期数)・トラック Ch6 FDS (MIDI ch 6)。モジュレーションは出力しない
   v0.1.26 (2026-11-02) - 全拡張音源に対応 (expansion.py): VRC6・VRC7・MMC5・N163・Sunsoft 5B。MIDI ch は morokoshi の
                          チャンネルボタンの番号 (ch 6〜)。FDS も同じ仕組みへ移した
+  v0.1.27 (2026-11-03) - GBS (ゲームボーイ) 対応: SM83 CPU・GB APU モデル・GBS プレイヤー (メモリ配置・起動は libgme に合わせる)。
+                         Square 1/2・Wave・Noise を MIDI ch 1〜4 に。音量変更のための再トリガーは同じ音の続きとする。
+                         GUI: .gbs / GBS 入りの zip と GBS の m3u (0 始まり)
 """
 
-APP_VERSION = "v0.1.26"
+APP_VERSION = "v0.1.27"
 
 import argparse
 import csv
@@ -49,7 +53,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from nsf import NSFPlayer, nsf_base_name  # noqa: E402
+from nsf import open_player, nsf_base_name  # noqa: E402
 from apu_state import APUState, note_name  # noqa: E402
 from notes import extract_notes, tempo_onsets  # noqa: E402
 from tempo import detect_tempo_map, TickMap  # noqa: E402
@@ -112,14 +116,16 @@ def ch_of(addr):
     return None, None
 
 
-def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0):
+def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None):
     """Replay writes through the APU model; return per-frame snapshots.
 
     Each entry: dict(frame, time, state, written={ch: set(reg)}, status_writes)
     expansion: the NSF header's expansion byte; its channels get their own state / written keys,
     and a write that (re)triggers one of them is recorded as reg 3 (like $4003 on the 2A03)
+    apu: the APU model to replay through (GBS: gb_apu.GBAPUState, whose trigger writes NRx4
+    mark the channel's reg 3 the same way)
     """
-    apu = APUState(cpu_hz, expansion=expansion)
+    apu = apu or APUState(cpu_hz, expansion=expansion)
     exp_keys = [k for c in apu.chips for k, _ in c.CHANNELS]
     frames = []
     wi = 0
@@ -389,7 +395,8 @@ def analyze(player, n_frames, args, drum_map):
     detect: the notes seen by tempo / meter / loop detection. They use the fixed triangle-kick rule
     (detect_triangle_split) and keep the pulse notes, so detection does not depend on --drop-drums."""
     expansion = player.header.expansion
-    frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz, expansion)
+    frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz, expansion,
+                          player.make_apu())
     notes, stats = extract_notes(frames, TONAL + tuple(k for k, _, _ in expansion_channels(expansion)),
                                  keep_tail=args.keep_tail)
     base = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
@@ -411,8 +418,8 @@ class Cancelled(Exception):
 
 
 def build_parser():
-    ap = argparse.ArgumentParser(description=f"nsf2mid {APP_VERSION} - NSF to MIDI converter")
-    ap.add_argument("nsf", help="input .nsf file, or a zip containing one (zophar.net style)")
+    ap = argparse.ArgumentParser(description=f"nsf2mid {APP_VERSION} - NSF / GBS to MIDI converter")
+    ap.add_argument("nsf", help="input .nsf / .gbs file, or a zip containing one (zophar.net style)")
     ap.add_argument("-t", "--track", type=int, default=0, help="track number (1-based, default: start song)")
     ap.add_argument("-s", "--seconds", type=float, default=600.0,
                     help="maximum length to emulate in seconds (stops early when a loop or the end is found)")
@@ -466,7 +473,7 @@ def convert(args, should_stop=None):
             v = v.strip()
             programs[ch] = None if v == "-" else int(v)
 
-    player = NSFPlayer(args.nsf)
+    player = open_player(args.nsf)
     h = player.header
     print(f"nsf2mid {APP_VERSION}")
     print(h.summary())
@@ -478,12 +485,12 @@ def convert(args, should_stop=None):
         print(f"Error: track {track} out of range 1..{h.total_songs}")
         return 1, []
 
+    t0 = time.time()
+    player.start(track)       # GBS: the PLAY rate is known after INIT
     frame_rate = player.cpu_hz / player.frame_cycles
     max_frames = int(args.seconds * frame_rate)
     chunk = int(CHUNK_SEC * frame_rate)
     print(f"\nEmulating track {track} (max {args.seconds:.0f} s @ {frame_rate:.3f} Hz)")
-    t0 = time.time()
-    player.start(track)
     n_frames = 0
     end_reason = "max length"
     prev_loop = None

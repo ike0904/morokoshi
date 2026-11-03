@@ -50,7 +50,7 @@ from PyQt6.QtWidgets import (  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import nsf2mid  # noqa: E402
-from nsf import NSFHeader, read_nsf_bytes, zip_contents  # noqa: E402
+from nsf import read_header, read_nsf_bytes, zip_contents  # noqa: E402
 from player import NsfPlayer  # noqa: E402
 
 SETTINGS_PATH = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "nsf2mid", "settings.json")
@@ -404,17 +404,23 @@ def read_m3u(nsf_path):
             if not same_stem and os.path.basename(fname.strip()).lower() != base:
                 continue
             f = _split_m3u_fields(rest)
-            if len(f) < 2 or f[0].strip().upper() != "NSF":
+            kind = f[0].strip().upper() if f else ""
+            if len(f) < 2 or kind not in ("NSF", "GBS"):
                 continue
             num = f[1].strip()
             try:
                 no = int(num[1:], 16) if num.startswith("$") else int(num)
             except ValueError:
                 continue
+            if kind == "GBS":    # GBS playlists count from 0 (v0.1.27)
+                no += 1
             if no in seen:
                 continue
             seen.add(no)
             title = f[2].strip() if len(f) > 2 else ""
+            if kind == "GBS":    # "Title - Composer - Game - (c)": the title only
+                parts = title.split(" - ")
+                title = " - ".join(parts[:-3] if len(parts) >= 4 else parts[:1]).strip()
             length = _format_len(f[3]) if len(f) > 3 else ""
             entries.append((no, title, length))
     return entries
@@ -556,7 +562,7 @@ class MainWindow(QMainWindow):
 
         # file row
         row = QHBoxLayout()
-        row.addWidget(QLabel("NSF ファイル:"))
+        row.addWidget(QLabel("NSF / GBS:"))
         self.ed_file = QLineEdit()
         self.ed_file.setReadOnly(True)
         self.ed_file.setPlaceholderText("開くボタン（右クリックで履歴）またはウィンドウへドラッグ＆ドロップ")
@@ -826,7 +832,7 @@ class MainWindow(QMainWindow):
 
         orow = QHBoxLayout()
         self.ed_outdir = QLineEdit()
-        self.ed_outdir.setPlaceholderText("空欄 = NSF と同じフォルダの nsf2mid_out")
+        self.ed_outdir.setPlaceholderText("空欄 = 元のファイルと同じフォルダの nsf2mid_out")
         orow.addWidget(self.ed_outdir, 1)
         b = QPushButton("...")
         b.setFixedWidth(32)
@@ -939,14 +945,14 @@ class MainWindow(QMainWindow):
     def dropEvent(self, e):
         for u in e.mimeData().urls():
             p = u.toLocalFile()
-            if p.lower().endswith((".nsf", ".zip")):
+            if p.lower().endswith((".nsf", ".gbs", ".zip")):
                 self.load_nsf(p)
                 return
-        QMessageBox.warning(self, "nsf2mid", "NSF ファイル（.nsf / NSF 入りの .zip）をドロップしてください。")
+        QMessageBox.warning(self, "nsf2mid", "NSF / GBS ファイル（.nsf / .gbs / それらの入った .zip）をドロップしてください。")
 
     def on_open(self):
-        p, _ = QFileDialog.getOpenFileName(self, "NSF ファイルを開く", self.settings.get("last_dir", ""),
-                                           "NSF (*.nsf *.zip);;All files (*)")
+        p, _ = QFileDialog.getOpenFileName(self, "NSF / GBS ファイルを開く", self.settings.get("last_dir", ""),
+                                           "NSF / GBS (*.nsf *.gbs *.zip);;All files (*)")
         if p:
             self.load_nsf(p)
 
@@ -954,7 +960,7 @@ class MainWindow(QMainWindow):
         if self.worker:
             return
         try:
-            hdr = NSFHeader(read_nsf_bytes(path)[:0x80])
+            hdr = read_header(read_nsf_bytes(path)[:0x80])
         except (OSError, ValueError, zipfile.BadZipFile) as e:
             QMessageBox.warning(self, "nsf2mid", f"読み込めませんでした:\n{path}\n{e}")
             return
@@ -966,7 +972,7 @@ class MainWindow(QMainWindow):
         self._add_history(self.nsf_path)
         self.ed_file.setText(self.nsf_path)
         info = f"<b>{_esc(hdr.title)}</b>　{_esc(hdr.artist)}　{_esc(hdr.copyright)}　" \
-               f"曲数 {hdr.total_songs}（開始 {hdr.start_song}）　{'PAL' if hdr.is_pal else 'NTSC'}"
+               f"曲数 {hdr.total_songs}（開始 {hdr.start_song}）　"                f"{'GBS（ゲームボーイ、ch 1〜4 に出力）' if hdr.__class__.__name__ == 'GBSHeader' else 'PAL' if hdr.is_pal else 'NTSC'}"
         if len(hdr.expansion_names) > 1:
             info += f"　<span style='color:#E08040'>拡張音源 {', '.join(hdr.expansion_names)}" \
                     f"（複数の組み合わせは未対応。ch 6 から順に出力）</span>"
@@ -1037,7 +1043,7 @@ class MainWindow(QMainWindow):
 
     def on_convert(self):
         if not self.nsf_path:
-            QMessageBox.information(self, "nsf2mid", "NSF ファイルを開いてください。")
+            QMessageBox.information(self, "nsf2mid", "NSF / GBS ファイルを開いてください。")
             return
         tracks = []
         for i in range(self.table.rowCount()):

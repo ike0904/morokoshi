@@ -40,7 +40,20 @@
 
 ## 作業記録
 
-### v0.1.26 (2026-11-02) ← 最新（プロンプト直接指示: 他の拡張音源もすべて調査・実装、拡張音源のタム候補の調査）
+### v0.1.27 (2026-11-03) ← 最新（プロンプト直接指示: GBS の MIDI 化に対応）
+- GBS（ゲームボーイ）の MIDI 変換に対応。新規 src/gbs.py・cpu_sm83.py・gb_apu.py（仕様は spec.md「Phase 6 GBS」）
+  - Square 1/2・Wave・Noise → P1/P2/TRI/NOI として既存のノート・ドラム・テンポ・ループ処理をそのまま使う（MIDI ch 1〜4 = morokoshi のチャンネルボタン）
+  - メモリ配置・起動手順・レジスタ初期値は libgme（Gbs_Emu）に合わせた。DIV・STAT・LY は CPU のサイクルから作る
+  - 音量変更のための再トリガー（GB のドライバーに多い）は同じ音の続きとする（カービィで音が細切れになっていた）
+  - 150 Hz を超える PLAY は約 60 Hz にまとめる（Hudson 1618 Hz など）。convert() で PLAY の間隔を INIT の後に確定するよう順序を変更
+  - nsf.open_player / read_header でファイルの先頭から NSF / GBS を切り替え。zip 内の .gbs も読む
+  - GUI: .gbs と GBS 入りの zip、GBS の m3u（番号 0 始まり、曲名は「曲名 - 作曲者 - ゲーム - ©」の先頭部分）
+- 確認: libgme で 1 ch ずつ鳴らした音程・発音とほぼ一致（カービィ・ゼルダ・テトリス・ポケモン赤 など 12 本）。
+  ランダム 60 本を 90 秒ずつ変換してエラーなし。NSF の回帰テスト（tools/regress.py）は完全一致
+- 要確認（耳）: ノイズのドラム分類は NES の基準のまま（GB のノイズは高めの音が多い）。必要なら --drum-map で調整
+- マニュアルは次の公開時
+
+### v0.1.26 (2026-11-02)（プロンプト直接指示: 他の拡張音源もすべて調査・実装、拡張音源のタム候補の調査）
 - 新規 src/expansion.py: FDS（apu_state から移動）・VRC6・VRC7・MMC5・N163・Sunsoft 5B のモデル。apu_state / nsf.py / nsf2mid.py は音源の一覧を使う形に
   - MIDI ch は libgme のボイス順（= morokoshi のチャンネルボタン）: VRC6 は Saw 6・Pulse 7・8、VRC7 FM 6〜11、MMC5 6・7、N163 Wave 1〜8 = 6〜13、5B 6〜8
   - バス: MMC5 の ExRAM と乗算器、N163 の $4800 読み出し（自動インクリメントのアドレスを書き込みログに記録）
