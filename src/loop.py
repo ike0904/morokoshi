@@ -151,7 +151,9 @@ def detect_loop(channel_events, strict=False):
     if base is not None:
         starts = {k: v for k, v in starts.items()
                   if k in per or v <= base + period or repeat_share(channel_events[k], base, period) < 0.9}
-    start = max(starts.values())
+    # (not before the first note of the tune: every voice may repeat from its first note)
+    first = min(ev[0][0] for ev in channel_events.values() if ev)
+    start = max(first, max(starts.values()))
     # v0.1.38: a channel that still plays in the loop but does not repeat (a melody over a
     # repeating ostinato: FF6 "The Mines of Narshe", 2.18 s found after 17 s) -> not the loop yet
     for name in (loose if strict else ()):    # SPC only (on NES it changed 3 tunes of the test set)
