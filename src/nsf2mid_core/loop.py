@@ -18,10 +18,12 @@ each channel is re-scanned with that period and the loop start is the latest
 per-channel start (the point after which *all* channels repeat).
 
 Accumulator-tempo drivers (Dragon Quest) may shift onsets by a frame between
-repetitions, hence the tolerance.
+repetitions, hence the tolerance. v0.1.31: the period itself can be fractional (Dragon Quest IV
+t13: 3234.5 frames, single repeats measure 3234-3237), so the scan follows the mean of the
+repeats found so far instead of the last one, with a tolerance of 3 frames.
 """
 
-TOL = 2                 # frames
+TOL = 3                 # frames (2 until v0.1.30)
 MIN_EVENTS = 8          # a channel needs this many events to take part
 MIN_LOOP_FRAMES = 120   # ignore periods shorter than 2 s
 REPEATS = 3             # the loop body must be heard this many times in a row
@@ -35,14 +37,19 @@ def _scan(t, tok, k, period=None):
     if tok[n - 1] != tok[last]:
         return None
     L = t[n - 1] - t[last] if period is None else period
+    total, cnt = 0, 0
     i = last
     while i >= 0 and tok[i] == tok[i + k] and abs((t[i + k] - t[i]) - L) <= TOL:
+        if period is None:
+            total += t[i + k] - t[i]
+            cnt += 1
+            L = total / cnt
         i -= 1
     s = i + 1
     if s > last:
         return None
     span = t[last] - t[s]
-    return s, L, span
+    return s, int(round(L)), span
 
 
 def channel_period(events):
@@ -87,6 +94,21 @@ def channel_start_for_period(events, period):
     return None if best is None else t[best]
 
 
+def repeat_share(events, start, period):
+    """Share of the events from `start` on (up to one period before the end) that come again
+    one period later (same token, within TOL frames). Notes that merge or split differently in
+    one round leave it high; a channel that plays something else in later rounds does not."""
+    by_tok = {}
+    for f, tok in events:
+        by_tok.setdefault(tok, []).append(f)
+    end = events[-1][0] - period if events else 0
+    sel = [(f, tok) for f, tok in events if start <= f <= end]
+    if not sel:
+        return 0.0
+    hit = sum(1 for f, tok in sel if any(abs(g - f - period) <= TOL for g in by_tok[tok]))
+    return hit / len(sel)
+
+
 def detect_loop(channel_events):
     """channel_events: {name: sorted [(frame, token)]}.
 
@@ -113,6 +135,13 @@ def detect_loop(channel_events):
         starts[name] = s
     if not starts:
         return None
+    # v0.1.31: a channel without a period of its own whose repeats start more than a period
+    # after the others' does not repeat reliably (Dragon Quest IV t13: short triangle notes merge
+    # differently in each round); it must not push the loop start back
+    base = max((v for k, v in starts.items() if k in per), default=None)
+    if base is not None:
+        starts = {k: v for k, v in starts.items()
+                  if k in per or v <= base + period or repeat_share(channel_events[k], base, period) < 0.9}
     return {"start": max(starts.values()), "period": period, "channels": per}
 
 

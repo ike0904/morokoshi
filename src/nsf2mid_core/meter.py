@@ -20,9 +20,10 @@ from functools import lru_cache
 
 EIGHTH = 240                    # ticks (PPQ 480)
 BAR = 8                         # eighths in the base 4/4 bar
-LENGTHS = (8, 6, 5, 7, 4, 3, 2)
+LENGTHS = (8, 6, 5, 7, 9, 4, 3, 2)
 ODD_PEN = 0.5                   # cost of a bar that is not 4/4
 ODD_PEN_SHORT = 0.75            # ... of a bar of 2 or 3 eighths
+ODD_PEN_LONG = 0.8              # ... of a 9/8 bar (v0.1.31; a 3-eighth rhythm stays 6/8, Shatterhand)
 FILL_BONUS = 0.5                # a bar line right after a drum fill
 DENSE = 0.9                     # channels with notes on this share of the eighths are ignored
 SNARES = {37, 38, 39, 40}
@@ -103,7 +104,7 @@ def odd_bars(events, start_tick, end_tick):
                     if nst != 1 and L != BAR:
                         continue
                     if nst == 1:
-                        pen = 0.0 if L == BAR else ODD_PEN_SHORT if L <= 3 else ODD_PEN
+                        pen = 0.0 if L == BAR else ODD_PEN_SHORT if L <= 3 else ODD_PEN_LONG if L > BAR else ODD_PEN
                         c = c0 + pen - rep(a, L) * L / BAR - bonus
                     else:
                         c = c0 - bonus

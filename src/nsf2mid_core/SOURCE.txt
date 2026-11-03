@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.30
-commit:  289799c 2026-11-03 v0.1.30: odd meters inside a loop that is not a whole number of 4/4 bars (meter.py: repetition + drum fills, 4/4 locked to loop start/end); ritardando check uses grid rows (Life Force t3, Shatterhand t1)
+version: v0.1.31
+commit:  7137031 2026-11-03 v0.1.31: loops with a fractional period (tolerance 3, mean period, channels that repeat >=90% do not delay the start); steady tempo when only frame rounding jitter; 9/8 bars (Dragon Quest IV t13)
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py

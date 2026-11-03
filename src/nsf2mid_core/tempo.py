@@ -409,6 +409,25 @@ RIT_RUN = 3              # ... for this many notes in a row is a ritardando
 CONTINUOUS_ROWS = 2      # v0.1.29: a segment starting this close after the last note keeps its natural tick
 
 
+JITTER_TOL = 1.5        # v0.1.31: frames; onsets this close to the grid ...
+JITTER_FIT = 0.9        # ... this often = a steady tempo whose notes are rounded to frames
+
+
+def steady_with_jitter(onsets, unit, phase):
+    """A segment that misses the strict grid fit only because every note is rounded to a frame
+    (+-1, sometimes 2 frames on a short unit) keeps one steady tempo instead of being tracked
+    note by note: tracking drifts across long rests. Rubato drifts away from any grid.
+    Example: Dragon Quest IV t13 - 16ths of 5.734 frames, fit 78% at 0.75 frames, 93% at 1.5."""
+    if not onsets or unit < 2 * JITTER_TOL:
+        return False
+    hits = 0
+    for o in onsets:
+        d = (o - phase) % unit
+        if min(d, unit - d) <= JITTER_TOL:
+            hits += 1
+    return hits / len(onsets) >= JITTER_FIT
+
+
 def has_ritardando(starts, unit):
     """A ritardando inside a segment that still fits its grid: the notes of one channel get
     gradually longer than its usual note (e.g. 19 frames per 8th -> 21, 24, 26, 28, 26, 24, 21),
@@ -572,7 +591,8 @@ class TickMap:
                 has_ritardando([n.start for n in lst if (k == 0 or n.start >= s.start) and n.start < end], s.unit)
                 for lst in notes.values())
             s.rit = rit
-            if (s.score < TRACK_FIT or rit) and len(seg_on) >= 4:
+            jitter = s.score < TRACK_FIT and not rit and steady_with_jitter(seg_on, s.unit, s.phase)
+            if (s.score < TRACK_FIT and not jitter or rit) and len(seg_on) >= 4:
                 anchors = track_rows([o for o in seg_on if o > origin], s.unit, origin)
                 if len(anchors) >= 2:
                     (fa, ra), (fb, rb) = anchors[-2], anchors[-1]
