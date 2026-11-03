@@ -57,9 +57,12 @@ Usage:
   v0.1.35 (2026-11-03) - 1 小節ごとに音型が繰り返す区間は、その周期を 1 小節としてテンポ・区間の始まりと終わり・次の区間への切り替え位置を決める
   v0.1.36 (2026-11-03) - SPC (スーパーファミコン) 対応の第 1・2 段階: SPC700・DSP の模型・サンプルの音高推定・エンベロープ。
                          8 ボイス = MIDI ch 1〜8、サンプルが変わったら同じ ch の別トラック (CLI のみ。ドラム・テンポは今後)
+  v0.1.37 (2026-11-03) - SPC 第 3 段階: 打楽器のサンプルを判定して GM ドラムのノートに (ボイスの ch の「ChN Drums」トラック。
+                         spc_drums.py)。--drum-map に SPC のサンプル指定 (S67=38、0 = ドラムにしない)。
+                         低い音域を探せないサンプルで音高推定が落ちる不具合を修正
 """
 
-APP_VERSION = "v0.1.36"
+APP_VERSION = "v0.1.37"
 
 import argparse
 import csv
@@ -74,6 +77,7 @@ from apu_state import APUState, note_name  # noqa: E402
 from notes import extract_notes, tempo_onsets  # noqa: E402
 from tempo import detect_tempo_map, TickMap  # noqa: E402
 from midi import Track, write_smf  # noqa: E402
+from spc_drums import split_spc_drums  # noqa: E402
 from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split, parse_drum_map,  # noqa: E402
                    summarize, GM_NAMES, DROP_DRUM_CHANNELS, DROP_DRUM_MIN)
 from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
@@ -400,8 +404,12 @@ def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
 
 def drum_track_groups(drums, end_frame):
     """[(src, track name, hits)] of the non-empty drum tracks. A DPCM sample played at several
-    rates (pitched sample) gets its own track "Ch5 DPCM $ADDR" after the DPCM drums."""
+    rates (pitched sample) gets its own track "Ch5 DPCM $ADDR" after the DPCM drums.
+    SPC (v0.1.37): one track "ChN Drums" per voice."""
     out = []
+    voices = sorted({d.src for d in drums if d.src.startswith("V")}, key=lambda k: int(k[1:]))
+    for src in voices:
+        out.append((src, f"{TRACK_NAMES[src]} Drums", [d for d in drums if d.src == src and d.start < end_frame]))
     for src, name in DRUM_TRACKS:
         hits = [d for d in drums if d.src == src and d.start < end_frame]
         if src != "DMC":
@@ -456,7 +464,7 @@ def analyze(player, n_frames, args, drum_map):
     frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz, expansion,
                           None if cache and cache.get("frames") else player.make_apu(), cache)
     if getattr(player, "is_spc", False):
-        return analyze_spc(frames, args, player.frame_cycles)
+        return analyze_spc(frames, args, player.frame_cycles, cache["apu"], drum_map)
     notes, stats = extract_notes(frames, TONAL + tuple(k for k, _, _ in expansion_channels(expansion)),
                                  keep_tail=args.keep_tail)
     base = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
@@ -473,12 +481,14 @@ def analyze(player, n_frames, args, drum_map):
     return frames, notes, stats, drums, events, loop, detect
 
 
-def analyze_spc(frames, args, frame_cycles):
-    """SPC (v0.1.36): the 8 voices are the channels (MIDI ch 1-8). Drums are not separated yet
-    (phase 3): a drum sample is a pitched note on its own track."""
+def analyze_spc(frames, args, frame_cycles, dsp, drum_map):
+    """SPC (v0.1.36): the 8 voices are the channels (MIDI ch 1-8). v0.1.37: percussion samples
+    become GM drum notes on the track "ChN Drums" of their voice (spc_drums). Tempo / loop
+    detection see every note (drums included), as before."""
     keys = tuple(f"V{i + 1}" for i in range(8))
     for i, k in enumerate(keys):
         MIDI_CH[k] = i
+        DRUM_CH[k] = i
         TRACK_NAMES[k] = f"Ch{i + 1}"
     notes, stats = extract_notes(frames, keys, keep_tail=args.keep_tail)
     notes = {k: v for k, v in notes.items() if v}
@@ -492,7 +502,9 @@ def analyze_spc(frames, args, frame_cycles):
     detect = dict(notes)
     events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in detect.items()}
     loop = None if args.no_loop else detect_loop(events)
-    return frames, notes, stats, [], events, loop, detect
+    tonal, drums = split_spc_drums(notes, frames, dsp, drum_map)
+    tonal = {k: tonal.get(k, []) for k in notes}
+    return frames, tonal, stats, drums, events, loop, detect
 
 
 def note_sample(n):
@@ -539,8 +551,9 @@ def build_parser():
     ap.add_argument("--no-drop-drums", "--no-tri-drums", dest="no_drop_drums", action="store_true",
                     help="same as --drop-drums 0")
     ap.add_argument("--drum-map", default="",
-                    help='override drum notes, e.g. "3:0=42,12:0=36,DMC:E000:129:15=38" '
-                         "(noise: periodIdx:mode, DPCM: DMC:addrHex:len:rate)")
+                    help='override drum notes, e.g. "3:0=42,12:0=36,DMC:E000:129:15=38,S67=38" '
+                         "(noise: periodIdx:mode, DPCM: DMC:addrHex:len:rate, SPC: S + sample number, "
+                         "=0 keeps an SPC sample as notes)")
     return ap
 
 

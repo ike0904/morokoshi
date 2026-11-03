@@ -132,8 +132,9 @@ def _hps_pitch(x, n_harm=5):
             best, bb = sc, b
     # an octave lower fitting about as well is the fundamental (its even harmonics are the
     # ones found): FF5 sample 39 -> 234 Hz rather than 468
-    half = max((score(b), b) for b in range(max(lo, bb // 2 - 2), bb // 2 + 3))
-    if half[0] >= best - HPS_OCTAVE_SLACK:
+    # (no octave below the search range: the best stays)
+    half = max(((score(b), b) for b in range(max(lo, bb // 2 - 2), bb // 2 + 3)), default=(None, 0))
+    if half[0] is not None and half[0] >= best - HPS_OCTAVE_SLACK:
         best, bb = half
     return bb * DSP_RATE / n, best
 
@@ -343,6 +344,22 @@ class DSPState:
             start, loop = tab.get(srcn, (0, 0))
             self.pitch_cache[srcn] = sample_pitch(self.ram, start, loop)
         return self.pitch_cache[srcn]
+
+    def sample_features(self, srcn):
+        """For the drum decision (spc_drums): looped, period correlation, spectral centroid (Hz)
+        of the first 4096 samples and length (ms), both at the original rate (P = 0x1000)."""
+        import numpy as np
+        start, _ = sample_table(self.ram, self.regs[0x5D]).get(srcn, (0, 0))
+        s, looped, _ = brr_decode(self.ram, start)
+        x = np.asarray(s[:4096], float)
+        cen = 0.0
+        if len(x) >= 32:
+            x = x - x.mean()
+            sp = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+            if sp.sum() > 0:
+                cen = float((sp * np.fft.rfftfreq(len(x), 1 / DSP_RATE)).sum() / sp.sum())
+        return {"looped": looped, "corr": self.srcn_pitch(srcn)[1], "cen": cen,
+                "ms": len(s) * 1000.0 / DSP_RATE}
 
     def snapshot(self):
         out = {}
