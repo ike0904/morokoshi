@@ -185,15 +185,34 @@ class SPCPlayer:
     is_spc = True
     FRAME_HZ = 60.0
 
-    def __init__(self, data):
-        self.data = data
-        self.header = SPCHeader(data)
-        self.ram = data[0x100:0x10100]
-        self.dsp_init = data[0x10100:0x10180]
+    def __init__(self, data, path=None):
+        """data: one SPC file, or path: a .spc file / a zip of SPC files (one track per file,
+        in name order, like morokoshi)."""
+        self.members = spc_members(path) if path else []
+        self.path = path
+        if data is None:
+            data = read_spc_bytes(path, self.members[0] if self.members else None)
+        self._load(data)
+        self.header.total_songs = max(1, len(self.members))
         self.writes = []
         self.dmc_samples = {}
         self.warnings = []
         self.cpu_hz = CPU_HZ
+
+    def _load(self, data):
+        self.data = data
+        h = SPCHeader(data)
+        if hasattr(self, "header"):          # keep the object (convert() holds it)
+            h.total_songs = self.header.total_songs
+            self.header.__dict__.update(h.__dict__)
+        else:
+            self.header = h
+        self.ram = data[0x100:0x10100]
+        self.dsp_init = data[0x10100:0x10180]
+
+    def make_apu(self):
+        from spc_dsp import DSPState
+        return DSPState(bytearray(self.ram), self.dsp_init, CPU_HZ)
 
     @property
     def frame_cycles(self):
@@ -209,7 +228,10 @@ class SPCPlayer:
         return self.dsp[reg]
 
     def start(self, track=1):
+        if self.members and 1 <= track <= len(self.members):
+            self._load(read_spc_bytes(self.path, self.members[track - 1]))
         h = self.header
+        self.frames_cache = {}      # nsf2mid.build_frames continues from the frames built so far
         self.writes = []
         self.warnings = []
         self.frames_done = 0
@@ -242,6 +264,21 @@ class SPCPlayer:
 
     def finish_warnings(self):
         pass
+
+
+def spc_members(path):
+    """SPC files of a zip in name order (tracks 1..n); [] for a plain .spc."""
+    if path and zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as z:
+            return sorted(n for n in z.namelist() if n.lower().endswith(".spc"))
+    return []
+
+
+def is_spc_path(path):
+    if zipfile.is_zipfile(path):
+        return bool(spc_members(path))
+    with open(path, "rb") as f:
+        return is_spc_data(f.read(32))
 
 
 def read_spc_bytes(path, member=None):

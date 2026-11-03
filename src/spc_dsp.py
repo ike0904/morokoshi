@@ -161,9 +161,18 @@ def sample_pitch(ram, start, loop_start):
     return f, c, looped
 
 
+# envelope rates: DSP samples between two envelope steps (rate 0 = never)
+RATE = [0, 2048, 1536, 1280, 1024, 768, 640, 512, 384, 320, 256, 192, 160, 128, 96, 80, 64, 48,
+        40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1]
+ENV_MAX = 0x7FF
+
+
 class Voice:
+    """One voice: registers, key state and the envelope (ADSR / GAIN, 0..0x7FF).
+    The envelope decides when a note is really silent (drivers that never key off, one-shot
+    sounds that fade), not only KON / KOFF."""
     __slots__ = ("vol_l", "vol_r", "pitch", "srcn", "adsr1", "adsr2", "gain",
-                 "on", "kon_count", "env")
+                 "on", "kon_count", "env", "mode", "frac", "sample_left")
 
     def __init__(self):
         self.vol_l = self.vol_r = 0
@@ -173,53 +182,160 @@ class Voice:
         self.on = False
         self.kon_count = 0
         self.env = 0
+        self.mode = "release"      # attack / decay / sustain / release / gain
+        self.frac = 0.0            # DSP samples left over towards the next envelope step
+        self.sample_left = None    # one-shot sample: source samples until it ends (None = loops)
+
+    def key_on(self):
+        self.on = True
+        self.kon_count += 1
+        self.env = 0
+        self.frac = 0.0
+        self.mode = "attack" if self.adsr1 & 0x80 else "gain"
+
+    def key_off(self):
+        self.mode = "release"
+
+    def run(self, samples):
+        """Advance the envelope by `samples` DSP samples (32 kHz)."""
+        if self.sample_left is not None and self.on:
+            self.sample_left -= samples * self.pitch / 4096.0
+            if self.sample_left <= 0:
+                self.env = 0
+                self.on = False
+                return
+        if self.mode == "gain" and not self.gain & 0x80:
+            self.env = (self.gain & 0x7F) << 4          # direct gain
+            return
+        if self.mode == "release":                      # -8 every sample
+            self.env = max(0, self.env - 8 * int(samples))
+            if self.env == 0:
+                self.on = False
+            return
+        if self.mode == "attack":
+            r = (self.adsr1 & 0xF) * 2 + 1
+        elif self.mode == "decay":
+            r = ((self.adsr1 >> 4) & 7) * 2 + 16
+        elif self.mode == "sustain":
+            r = self.adsr2 & 0x1F
+        else:
+            r = self.gain & 0x1F
+        period = RATE[r]
+        if period == 0:
+            return
+        self.frac += samples
+        steps = int(self.frac // period)
+        self.frac -= steps * period
+        env = self.env
+        for _ in range(steps):
+            if self.mode == "attack":
+                env += 1024 if (self.adsr1 & 0xF) == 0xF else 32
+                if env >= ENV_MAX:
+                    env = ENV_MAX
+                    self.mode = "decay"
+                    break
+            elif self.mode == "decay":
+                env -= ((env - 1) >> 8) + 1
+                if (env >> 8) <= (self.adsr2 >> 5):
+                    self.mode = "sustain"
+                    break
+            elif self.mode == "sustain":
+                env -= ((env - 1) >> 8) + 1
+            else:                                      # GAIN modes
+                m = (self.gain >> 5) & 3
+                if m == 0:
+                    env -= 32
+                elif m == 1:
+                    env -= ((env - 1) >> 8) + 1
+                elif m == 2:
+                    env += 32
+                else:
+                    env += 32 if env < 0x600 else 8
+            env = max(0, min(ENV_MAX, env))
+            if env == 0 and self.mode in ("sustain", "gain"):
+                break
+        self.env = env
 
 
 class DSPState:
-    """Replays DSP writes. snapshot() -> {"V1".."V8": {...}} per analysis frame."""
+    """Replays DSP writes; snapshot() -> {"V1".."V8": {...}} per analysis frame.
+    Same interface as apu_state.APUState for nsf2mid.build_frames: write(cyc, reg, v) returns the
+    keys of the voices keyed on (KON = the note start), advance(cyc), snapshot()."""
 
-    def __init__(self, ram, dsp_init):
+    chips = ()
+    keys = tuple(f"V{i + 1}" for i in range(8))
+
+    def __init__(self, ram, dsp_init, cpu_hz=1024000.0):
         self.ram = ram
+        self.cpu_hz = cpu_hz
         self.voices = [Voice() for _ in range(8)]
         self.regs = bytearray(dsp_init)
         self.pitch_cache = {}
+        self.len_cache = {}
+        self.now = None
+        for i, vc in enumerate(self.voices):
+            for r in range(8):
+                self._voice_reg(vc, r, dsp_init[i * 16 + r])
 
-    def write(self, reg, v):
+    def advance(self, cyc):
+        if self.now is None:
+            self.now = cyc
+            return
+        if cyc <= self.now:
+            return
+        samples = (cyc - self.now) * 32000.0 / self.cpu_hz
+        for vc in self.voices:
+            vc.run(samples)
+        self.now = cyc
+
+    @staticmethod
+    def _voice_reg(vc, r, v):
+        if r == 0:
+            vc.vol_l = v - 256 if v > 127 else v
+        elif r == 1:
+            vc.vol_r = v - 256 if v > 127 else v
+        elif r == 2:
+            vc.pitch = (vc.pitch & 0x3F00) | v
+        elif r == 3:
+            vc.pitch = (vc.pitch & 0xFF) | ((v & 0x3F) << 8)
+        elif r == 4:
+            vc.srcn = v
+        elif r == 5:
+            vc.adsr1 = v
+        elif r == 6:
+            vc.adsr2 = v
+        elif r == 7:
+            vc.gain = v
+
+    def write(self, cyc, reg, v):
+        self.advance(cyc)
         self.regs[reg] = v
         vi, r = reg >> 4, reg & 0xF
         if r <= 7:
-            vc = self.voices[vi]
-            if r == 0:
-                vc.vol_l = v - 256 if v > 127 else v
-            elif r == 1:
-                vc.vol_r = v - 256 if v > 127 else v
-            elif r == 2:
-                vc.pitch = (vc.pitch & 0x3F00) | v
-            elif r == 3:
-                vc.pitch = (vc.pitch & 0xFF) | ((v & 0x3F) << 8)
-            elif r == 4:
-                vc.srcn = v
-            elif r == 5:
-                vc.adsr1 = v
-            elif r == 6:
-                vc.adsr2 = v
-            elif r == 7:
-                vc.gain = v
+            self._voice_reg(self.voices[vi], r, v)
             return ()
         if reg == 0x4C:            # KON
             out = []
             for i in range(8):
                 if v >> i & 1:
                     vc = self.voices[i]
-                    vc.on = True
-                    vc.kon_count += 1
+                    vc.key_on()
+                    vc.sample_left = self.sample_length(vc.srcn)
                     out.append(f"V{i + 1}")
             return out
         if reg == 0x5C:            # KOFF
             for i in range(8):
                 if v >> i & 1:
-                    self.voices[i].on = False
+                    self.voices[i].key_off()
         return ()
+
+    def sample_length(self, srcn):
+        """Length of a one-shot sample in source samples (None = it loops)."""
+        if srcn not in self.len_cache:
+            start, _ = sample_table(self.ram, self.regs[0x5D]).get(srcn, (0, 0))
+            s, looped, _ = brr_decode(self.ram, start)
+            self.len_cache[srcn] = None if looped else float(len(s))
+        return self.len_cache[srcn]
 
     def srcn_pitch(self, srcn):
         if srcn not in self.pitch_cache:
@@ -233,12 +349,13 @@ class DSPState:
         for i, vc in enumerate(self.voices):
             base, corr, looped = self.srcn_pitch(vc.srcn)
             f = base * vc.pitch / 4096.0 if base and vc.pitch else None
-            loud = max(abs(vc.vol_l), abs(vc.vol_r))
+            loud = max(abs(vc.vol_l), abs(vc.vol_r)) * vc.env / ENV_MAX     # 0..128
+            vol = 0 if not loud else max(1, min(15, int(round(loud * 15 / 96))))
             out[f"V{i + 1}"] = {
                 "period": vc.pitch,
                 "freq": f or 0.0,
                 "note": freq_to_note(f) if f else None,
-                "vol": min(15, max(1, loud // 8)) if vc.on and loud else 0,
+                "vol": vol if vc.env > 0 else 0,
                 "duty": vc.srcn,
                 "srcn": vc.srcn,
                 "kon": vc.kon_count,

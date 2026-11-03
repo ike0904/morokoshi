@@ -248,7 +248,11 @@ class NSFBus:
 
 
 def open_player(path):
-    """NSFPlayer, or gbs.GBSPlayer for GBS data (v0.1.27)."""
+    """NSFPlayer, or gbs.GBSPlayer for GBS data (v0.1.27), or spc.SPCPlayer for an SPC file /
+    a zip of SPC files (v0.1.36)."""
+    from spc import is_spc_path, SPCPlayer
+    if is_spc_path(path):
+        return SPCPlayer(None, path)
     data = read_nsf_bytes(path)
     if data[:3] == b"GBS":
         from gbs import GBSPlayer
@@ -257,7 +261,10 @@ def open_player(path):
 
 
 def read_header(data):
-    """NSFHeader or gbs.GBSHeader of the file data."""
+    """NSFHeader, gbs.GBSHeader or spc.SPCHeader of the file data."""
+    from spc import is_spc_data, SPCHeader
+    if is_spc_data(data):
+        return SPCHeader(data)
     if data[:3] == b"GBS":
         from gbs import GBSHeader
         return GBSHeader(data)

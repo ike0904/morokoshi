@@ -7,6 +7,8 @@ Phase 3: drums (noise / DPCM / triangle glides -> GM percussion), loop / end det
 Phase 4: GUI (nsf2mid_gui.py). Started when no arguments are given.
 Phase 5: expansion audio (expansion.py): FDS, VRC6, VRC7, MMC5, N163, Sunsoft 5B on MIDI ch 6-.
 Phase 6: GBS (Game Boy, gbs.py / cpu_sm83.py / gb_apu.py): Square 1/2, Wave, Noise on MIDI ch 1-4.
+Phase 7: SPC (Super Famicom, spc.py / cpu_spc700.py / spc_dsp.py): 8 voices on MIDI ch 1-8, one track
+         per sample (in progress: drums and tempo to come).
 
 Usage:
     python nsf2mid.py                (GUI)
@@ -53,9 +55,11 @@ Usage:
   v0.1.33 (2026-11-03) - ループのない曲は長い音・ベースの重さで小節頭を決める (前打ちの小節)。3 連系の 8 分音符を旋律の間隔で決める
   v0.1.34 (2026-11-03) - ループのない曲の前打ちは、30 秒以上の曲で、出だしが前打ちの形 (最初の長い音が候補の拍) のときだけ
   v0.1.35 (2026-11-03) - 1 小節ごとに音型が繰り返す区間は、その周期を 1 小節としてテンポ・区間の始まりと終わり・次の区間への切り替え位置を決める
+  v0.1.36 (2026-11-03) - SPC (スーパーファミコン) 対応の第 1・2 段階: SPC700・DSP の模型・サンプルの音高推定・エンベロープ。
+                         8 ボイス = MIDI ch 1〜8、サンプルが変わったら同じ ch の別トラック (CLI のみ。ドラム・テンポは今後)
 """
 
-APP_VERSION = "v0.1.35"
+APP_VERSION = "v0.1.36"
 
 import argparse
 import csv
@@ -129,7 +133,7 @@ def ch_of(addr):
     return None, None
 
 
-def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None):
+def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None, cache=None):
     """Replay writes through the APU model; return per-frame snapshots.
 
     Each entry: dict(frame, time, state, written={ch: set(reg)}, status_writes)
@@ -137,22 +141,32 @@ def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None):
     and a write that (re)triggers one of them is recorded as reg 3 (like $4003 on the 2A03)
     apu: the APU model to replay through (GBS: gb_apu.GBAPUState, whose trigger writes NRx4
     mark the channel's reg 3 the same way)
+    cache: a dict kept between calls (SPC, v0.1.36): the frames built so far are reused and only
+    the new ones are added (convert() analyses again after every emulation chunk)
     """
-    apu = apu or APUState(cpu_hz, expansion=expansion)
+    if cache and cache.get("frames") is not None and len(cache["frames"]) <= n_frames:
+        apu, frames, wi = cache["apu"], cache["frames"], cache["wi"]
+    else:
+        apu = apu or APUState(cpu_hz, expansion=expansion)
+        frames = []
+        wi = 0
     exp_keys = [k for c in apu.chips for k, _ in c.CHANNELS]
-    frames = []
-    wi = 0
     nw = len(writes)
-    for f in range(n_frames):
+    for f in range(len(frames), n_frames):
         end = (f + 1) * frame_cycles
-        written = {"P1": set(), "P2": set(), "TRI": set(), "NOI": set(), "DMC": set()}
+        if hasattr(apu, "keys"):              # SPC: the 8 voices (v0.1.36)
+            written = {k: set() for k in apu.keys}
+        else:
+            written = {"P1": set(), "P2": set(), "TRI": set(), "NOI": set(), "DMC": set()}
         for k in exp_keys:
             written[k] = set()
         status = []
+        kon = {}
         while wi < nw and writes[wi][0] < end:
             cyc, addr, val = writes[wi]
             for k in apu.write(cyc, addr, val) or ():
                 written[k].add(3)
+                kon.setdefault(k, cyc)
             ch, reg = ch_of(addr)
             if ch in written:
                 written[ch].add(reg)
@@ -166,7 +180,10 @@ def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None):
             "state": apu.snapshot(),
             "written": written,
             "status": status,
+            "kon": kon,          # first (re)trigger of each channel in the frame, CPU cycle
         })
+    if cache is not None:
+        cache.update(apu=apu, frames=frames, wi=wi)
     return frames
 
 
@@ -331,19 +348,26 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
         return st, en
 
     for ch in notes:
-        tr = Track(TRACK_NAMES[ch])
-        mch = MIDI_CH[ch]
-        if programs.get(ch) is not None:
-            tr.program(0, mch, programs[ch])
-        if loop and ch == "P1":
-            tr.control(tmap(loop["start"]), mch, 111, 0)   # RPG Maker style loop marker
-        for n in notes[ch]:
-            if n.start >= end_frame:
-                continue
-            st, en = span(n.start, n.gate_end)
-            vel = 100 if ch == "TRI" else vol_to_velocity(n.peak)
-            tr.note(st, en, mch, max(0, min(127, n.pitch + transpose.get(ch, 0))), vel)
-        tracks.append(tr)
+        groups = [(TRACK_NAMES[ch], notes[ch])]
+        if ch.startswith("V"):
+            # SPC (v0.1.36): one track per sample (instrument) on the voice's MIDI channel
+            srcns = sorted({note_sample(n) for n in notes[ch] if n.start < end_frame})
+            groups = [(f"{TRACK_NAMES[ch]} S{s}", [n for n in notes[ch] if note_sample(n) == s])
+                      for s in srcns]
+        for gi, (name, lst) in enumerate(groups):
+            tr = Track(name)
+            mch = MIDI_CH[ch]
+            if programs.get(ch) is not None:
+                tr.program(0, mch, programs[ch])
+            if loop and gi == 0 and ch in ("P1", "V1"):
+                tr.control(tmap(loop["start"]), mch, 111, 0)   # RPG Maker style loop marker
+            for n in lst:
+                if n.start >= end_frame:
+                    continue
+                st, en = span(n.start, n.gate_end)
+                vel = 100 if ch == "TRI" else vol_to_velocity(n.peak)
+                tr.note(st, en, mch, max(0, min(127, n.pitch + transpose.get(ch, 0))), vel)
+            tracks.append(tr)
     for src, name, hits in drum_track_groups(drums, end_frame):
         tr = Track(name)
         for d in hits:
@@ -428,8 +452,11 @@ def analyze(player, n_frames, args, drum_map):
     detect: the notes seen by tempo / meter / loop detection. They use the fixed triangle-kick rule
     (detect_triangle_split) and keep the pulse notes, so detection does not depend on --drop-drums."""
     expansion = player.header.expansion
+    cache = getattr(player, "frames_cache", None)
     frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz, expansion,
-                          player.make_apu())
+                          None if cache and cache.get("frames") else player.make_apu(), cache)
+    if getattr(player, "is_spc", False):
+        return analyze_spc(frames, args, player.frame_cycles)
     notes, stats = extract_notes(frames, TONAL + tuple(k for k, _, _ in expansion_channels(expansion)),
                                  keep_tail=args.keep_tail)
     base = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
@@ -444,6 +471,33 @@ def analyze(player, n_frames, args, drum_map):
     events["DRUM"] = [(d.start, (d.src, d.kind)) for d in sorted(base + detect_tri, key=lambda d: d.start)]
     loop = None if args.no_loop else detect_loop(events)
     return frames, notes, stats, drums, events, loop, detect
+
+
+def analyze_spc(frames, args, frame_cycles):
+    """SPC (v0.1.36): the 8 voices are the channels (MIDI ch 1-8). Drums are not separated yet
+    (phase 3): a drum sample is a pitched note on its own track."""
+    keys = tuple(f"V{i + 1}" for i in range(8))
+    for i, k in enumerate(keys):
+        MIDI_CH[k] = i
+        TRACK_NAMES[k] = f"Ch{i + 1}"
+    notes, stats = extract_notes(frames, keys, keep_tail=args.keep_tail)
+    notes = {k: v for k, v in notes.items() if v}
+    # the exact key-on time inside the frame (fractional frames): the driver runs on its own
+    # timer (FF4: 222 Hz), so whole 1/60 s frames put notes up to a frame off the beat grid
+    for k, lst in notes.items():
+        for n in lst:
+            f = frames[n.start] if n.start < len(frames) else None
+            if f and k in f["kon"]:
+                n.start = f["kon"][k] / frame_cycles
+    detect = dict(notes)
+    events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in detect.items()}
+    loop = None if args.no_loop else detect_loop(events)
+    return frames, notes, stats, [], events, loop, detect
+
+
+def note_sample(n):
+    """Sample number (SRCN) a SPC note starts with (stored as its duty)."""
+    return n.duties[0] if n.duties else -1
 
 
 class Cancelled(Exception):
