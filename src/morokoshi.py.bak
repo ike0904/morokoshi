@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.5"
+APP_VERSION = "v2.9.10"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -7193,9 +7193,14 @@ class MainWindow(QMainWindow):
             start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
         # MIDI は NSF（NESM 形式）と GBS のとき（nsf2mid は NSFe 非対応。GBS は v2.9.5〜）
         mid_ok=(eng._nsf is not None and eng._nsf.fmt=="NESM") or                (eng._gbs is not None and eng._gbs._gbs_raw is not None)
-        dlg=QFileDialog(self,tr("Save Audio"),os.path.join(start_dir, self._save_default_name()+".wav"),
+        # 前回選んだファイル形式を既定にする（v2.9.6〜。MIDI を選べないファイルでは WAV）
+        filters={"wav":"WAV (*.wav)","mp3":"MP3 (*.mp3)","m4a":"M4A (*.m4a)","mid":"MIDI (*.mid)"}
+        last_fmt=_read_settings().get("last_save_format")
+        if last_fmt not in filters or (last_fmt=="mid" and not mid_ok): last_fmt="wav"
+        dlg=QFileDialog(self,tr("Save Audio"),os.path.join(start_dir, self._save_default_name()+"."+last_fmt),
             "WAV (*.wav);;MP3 (*.mp3);;M4A (*.m4a)"+(";;MIDI (*.mid)" if mid_ok else ""))
         dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dlg.selectNameFilter(filters[last_fmt])
         # ファイルの種類で MIDI を選んだら、保存ダイアログの横にオプションパネルを出す。
         # パネルは保存ダイアログの子にする（子でないと保存ダイアログのモーダル中に操作できない）
         panel=[None]
@@ -7209,7 +7214,12 @@ class MainWindow(QMainWindow):
             self._place_beside_save_dialog(panel[0], tr("Save Audio"))
             panel[0].show(); panel[0].raise_()
         if mid_ok: dlg.filterSelected.connect(on_filter)
+        if last_fmt=="mid":
+            # 最初から MIDI のときはオプションパネルも出す（保存ダイアログが表示されてから位置を決める）
+            QTimer.singleShot(300, lambda: None if closed[0] else on_filter(filters["mid"]))
+        closed=[False]
         ok=dlg.exec()==QFileDialog.DialogCode.Accepted
+        closed[0]=True
         hide_tt()
         if panel[0] is not None: panel[0].hide()
         if not ok or not dlg.selectedFiles(): return
@@ -7223,7 +7233,7 @@ class MainWindow(QMainWindow):
         elif ext not in (("wav","mp3","m4a","mid") if mid_ok else ("wav","mp3","m4a")):
             ext="mp3" if flt.startswith("MP3") else "m4a" if flt.startswith("M4A") else "wav"
             path+="."+ext
-        _update_settings(last_save_folder=os.path.dirname(path))
+        _update_settings(last_save_folder=os.path.dirname(path), last_save_format=ext)
         if ext=="mid":
             self._save_midi(path, panel[0]); return
         # 再生中の状態（Speed/Key/Fine）を保存開始時点で確定。フィルターは反映しない

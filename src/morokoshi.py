@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.10"
+APP_VERSION = "v2.9.11"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -7203,21 +7203,27 @@ class MainWindow(QMainWindow):
         dlg.selectNameFilter(filters[last_fmt])
         # ファイルの種類で MIDI を選んだら、保存ダイアログの横にオプションパネルを出す。
         # パネルは保存ダイアログの子にする（子でないと保存ダイアログのモーダル中に操作できない）
-        panel=[None]
+        panel=[None]; closed=[False]; want=[False]
+        def show_panel(tries=0):
+            # 保存ダイアログが画面に出てから、その横に出す（出る前に表示すると別の場所に一瞬出て移動して見える）
+            if closed[0] or not want[0]: return
+            if not self._place_beside_save_dialog(panel[0], tr("Save Audio"), fallback=tries>=60):
+                QTimer.singleShot(50, lambda: show_panel(tries+1)); return
+            panel[0].show(); panel[0].raise_()
         def on_filter(f):
             if not f.startswith("MIDI"):
+                want[0]=False
                 if panel[0] is not None: panel[0].hide()
                 hide_tt(); return
             if panel[0] is None:
                 panel[0]=Nsf2MidDialog(_nsf2mid_opts(), self._scale, dlg, buttons=False)
             panel[0].adjustSize()
-            self._place_beside_save_dialog(panel[0], tr("Save Audio"))
-            panel[0].show(); panel[0].raise_()
+            want[0]=True
+            show_panel()
         if mid_ok: dlg.filterSelected.connect(on_filter)
         if last_fmt=="mid":
-            # 最初から MIDI のときはオプションパネルも出す（保存ダイアログが表示されてから位置を決める）
-            QTimer.singleShot(300, lambda: None if closed[0] else on_filter(filters["mid"]))
-        closed=[False]
+            # 最初から MIDI のときはオプションパネルも出す（保存ダイアログが出るのを待って位置を決める）
+            QTimer.singleShot(0, lambda: None if closed[0] else on_filter(filters["mid"]))
         ok=dlg.exec()==QFileDialog.DialogCode.Accepted
         closed[0]=True
         hide_tt()
@@ -7281,9 +7287,10 @@ class MainWindow(QMainWindow):
                 except Exception: pass
             self._saving=False
 
-    def _place_beside_save_dialog(self, w, title):
+    def _place_beside_save_dialog(self, w, title, fallback=True):
         """ネイティブの保存ダイアログ（自プロセスの #32770 ウィンドウ）の右横に w を置く。
-        右に入らなければ左、見つからなければメインウィンドウの右横"""
+        右に入らなければ左、見つからなければメインウィンドウの右横（fallback=False なら動かさない）。
+        戻り値: 保存ダイアログが見つかったか"""
         x=y=None
         try:
             import ctypes as _c
@@ -7308,9 +7315,12 @@ class MainWindow(QMainWindow):
                     x=max(ag.left(), int(r.left/dpr)-w.frameGeometry().width()-4)
         except Exception:
             x=y=None
+        found_dlg=x is not None
         if x is None:
+            if not fallback: return False
             g=self.frameGeometry(); x=g.right()+4; y=g.top()
         w.move(x,y)
+        return found_dlg
 
     def _save_midi(self, path, panel=None):
         """NSF / GBS の現在のトラックを nsf2mid で MIDI に変換して保存。
