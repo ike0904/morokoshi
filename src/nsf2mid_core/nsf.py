@@ -35,13 +35,15 @@ def is_nsf_zip(path):
 
 def _zip_nsf_member(z):
     names = [n for n in z.namelist() if n.lower().endswith(".nsf")]
+    if not names:   # v0.1.27: zips of GBS files (zophar.net style) too
+        names = [n for n in z.namelist() if n.lower().endswith(".gbs")]
     if not names:
-        raise ValueError("no .nsf file in the zip")
+        raise ValueError("no .nsf / .gbs file in the zip")
     return names[0]
 
 
 def read_nsf_bytes(path):
-    """Return the NSF data of a .nsf file or of a zip holding one (zophar.net style)."""
+    """Return the NSF (or GBS) data of a file or of a zip holding one (zophar.net style)."""
     if is_nsf_zip(path):
         with zipfile.ZipFile(path) as z:
             return z.read(_zip_nsf_member(z))
@@ -245,9 +247,28 @@ class NSFBus:
             self.sram[addr - 0x6000] = val
 
 
+def open_player(path):
+    """NSFPlayer, or gbs.GBSPlayer for GBS data (v0.1.27)."""
+    data = read_nsf_bytes(path)
+    if data[:3] == b"GBS":
+        from gbs import GBSPlayer
+        return GBSPlayer(data)
+    return NSFPlayer(path, data)
+
+
+def read_header(data):
+    """NSFHeader or gbs.GBSHeader of the file data."""
+    if data[:3] == b"GBS":
+        from gbs import GBSHeader
+        return GBSHeader(data)
+    return NSFHeader(data)
+
+
 class NSFPlayer:
-    def __init__(self, path):
-        data = read_nsf_bytes(path)
+    is_gbs = False
+
+    def __init__(self, path, data=None):
+        data = read_nsf_bytes(path) if data is None else data
         self.header = NSFHeader(data)
         self.rom = data[0x80:]
         self.writes = []          # (cpu_cycle, addr, value)
@@ -282,6 +303,9 @@ class NSFPlayer:
             return
         rd = self.bus.read
         self.dmc_samples[key] = bytes(rd(0x8000 | ((addr + i) & 0x7FFF)) for i in range(length))
+
+    def make_apu(self):
+        return APUState(self.cpu_hz, expansion=self.header.expansion)
 
     @property
     def fds(self):

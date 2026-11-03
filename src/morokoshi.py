@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.4"
+APP_VERSION = "v2.9.5"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -7191,8 +7191,8 @@ class MainWindow(QMainWindow):
             start_dir=self._load_last_folder()
         if not start_dir or not os.path.isdir(start_dir):
             start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
-        # MIDI は NSF（NESM 形式）のときのみ（nsf2mid は NSFe 非対応）
-        mid_ok=eng._nsf is not None and eng._nsf.fmt=="NESM"
+        # MIDI は NSF（NESM 形式）と GBS のとき（nsf2mid は NSFe 非対応。GBS は v2.9.5〜）
+        mid_ok=(eng._nsf is not None and eng._nsf.fmt=="NESM") or                (eng._gbs is not None and eng._gbs._gbs_raw is not None)
         dlg=QFileDialog(self,tr("Save Audio"),os.path.join(start_dir, self._save_default_name()+".wav"),
             "WAV (*.wav);;MP3 (*.mp3);;M4A (*.m4a)"+(";;MIDI (*.mid)" if mid_ok else ""))
         dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
@@ -7303,10 +7303,22 @@ class MainWindow(QMainWindow):
         w.move(x,y)
 
     def _save_midi(self, path, panel=None):
-        """NSF の現在のトラックを nsf2mid で MIDI に変換して保存。
+        """NSF / GBS の現在のトラックを nsf2mid で MIDI に変換して保存。
         panel: 保存ダイアログ横のオプションパネル。無ければ（.mid を直接入力した場合）オプションダイアログを出す"""
-        nsf=self.engine._nsf
-        if nsf is None: return
+        nsf=self.engine._nsf; gbs=self.engine._gbs
+        if nsf is not None:
+            src, track = nsf.path, nsf.cur_track+1
+        elif gbs is not None and gbs._gbs_raw is not None:
+            # GBS は読み込んだデータを一時ファイルにして渡す（フォルダ読み込み・複数 GBS 入りの zip でも同じデータになる）
+            import tempfile
+            src=os.path.join(tempfile.gettempdir(), "morokoshi_midi_src.gbs")
+            try:
+                with open(src,"wb") as f: f.write(gbs._gbs_raw)
+            except OSError as ex:
+                self._st(f"MIDI save failed: {ex}"); return
+            track=gbs.cur_track+1
+        else:
+            return
         if panel is None:
             panel=Nsf2MidDialog(_nsf2mid_opts(), self._scale, self)
             if panel.exec()!=QDialog.DialogCode.Accepted:
@@ -7315,7 +7327,7 @@ class MainWindow(QMainWindow):
         _update_settings(nsf2mid=opts)
         self._saving=True; self._mid_stop=False
         threading.Thread(target=self._save_midi_th,
-            args=(nsf.path, nsf.cur_track+1, path, opts), daemon=True).start()
+            args=(src, track, path, opts), daemon=True).start()
 
     def _save_midi_th(self, src, track, path, opts):
         import io, contextlib, time as _time
