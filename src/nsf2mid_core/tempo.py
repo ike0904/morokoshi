@@ -420,6 +420,7 @@ RIT_MAX = 1.6            # ... (but not as long as a different note value) ...
 RIT_RUN = 3              # ... for this many notes in a row is a ritardando
 PHASE_GAIN = 1.25       # v0.1.33: the downbeat by note weight must beat beat 0 by this much ...
 PHASE_MIN_NOTES = 16    # ... over at least this many notes on beats
+PHASE_MIN_SEC = 30.0    # ... in a tune at least this long
 CONTINUOUS_ROWS = 2      # v0.1.29: a segment starting this close after the last note keeps its natural tick
 
 
@@ -689,6 +690,23 @@ class TickMap:
                 count += 1
         best = max(range(num), key=lambda p: score[p])
         if count < PHASE_MIN_NOTES or best == 0 or score[best] < PHASE_GAIN * score[0]:
+            return
+        # v0.1.33: only short tunes are skipped (bars are hard to tell there, user decision) and
+        # the opening must look like a pickup: before beat `best` only short notes (< 1 beat), and
+        # the first long note starts right on it (DQ3 t26: G C D as triplets, then a long G).
+        # James Bond Jr. t1 has its weight on beat 2 all through but no pickup.
+        last = max(n.start for sel in per.values() for n in sel)
+        if (last - part.origin_frame) / self.fr < PHASE_MIN_SEC:
+            return
+        first_long = None
+        for sel in per.values():
+            for n in sel:
+                t = self._tick_in(part, n.start) - part.origin_tick
+                d = (self._tick_in(part, n.gate_end if n.gate_end is not None else n.end)
+                     - part.origin_tick - t) / self.ppq
+                if d >= 1 and (first_long is None or t < first_long):
+                    first_long = t
+        if first_long != best * self.ppq:
             return
         part.lead_beats = best
         part.bar_origin = part.origin_tick + best * self.ppq
