@@ -104,7 +104,10 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.16 (2026-11-03) ← 最新（プロンプト直接指示: SPC の MIDI 化 第 4・5 段階）
+### v2.9.17 (2026-11-03) ← 最新（プロンプト直接指示の続き）
+- nsf2mid v0.1.39 を同期: SPC で全ボイスが最初の音から繰り返す曲のループ開始がマイナスになる不具合を修正
+
+### v2.9.16 (2026-11-03)（プロンプト直接指示: SPC の MIDI 化 第 4・5 段階）
 - nsf2mid v0.1.38 を同期（新規 nsf2mid_core/spc.py・cpu_spc700.py・spc_dsp.py・spc_drums.py）
 - Save で SPC のときも MIDI を選べる。再生中の曲のデータを一時ファイル（%TEMP%\morokoshi_midi_src.spc）にして渡す。
   8 ボイス = MIDI ch 1〜8、音色ごとのトラック、打楽器は「ChN Drums」（GM ノート、音色ごとに別の番号）
