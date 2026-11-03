@@ -45,9 +45,11 @@ Usage:
                          短い曲 (8 オンセット〜) もシャッフル判定。グリッド単位がほぼ整数なら整数に
   v0.1.29 (2026-11-03) - ループ開始を小節頭に (曲頭に 1〜3 拍の小節)。グリッドに合う区間でも少しずつ遅くなる音の並びは
                          リタルダンドとして追う。途切れずに続く区間は小節線へ飛ばさない
+  v0.1.30 (2026-11-03) - ループが 4/4 の小節で割り切れない曲は、ループ内の変拍子 (6/8・5/8・7/8・2/4 など) を
+                         リズムの繰り返しとフィルインから求めて拍子を入れる (meter.py)。リタルダンド判定の基準をグリッドの行に
 """
 
-APP_VERSION = "v0.1.29"
+APP_VERSION = "v0.1.30"
 
 import argparse
 import csv
@@ -66,6 +68,7 @@ from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split
                    summarize, GM_NAMES, DROP_DRUM_CHANNELS, DROP_DRUM_MIN)
 from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
 from expansion import channel_table  # noqa: E402
+from meter import odd_bars, SNARES as SNARE_NOTES  # noqa: E402
 
 PPQ = 480
 MIDI_CH = {"P1": 0, "P2": 1, "TRI": 2}
@@ -345,6 +348,26 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
     return tracks
 
 
+def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
+    """v0.1.30: a loop that is not a whole number of 4/4 bars gets its odd bars (meter.odd_bars)."""
+    part = tmap.parts[0]
+    if tmap.downbeat_tick is None or part.meter != (4, 4):
+        return
+    start = tmap.downbeat_tick
+    span = tmap(loop["start"] + loop["period"]) - tmap(loop["start"])
+    if len(tmap.parts) > 1 and tmap.parts[1].origin_tick < start + span * loops:
+        return
+    events = [(tmap(n.start), ch, "", False) for ch, lst in notes.items() for n in lst if n.start < end_frame]
+    events += [(tmap(d.start), "DRUM_" + d.src, str(d.gm if d.pitch is None else d.pitch),
+                d.pitch is None and d.gm in SNARE_NOTES) for d in drums if d.start < end_frame]
+    bars = odd_bars(events, start, start + span)
+    if not bars:
+        return
+    rep = [(t + k * span, m) for k in range(loops) for t, m in bars]
+    tmap.set_odd_meters(rep, start + span * loops, part.meter)
+    print("  Odd bars in the loop: " + ", ".join(f"{m[0]}/{m[1]} at beat {t / PPQ:g}" for t, m in bars))
+
+
 def drum_track_groups(drums, end_frame):
     """[(src, track name, hits)] of the non-empty drum tracks. A DPCM sample played at several
     rates (pitched sample) gets its own track "Ch5 DPCM $ADDR" after the DPCM drums."""
@@ -605,6 +628,8 @@ def convert(args, should_stop=None):
                   f"{sg.meter[0]}/{sg.meter[1]}" + ("  [tempo tracked]" if sg.tracked else ""))
             if sg.score < 0.8 and not sg.tracked:
                 print("    Warning: poor grid fit (rubato or unsupported rhythm?)")
+        if loop:
+            odd_loop_meters(tmap, loop, notes, drums, end_frame, max(1, args.loops))
         mid_path = mid_out or stem + ".mid"
         write_smf(mid_path, build_midi(notes, drums, tmap, h.title, track, end_frame, loop, transpose, programs), PPQ)
         outputs.insert(0, mid_path)
