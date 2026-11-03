@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.28
-commit:  f9d4321 2026-11-03 v0.1.28: triplet grids - choose the beat row (long note of a shuffle on the beat), 16th onsets on 16ths; shuffle detection for short tunes; near-integer grid units snap to integers (Wrecking Crew t1/t5)
+version: v0.1.29
+commit:  4f51384 2026-11-03 v0.1.29: loop start becomes a bar line (pickup bar of 1-3 beats at the start); ritardandos inside a fitting segment are tempo-tracked; segments that continue without a break keep their natural tick (Wrecking Crew t1, Dragon Quest III t15)
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py

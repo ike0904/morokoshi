@@ -43,9 +43,11 @@ Usage:
                          GUI: .gbs / GBS 入りの zip と GBS の m3u (0 始まり)
   v0.1.28 (2026-11-03) - 3 連系のグリッド: 拍の頭になる行を選ぶ (シャッフルの長い音が拍の頭)、16 分の位置の発音は 16 分に置く。
                          短い曲 (8 オンセット〜) もシャッフル判定。グリッド単位がほぼ整数なら整数に
+  v0.1.29 (2026-11-03) - ループ開始を小節頭に (曲頭に 1〜3 拍の小節)。グリッドに合う区間でも少しずつ遅くなる音の並びは
+                         リタルダンドとして追う。途切れずに続く区間は小節線へ飛ばさない
 """
 
-APP_VERSION = "v0.1.28"
+APP_VERSION = "v0.1.29"
 
 import argparse
 import csv
@@ -595,7 +597,8 @@ def convert(args, should_stop=None):
         meters = [tuple(int(x) for x in m.split("/")) if m.strip() not in ("", "-") else None
                   for m in args.time_sig.split(",")] if args.time_sig else None
         tmap = TickMap(tempo, PPQ, not args.no_quantize, frame_rate, onsets,
-                       {ch: [n for n in lst if n.start < end_frame] for ch, lst in full.items()}, meters)
+                       {ch: [n for n in lst if n.start < end_frame] for ch, lst in full.items()}, meters,
+                       downbeat=loop["start"] if loop else None)
         for sg in tempo["segments"]:
             print(f"  from {sg.start / frame_rate:7.2f} s: {sg.bpm:7.2f} BPM  "
                   f"(unit {sg.unit:.4g} frames x {sg.rows} rows/beat, fit {sg.score * 100:.1f}%)  "

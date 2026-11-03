@@ -104,7 +104,17 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.5 (2026-11-03) ← 最新（プロンプト直接指示: GBS の MIDI 化に対応）
+### v2.9.6 (2026-11-03) ← 最新（プロンプト直接指示: Save の形式を記憶、Wrecking Crew の解析）
+- Save: 前回選んだファイル形式（WAV / MP3 / M4A / MIDI）を記憶し、次回の既定にする（settings.json の last_save_format）
+  - ファイル名の拡張子と「ファイルの種類」の両方を合わせる。MIDI のときはオプションパネルも最初から出す（0.3 秒後、保存ダイアログの横）
+  - MIDI を選べないファイル（NSF/GBS 以外）で前回が MIDI だった場合は WAV
+- Wrecking Crew（nsf2mid v0.1.28 を同期。詳細は nsf2mid の CLAUDE.md / spec.md）
+  - 1 曲目: テンポは最初から 150 BPM のまま、冒頭だけ 16 分（前打ち 2 つ）→ 2 分 3 連 → 4 分 → シャッフル、と判断。
+    16 分の位置の音を 16 分に置き、拍の頭の行（シャッフルの長い音）を選ぶようにした。小節頭は未対応（本編が 2 小節目の 2 拍目になる）
+  - 5 曲目（2.4 秒のジングル）: 2 分割 111 BPM → シャッフル 150 BPM に
+- 未確認: Save の形式の記憶は画面での操作確認をしていない（構文チェックのみ）
+
+### v2.9.5 (2026-11-03)（プロンプト直接指示: GBS の MIDI 化に対応）
 - GBS を開いているときも Save で MIDI を選べるようにした（nsf2mid v0.1.27 を同期。GBS 対応の本体は nsf2mid 側）
   - MIDI ch はチャンネルボタンと同じ: Square 1 = ch 1、Square 2 = ch 2、Wave = ch 3（トラック Ch3 Wave）、Noise = ch 4（GM ドラム）
   - morokoshi が読み込んだ GBS データを一時ファイル（%TEMP%\morokoshi_midi_src.gbs）にして渡す（フォルダ読み込み・複数 GBS 入りの zip でも同じ曲になる）
