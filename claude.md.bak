@@ -104,7 +104,16 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### SPC の MIDI 化 第 3 段階: ドラム (2026-11-03) ← 最新（プロンプト直接指示）
+### v2.9.16 (2026-11-03) ← 最新（プロンプト直接指示: SPC の MIDI 化 第 4・5 段階）
+- nsf2mid v0.1.38 を同期（新規 nsf2mid_core/spc.py・cpu_spc700.py・spc_dsp.py・spc_drums.py）
+- Save で SPC のときも MIDI を選べる。再生中の曲のデータを一時ファイル（%TEMP%\morokoshi_midi_src.spc）にして渡す。
+  8 ボイス = MIDI ch 1〜8、音色ごとのトラック、打楽器は「ChN Drums」（GM ノート、音色ごとに別の番号）
+- morokoshi.spec: hiddenimports に spc / cpu_spc700 / spc_dsp / spc_drums を追加
+- nsf2mid 側の内容: SPC のテンポ（ドライバーの揺れを小節ごとに追従、1 拍 6 行の判定）、ループの誤検出の修正、ドラムの番号の重なり解消（ユーザー指示）
+- 確認（画面なし）: クロノ・トリガーの zip を読み込み → MIDI 保存まで通る。実際の画面での確認はユーザー待ち
+- マニュアル（Save の MIDI は NSF・GBS のみ、の記述など）は次の公開時に更新
+
+### SPC の MIDI 化 第 3 段階: ドラム (2026-11-03)（プロンプト直接指示）
 - nsf2mid v0.1.37: 打楽器のサンプルを判定して GM ドラムのノートに（ボイスの ch の「ChN Drums」トラック）。
   morokoshi は未変更（画面に組み込む段階で同期）
 
