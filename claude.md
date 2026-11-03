@@ -104,6 +104,14 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
+### N163 のチャンネル数一覧 (2026-11-03)（プロンプト直接指示、コード変更なし）
+- N163 の NSF 13 本・458 曲を各 30 秒動かし、$7F（使うチャンネル数）を音が出ている間だけ集計
+  - 8 ch: Erika to Satoru no Yume Bouken、King of Kings → MIDI ch 6〜13
+  - 4 ch: Final Lap、Mappy Kids、女神転生 II、Rolling Thunder → ch 10〜13
+  - 4 ch 設定で実際に鳴るのは 2 ch: Namco Classic II、三國志 中原の覇者 → ch 10・11
+  - N163 の音なし: 独眼竜政宗、Family Circuit '91、Hydlide 3、Wagyan Land 2（基板だけ N163）、三國志 II（データ破損）
+  - どの曲も途中でチャンネル数を変えない
+
 ### v2.9.4 (2026-11-02) ← 最新（プロンプト直接指示: 他の拡張音源もすべて調査・実装、タム候補の調査）
 - NSF の MIDI 変換が全拡張音源に対応（nsf2mid v0.1.26 を同期。新規ファイル nsf2mid_core/expansion.py）
   - MIDI ch = チャンネルボタンの番号: VRC6 は Saw 6・Pulse 7・8、VRC7 FM 6〜11、MMC5 6・7、N163 Wave 1〜8 = 6〜13、5B 6〜8、FDS 6

@@ -104,7 +104,16 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.3 (2026-11-02) ← 最新（プロンプト直接指示: FDS 対応）
+### v2.9.4 (2026-11-02) ← 最新（プロンプト直接指示: 他の拡張音源もすべて調査・実装、タム候補の調査）
+- NSF の MIDI 変換が全拡張音源に対応（nsf2mid v0.1.26 を同期。新規ファイル nsf2mid_core/expansion.py）
+  - MIDI ch = チャンネルボタンの番号: VRC6 は Saw 6・Pulse 7・8、VRC7 FM 6〜11、MMC5 6・7、N163 Wave 1〜8 = 6〜13、5B 6〜8、FDS 6
+  - libgme で 1 ch ずつ鳴らして音程を比較し、ほぼ一致（詳細は nsf2mid の spec.md「Phase 5」）
+  - 確認: morokoshi の nsf2mid_core で悪魔城伝説 1 曲目 → Ch6 VRC6 Saw / Ch7・Ch8 VRC6 Pulse
+- 要確認（耳）: N163 の Rolling Thunder・ファイナルラップは、MIDI（実機の仕様）が morokoshi の再生（libgme）より 1 オクターブ低い
+- タム候補の一覧: nsf2mid/docs/expansion_drops.md（下降音の判定 3 曲、FDS のモジュレーション付きの短い音 70 曲）。聴いて判定してもらう
+- マニュアルは次の公開時に更新
+
+### v2.9.3 (2026-11-02)（プロンプト直接指示: FDS 対応）
 - NSF の MIDI 変換が FDS に対応（nsf2mid v0.1.25 を同期）。FDS はトラック「Ch6 FDS」、MIDI ch 6（チャンネルボタン「6」と同じ番号）
   - ユーザー回答: ch 10 は気にしない／複数の拡張音源の同時使用は考えない／FDS は下降音ドラムの対象外／モジュレーションは出さない
   - ロード先 $6000〜の FDS の NSF（Dead Zone など）も変換できるようになった
