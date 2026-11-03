@@ -104,7 +104,11 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### SPC の MIDI 化 第 2 段階 (2026-11-03) ← 最新（プロンプト直接指示）
+### SPC の MIDI 化 第 3 段階: ドラム (2026-11-03) ← 最新（プロンプト直接指示）
+- nsf2mid v0.1.37: 打楽器のサンプルを判定して GM ドラムのノートに（ボイスの ch の「ChN Drums」トラック）。
+  morokoshi は未変更（画面に組み込む段階で同期）
+
+### SPC の MIDI 化 第 2 段階 (2026-11-03)（プロンプト直接指示）
 - nsf2mid v0.1.36: SPC を変換に組み込み（CLI）。ボイス = ch 1〜8、音色（サンプル）が変わったら同じ ch の別トラック、エンベロープで音の終わり。
   確認曲 6 タイトルでエラーなく MIDI に。morokoshi は未変更（画面に組み込む段階で同期）
 

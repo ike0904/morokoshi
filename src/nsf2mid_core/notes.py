@@ -41,7 +41,7 @@ class Note:
 
     @property
     def peak(self):
-        g = self.gate_end - self.start if self.gate_end is not None else len(self.vols)
+        g = int(round(self.gate_end - self.start)) if self.gate_end is not None else len(self.vols)
         return max(self.vols[:max(1, g)]) if self.vols else 0
 
     @property
@@ -232,6 +232,8 @@ def noise_onsets(frames):
     """Frames where the noise channel is (re)triggered and audible. Used for tempo only (Phase 2)."""
     out = []
     for f in frames:
+        if "NOI" not in f["state"]:          # SPC: no noise channel of its own
+            return out
         if 3 in f["written"]["NOI"] and f["state"]["NOI"]["vol"] > 0:
             out.append(f["frame"])
     return out

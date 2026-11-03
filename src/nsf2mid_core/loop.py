@@ -26,6 +26,7 @@ repeats found so far instead of the last one, with a tolerance of 3 frames.
 TOL = 3                 # frames (2 until v0.1.30)
 MIN_EVENTS = 8          # a channel needs this many events to take part
 MIN_LOOP_FRAMES = 120   # ignore periods shorter than 2 s
+LOOSE_MIN = 2           # v0.1.38: events of a non-repeating channel inside the loop that refute it
 REPEATS = 3             # the loop body must be heard this many times in a row
 
 
@@ -109,8 +110,9 @@ def repeat_share(events, start, period):
     return hit / len(sel)
 
 
-def detect_loop(channel_events):
-    """channel_events: {name: sorted [(frame, token)]}.
+def detect_loop(channel_events, strict=False):
+    """channel_events: {name: sorted [(frame, token)]}. strict (SPC, v0.1.38): channels without
+    a repeat of the common period that still play in the loop refute it.
 
     Returns dict(start=frame, period=frames, channels={name: (start, period)}) or None.
     """
@@ -123,6 +125,7 @@ def detect_loop(channel_events):
         return None
     period = max(L for _, L in per.values())
     starts = {}
+    loose = []
     for name, ev in channel_events.items():
         if len(ev) < MIN_EVENTS:
             continue
@@ -131,7 +134,13 @@ def detect_loop(channel_events):
             # a channel that does not repeat with the common period -> no reliable loop
             if name in per:
                 return None
+            loose.append(name)
             continue
+        if strict and s == ev[0][0]:
+            # v0.1.38: a channel that repeats from its very first note was silent before it, which
+            # repeats too: it enters in the second half of the loop (FF6 "The Mines of Narshe":
+            # two voices from 52 s / 70 s in a loop from 17 s), it does not start the loop there
+            s -= period
         starts[name] = s
     if not starts:
         return None
@@ -142,7 +151,14 @@ def detect_loop(channel_events):
     if base is not None:
         starts = {k: v for k, v in starts.items()
                   if k in per or v <= base + period or repeat_share(channel_events[k], base, period) < 0.9}
-    return {"start": max(starts.values()), "period": period, "channels": per}
+    start = max(starts.values())
+    # v0.1.38: a channel that still plays in the loop but does not repeat (a melody over a
+    # repeating ostinato: FF6 "The Mines of Narshe", 2.18 s found after 17 s) -> not the loop yet
+    for name in (loose if strict else ()):    # SPC only (on NES it changed 3 tunes of the test set)
+        ev = channel_events[name]
+        if sum(1 for f, _ in ev if f >= start) >= LOOSE_MIN and repeat_share(ev, start, period) < 0.9:
+            return None
+    return {"start": start, "period": period, "channels": per}
 
 
 def song_end(channel_events, emulated_frames, silence_frames):

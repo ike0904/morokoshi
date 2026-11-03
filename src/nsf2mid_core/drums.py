@@ -321,7 +321,7 @@ def split_drop_drums(ch_notes, src, min_drop=DROP_DRUM_MIN):
 
 
 def parse_drum_map(text):
-    """'3:0=42,12:0=36,DMC:E000:129:15=38' -> {key: gm}."""
+    """'3:0=42,12:0=36,DMC:E000:129:15=38,S67=38' -> {key: gm} (SPC sample: S + number, 0 = not a drum)."""
     out = {}
     if not text:
         return out
@@ -331,7 +331,9 @@ def parse_drum_map(text):
             continue
         k, v = item.split("=")
         parts = k.split(":")
-        if parts[0].upper() == "DMC":
+        if parts[0][:1].upper() == "S" and parts[0][1:].isdigit():   # SPC sample (v0.1.37)
+            key = ("S", int(parts[0][1:]))
+        elif parts[0].upper() == "DMC":
             key = ("DMC", int(parts[1], 16), int(parts[2]), int(parts[3]))
         else:
             key = (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)

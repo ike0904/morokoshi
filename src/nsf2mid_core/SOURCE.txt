@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.35
-commit:  efaa94c 2026-11-03 v0.1.35: sections whose figure repeats bar by bar take their tempo, start, end and grid unit from that period; the next section takes over inside the last bar (Dragon Quest III t26 bars 57-65)
-files:   apu_state.py, cpu6502.py, cpu_sm83.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
+version: v0.1.38
+commit:  fcfa244 2026-11-03 v0.1.38: SPC phases 4-5 - unique GM note per drum sound; SPC tempo: grid fit with local phase, 6-row beat (sextuplets), bar-by-bar tracking of driver tempo drift; SPC loops: non-repeating active voice refutes a loop, voices entering late repeat their silence; GUI opens .spc / zips of SPC files; per-track header for SPC
+files:   apu_state.py, cpu6502.py, cpu_sm83.py, cpu_spc700.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, spc.py, spc_drums.py, spc_dsp.py, tempo.py

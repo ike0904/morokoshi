@@ -7,6 +7,9 @@ Phase 3: drums (noise / DPCM / triangle glides -> GM percussion), loop / end det
 Phase 4: GUI (nsf2mid_gui.py). Started when no arguments are given.
 Phase 5: expansion audio (expansion.py): FDS, VRC6, VRC7, MMC5, N163, Sunsoft 5B on MIDI ch 6-.
 Phase 6: GBS (Game Boy, gbs.py / cpu_sm83.py / gb_apu.py): Square 1/2, Wave, Noise on MIDI ch 1-4.
+Phase 7: SPC (Super Famicom, spc.py / cpu_spc700.py / spc_dsp.py): 8 voices on MIDI ch 1-8, one track
+         per sample, percussion samples as GM drums on "ChN Drums" (spc_drums.py), tempo followed
+         bar by bar (driver tempo drift).
 
 Usage:
     python nsf2mid.py                (GUI)
@@ -53,9 +56,17 @@ Usage:
   v0.1.33 (2026-11-03) - ループのない曲は長い音・ベースの重さで小節頭を決める (前打ちの小節)。3 連系の 8 分音符を旋律の間隔で決める
   v0.1.34 (2026-11-03) - ループのない曲の前打ちは、30 秒以上の曲で、出だしが前打ちの形 (最初の長い音が候補の拍) のときだけ
   v0.1.35 (2026-11-03) - 1 小節ごとに音型が繰り返す区間は、その周期を 1 小節としてテンポ・区間の始まりと終わり・次の区間への切り替え位置を決める
+  v0.1.36 (2026-11-03) - SPC (スーパーファミコン) 対応の第 1・2 段階: SPC700・DSP の模型・サンプルの音高推定・エンベロープ。
+                         8 ボイス = MIDI ch 1〜8、サンプルが変わったら同じ ch の別トラック (CLI のみ。ドラム・テンポは今後)
+  v0.1.37 (2026-11-03) - SPC 第 3 段階: 打楽器のサンプルを判定して GM ドラムのノートに (ボイスの ch の「ChN Drums」トラック。
+                         spc_drums.py)。--drum-map に SPC のサンプル指定 (S67=38、0 = ドラムにしない)。
+                         低い音域を探せないサンプルで音高推定が落ちる不具合を修正
+  v0.1.38 (2026-11-03) - SPC 第 4・5 段階: ドラムは音色ごとに別のノート番号。テンポは数秒ごとの位相で合わせ、1 小節ずつ追従
+                         (ドライバーのテンポの揺れ・小さなテンポ変化)、1 拍 6 行 (3 連・6 連) の判定。ループ: 鳴っているのに
+                         繰り返さないボイスがあれば不採用、途中から加わるボイスの前の無音もループの一部。GUI で .spc / SPC の zip
 """
 
-APP_VERSION = "v0.1.35"
+APP_VERSION = "v0.1.38"
 
 import argparse
 import csv
@@ -70,6 +81,7 @@ from apu_state import APUState, note_name  # noqa: E402
 from notes import extract_notes, tempo_onsets  # noqa: E402
 from tempo import detect_tempo_map, TickMap  # noqa: E402
 from midi import Track, write_smf  # noqa: E402
+from spc_drums import split_spc_drums  # noqa: E402
 from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split, parse_drum_map,  # noqa: E402
                    summarize, GM_NAMES, DROP_DRUM_CHANNELS, DROP_DRUM_MIN)
 from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
@@ -129,7 +141,7 @@ def ch_of(addr):
     return None, None
 
 
-def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None):
+def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None, cache=None):
     """Replay writes through the APU model; return per-frame snapshots.
 
     Each entry: dict(frame, time, state, written={ch: set(reg)}, status_writes)
@@ -137,22 +149,32 @@ def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None):
     and a write that (re)triggers one of them is recorded as reg 3 (like $4003 on the 2A03)
     apu: the APU model to replay through (GBS: gb_apu.GBAPUState, whose trigger writes NRx4
     mark the channel's reg 3 the same way)
+    cache: a dict kept between calls (SPC, v0.1.36): the frames built so far are reused and only
+    the new ones are added (convert() analyses again after every emulation chunk)
     """
-    apu = apu or APUState(cpu_hz, expansion=expansion)
+    if cache and cache.get("frames") is not None and len(cache["frames"]) <= n_frames:
+        apu, frames, wi = cache["apu"], cache["frames"], cache["wi"]
+    else:
+        apu = apu or APUState(cpu_hz, expansion=expansion)
+        frames = []
+        wi = 0
     exp_keys = [k for c in apu.chips for k, _ in c.CHANNELS]
-    frames = []
-    wi = 0
     nw = len(writes)
-    for f in range(n_frames):
+    for f in range(len(frames), n_frames):
         end = (f + 1) * frame_cycles
-        written = {"P1": set(), "P2": set(), "TRI": set(), "NOI": set(), "DMC": set()}
+        if hasattr(apu, "keys"):              # SPC: the 8 voices (v0.1.36)
+            written = {k: set() for k in apu.keys}
+        else:
+            written = {"P1": set(), "P2": set(), "TRI": set(), "NOI": set(), "DMC": set()}
         for k in exp_keys:
             written[k] = set()
         status = []
+        kon = {}
         while wi < nw and writes[wi][0] < end:
             cyc, addr, val = writes[wi]
             for k in apu.write(cyc, addr, val) or ():
                 written[k].add(3)
+                kon.setdefault(k, cyc)
             ch, reg = ch_of(addr)
             if ch in written:
                 written[ch].add(reg)
@@ -166,7 +188,10 @@ def build_frames(writes, n_frames, frame_cycles, cpu_hz, expansion=0, apu=None):
             "state": apu.snapshot(),
             "written": written,
             "status": status,
+            "kon": kon,          # first (re)trigger of each channel in the frame, CPU cycle
         })
+    if cache is not None:
+        cache.update(apu=apu, frames=frames, wi=wi)
     return frames
 
 
@@ -331,19 +356,26 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
         return st, en
 
     for ch in notes:
-        tr = Track(TRACK_NAMES[ch])
-        mch = MIDI_CH[ch]
-        if programs.get(ch) is not None:
-            tr.program(0, mch, programs[ch])
-        if loop and ch == "P1":
-            tr.control(tmap(loop["start"]), mch, 111, 0)   # RPG Maker style loop marker
-        for n in notes[ch]:
-            if n.start >= end_frame:
-                continue
-            st, en = span(n.start, n.gate_end)
-            vel = 100 if ch == "TRI" else vol_to_velocity(n.peak)
-            tr.note(st, en, mch, max(0, min(127, n.pitch + transpose.get(ch, 0))), vel)
-        tracks.append(tr)
+        groups = [(TRACK_NAMES[ch], notes[ch])]
+        if ch.startswith("V"):
+            # SPC (v0.1.36): one track per sample (instrument) on the voice's MIDI channel
+            srcns = sorted({note_sample(n) for n in notes[ch] if n.start < end_frame})
+            groups = [(f"{TRACK_NAMES[ch]} S{s}", [n for n in notes[ch] if note_sample(n) == s])
+                      for s in srcns]
+        for gi, (name, lst) in enumerate(groups):
+            tr = Track(name)
+            mch = MIDI_CH[ch]
+            if programs.get(ch) is not None:
+                tr.program(0, mch, programs[ch])
+            if loop and gi == 0 and ch in ("P1", "V1"):
+                tr.control(tmap(loop["start"]), mch, 111, 0)   # RPG Maker style loop marker
+            for n in lst:
+                if n.start >= end_frame:
+                    continue
+                st, en = span(n.start, n.gate_end)
+                vel = 100 if ch == "TRI" else vol_to_velocity(n.peak)
+                tr.note(st, en, mch, max(0, min(127, n.pitch + transpose.get(ch, 0))), vel)
+            tracks.append(tr)
     for src, name, hits in drum_track_groups(drums, end_frame):
         tr = Track(name)
         for d in hits:
@@ -376,8 +408,12 @@ def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
 
 def drum_track_groups(drums, end_frame):
     """[(src, track name, hits)] of the non-empty drum tracks. A DPCM sample played at several
-    rates (pitched sample) gets its own track "Ch5 DPCM $ADDR" after the DPCM drums."""
+    rates (pitched sample) gets its own track "Ch5 DPCM $ADDR" after the DPCM drums.
+    SPC (v0.1.37): one track "ChN Drums" per voice."""
     out = []
+    voices = sorted({d.src for d in drums if d.src.startswith("V")}, key=lambda k: int(k[1:]))
+    for src in voices:
+        out.append((src, f"{TRACK_NAMES[src]} Drums", [d for d in drums if d.src == src and d.start < end_frame]))
     for src, name in DRUM_TRACKS:
         hits = [d for d in drums if d.src == src and d.start < end_frame]
         if src != "DMC":
@@ -428,8 +464,11 @@ def analyze(player, n_frames, args, drum_map):
     detect: the notes seen by tempo / meter / loop detection. They use the fixed triangle-kick rule
     (detect_triangle_split) and keep the pulse notes, so detection does not depend on --drop-drums."""
     expansion = player.header.expansion
+    cache = getattr(player, "frames_cache", None)
     frames = build_frames(player.writes, n_frames, player.frame_cycles, player.cpu_hz, expansion,
-                          player.make_apu())
+                          None if cache and cache.get("frames") else player.make_apu(), cache)
+    if getattr(player, "is_spc", False):
+        return analyze_spc(frames, args, player.frame_cycles, cache["apu"], drum_map)
     notes, stats = extract_notes(frames, TONAL + tuple(k for k, _, _ in expansion_channels(expansion)),
                                  keep_tail=args.keep_tail)
     base = noise_hits(frames, drum_map) + dmc_hits(frames, player.dmc_samples, player.cpu_hz, drum_map)
@@ -446,13 +485,45 @@ def analyze(player, n_frames, args, drum_map):
     return frames, notes, stats, drums, events, loop, detect
 
 
+def analyze_spc(frames, args, frame_cycles, dsp, drum_map):
+    """SPC (v0.1.36): the 8 voices are the channels (MIDI ch 1-8). v0.1.37: percussion samples
+    become GM drum notes on the track "ChN Drums" of their voice (spc_drums). Tempo / loop
+    detection see every note (drums included), as before."""
+    keys = tuple(f"V{i + 1}" for i in range(8))
+    for i, k in enumerate(keys):
+        MIDI_CH[k] = i
+        DRUM_CH[k] = i
+        TRACK_NAMES[k] = f"Ch{i + 1}"
+    notes, stats = extract_notes(frames, keys, keep_tail=args.keep_tail)
+    notes = {k: v for k, v in notes.items() if v}
+    # the exact key-on time inside the frame (fractional frames): the driver runs on its own
+    # timer (FF4: 222 Hz), so whole 1/60 s frames put notes up to a frame off the beat grid
+    for k, lst in notes.items():
+        for n in lst:
+            f = frames[n.start] if n.start < len(frames) else None
+            if f and k in f["kon"]:
+                n.start = f["kon"][k] / frame_cycles
+    detect = dict(notes)
+    events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in detect.items()}
+    loop = None if args.no_loop else detect_loop(events, strict=True)
+    tonal, drums = split_spc_drums(notes, frames, dsp, drum_map)
+    tonal = {k: tonal.get(k, []) for k in notes}
+    return frames, tonal, stats, drums, events, loop, detect
+
+
+def note_sample(n):
+    """Sample number (SRCN) a SPC note starts with (stored as its duty)."""
+    return n.duties[0] if n.duties else -1
+
+
 class Cancelled(Exception):
     """Raised when the GUI asks to stop a conversion."""
 
 
 def build_parser():
-    ap = argparse.ArgumentParser(description=f"nsf2mid {APP_VERSION} - NSF / GBS to MIDI converter")
-    ap.add_argument("nsf", help="input .nsf / .gbs file, or a zip containing one (zophar.net style)")
+    ap = argparse.ArgumentParser(description=f"nsf2mid {APP_VERSION} - NSF / GBS / SPC to MIDI converter")
+    ap.add_argument("nsf", help="input .nsf / .gbs / .spc file, or a zip containing one (zophar.net style; "
+                                "a zip of SPC files: one track per file in name order)")
     ap.add_argument("-t", "--track", type=int, default=0, help="track number (1-based, default: start song)")
     ap.add_argument("-s", "--seconds", type=float, default=600.0,
                     help="maximum length to emulate in seconds (stops early when a loop or the end is found)")
@@ -485,8 +556,9 @@ def build_parser():
     ap.add_argument("--no-drop-drums", "--no-tri-drums", dest="no_drop_drums", action="store_true",
                     help="same as --drop-drums 0")
     ap.add_argument("--drum-map", default="",
-                    help='override drum notes, e.g. "3:0=42,12:0=36,DMC:E000:129:15=38" '
-                         "(noise: periodIdx:mode, DPCM: DMC:addrHex:len:rate)")
+                    help='override drum notes, e.g. "3:0=42,12:0=36,DMC:E000:129:15=38,S67=38" '
+                         "(noise: periodIdx:mode, DPCM: DMC:addrHex:len:rate, SPC: S + sample number, "
+                         "=0 keeps an SPC sample as notes)")
     return ap
 
 
@@ -523,6 +595,9 @@ def convert(args, should_stop=None):
     frame_rate = player.cpu_hz / player.frame_cycles
     max_frames = int(args.seconds * frame_rate)
     chunk = int(CHUNK_SEC * frame_rate)
+    if getattr(player, "is_spc", False) and track != 1:
+        # SPC (v0.1.38): one file per track; the summary above is of the first file
+        print(f"\nTrack {track}:\n{h.summary()}")
     print(f"\nEmulating track {track} (max {args.seconds:.0f} s @ {frame_rate:.3f} Hz)")
     n_frames = 0
     end_reason = "max length"
@@ -612,7 +687,7 @@ def convert(args, should_stop=None):
     chan_notes = {ch: {n.start: n.pitch for n in full[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
                   for ch in notes}
     tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
-                             args.tempo)
+                             args.tempo, drift=getattr(player, "is_spc", False))
     tmap = None
     if tempo is None:
         print("\nTempo: not enough notes to detect")

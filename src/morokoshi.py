@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.15"
+APP_VERSION = "v2.9.16"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -7191,8 +7191,9 @@ class MainWindow(QMainWindow):
             start_dir=self._load_last_folder()
         if not start_dir or not os.path.isdir(start_dir):
             start_dir=os.environ.get("USERPROFILE") or os.path.expanduser("~")
-        # MIDI は NSF（NESM 形式）と GBS のとき（nsf2mid は NSFe 非対応。GBS は v2.9.5〜）
-        mid_ok=(eng._nsf is not None and eng._nsf.fmt=="NESM") or                (eng._gbs is not None and eng._gbs._gbs_raw is not None)
+        # MIDI は NSF（NESM 形式）・GBS・SPC のとき（nsf2mid は NSFe 非対応。GBS は v2.9.5〜、SPC は v2.9.16〜）
+        mid_ok=(eng._nsf is not None and eng._nsf.fmt=="NESM") or \
+               (eng._spc is not None and bool(eng._spc._spc_raws.get(eng._spc.cur_track))) or                (eng._gbs is not None and eng._gbs._gbs_raw is not None)
         # 前回選んだファイル形式を既定にする（v2.9.6〜。MIDI を選べないファイルでは WAV）
         filters={"wav":"WAV (*.wav)","mp3":"MP3 (*.mp3)","m4a":"M4A (*.m4a)","mid":"MIDI (*.mid)"}
         last_fmt=_read_settings().get("last_save_format")
@@ -7323,11 +7324,20 @@ class MainWindow(QMainWindow):
         return found_dlg
 
     def _save_midi(self, path, panel=None):
-        """NSF / GBS の現在のトラックを nsf2mid で MIDI に変換して保存。
+        """NSF / GBS / SPC の現在のトラックを nsf2mid で MIDI に変換して保存。
         panel: 保存ダイアログ横のオプションパネル。無ければ（.mid を直接入力した場合）オプションダイアログを出す"""
-        nsf=self.engine._nsf; gbs=self.engine._gbs
+        nsf=self.engine._nsf; gbs=self.engine._gbs; spc=self.engine._spc
         if nsf is not None:
             src, track = nsf.path, nsf.cur_track+1
+        elif spc is not None and spc._spc_raws.get(spc.cur_track):
+            # SPC は再生中の曲（1 曲 = 1 ファイル）を一時ファイルにして 1 曲目として渡す
+            import tempfile
+            src=os.path.join(tempfile.gettempdir(), "morokoshi_midi_src.spc")
+            try:
+                with open(src,"wb") as f: f.write(spc._spc_raws[spc.cur_track])
+            except OSError as ex:
+                self._st(f"MIDI save failed: {ex}"); return
+            track=1
         elif gbs is not None and gbs._gbs_raw is not None:
             # GBS は読み込んだデータを一時ファイルにして渡す（フォルダ読み込み・複数 GBS 入りの zip でも同じデータになる）
             import tempfile
