@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.11"
+APP_VERSION = "v2.9.12"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -8587,6 +8587,10 @@ class MainWindow(QMainWindow):
         focused=QApplication.focusWidget()
         if isinstance(focused, QLineEdit): return False
         if QApplication.activePopupWidget() is not None: return False  # 履歴・言語ポップアップのキー操作を優先
+        # 別ウィンドウ（Save の MIDI オプション・ダイアログなど）での操作は本体のショートカットにしない
+        target=focused if focused is not None else (obj if isinstance(obj, QWidget) else None)
+        if target is not None and target.window() is not self: return False
+        if QApplication.activeModalWidget() is not None: return False
         return self._handle_key(event)
 
     def _key_btn(self, vk, key, shift=False, keypad=False):
