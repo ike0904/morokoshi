@@ -489,6 +489,11 @@ def _segment(onsets, frame_rate, g):
             sub.append(onsets[i])
             i += 1
         windows.append(sub)
+    # v0.1.41: a last window shorter than half a window (the song ends just after a window
+    # boundary) joins the one before: a few onsets fit some grid by chance (Ys t8: the last 0.6 s
+    # got a tempo of its own, 117.9 BPM)
+    if len(windows) >= 2 and windows[-1] and windows[-1][-1] - (t0 + (len(windows) - 1) * win) < win / 2:
+        windows[-2].extend(windows.pop())
 
     # label each window: None = global grid fits, else its own grid
     labels = []

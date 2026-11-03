@@ -842,6 +842,8 @@ class MainWindow(QMainWindow):
                                 "1〜3ch の短く音程が下がり続ける音（三角波キック・矩形波タム）を、"
                                 "この半音数以上下がるならドラム用トラックに分ける（MIDI ch は元のまま 1〜3、--drop-drums）。0 = 分けない")
         self.sp_dropdrums.setRange(0, 24)
+        self.ck_oddmeter = check("変拍子を検出する", "ループ内の 4/4 以外の小節（6/8・9/8・5/8 など）を、リズムの繰り返しから求めて拍子を入れる。"
+                                 "オフ = 検出しない（--no-odd-meter）")
         self.ck_tail = check("リバーブ余韻を残す", "余韻もノート長に含める（--keep-tail）")
         self.ck_quant = check("クオンタイズする", "音符を検出した拍のグリッドに合わせる。オフ = 実際のタイミングのまま（--no-quantize）")
         self.ck_dump = check("ダンプも出力（writes / frames / tracker）", "--dump")
@@ -882,6 +884,8 @@ class MainWindow(QMainWindow):
                 a.append(flag)
         if not self.ck_quant.isChecked():
             a.append("--no-quantize")
+        if not self.ck_oddmeter.isChecked():
+            a.append("--no-odd-meter")
         if self.ed_outdir.text().strip():
             a += ["-o", self.ed_outdir.text().strip()]
         return a
@@ -890,7 +894,7 @@ class MainWindow(QMainWindow):
 
     DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "time_sig": "", "triplets": "auto",
                 "drum_map": "", "keep_tail": False,
-                "quantize": True, "drop_drums": 3, "dump": False, "outdir": "",
+                "quantize": True, "odd_meter": True, "drop_drums": 3, "dump": False, "outdir": "",
                 "last_dir": "", "history": [], "geometry": None}
 
     def _load_settings(self):
@@ -921,6 +925,7 @@ class MainWindow(QMainWindow):
         self.ed_drummap.setText(s["drum_map"])
         self.ck_tail.setChecked(bool(s["keep_tail"]))
         self.ck_quant.setChecked(bool(s["quantize"]))
+        self.ck_oddmeter.setChecked(bool(s["odd_meter"]))
         self.sp_dropdrums.setValue(int(s["drop_drums"]))
         self.ck_dump.setChecked(bool(s["dump"]))
         self.ed_outdir.setText(s["outdir"])
@@ -938,7 +943,7 @@ class MainWindow(QMainWindow):
                   "triplets": TRIPLETS[self.cb_triplets.currentText()],
                   "drum_map": self.ed_drummap.text(),
                   "keep_tail": self.ck_tail.isChecked(), "quantize": self.ck_quant.isChecked(),
-                  "drop_drums": self.sp_dropdrums.value(), "dump": self.ck_dump.isChecked(),
+                  "odd_meter": self.ck_oddmeter.isChecked(), "drop_drums": self.sp_dropdrums.value(), "dump": self.ck_dump.isChecked(),
                   "outdir": self.ed_outdir.text(), "geometry": [g.x(), g.y(), g.width(), g.height()]})
         try:
             os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)

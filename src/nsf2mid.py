@@ -66,9 +66,11 @@ Usage:
                          繰り返さないボイスがあれば不採用、途中から加わるボイスの前の無音もループの一部。GUI で .spc / SPC の zip
   v0.1.39 (2026-11-03) - SPC: 全ボイスが最初の音から繰り返す曲でループ開始がマイナスになる不具合を修正 (曲の最初の音より前にしない)
   v0.1.40 (2026-11-03) - SPC: 複数の音程で鳴らす音程のある打楽器 (タム・ティンパニなど) は GM のタムにせず、音色のトラックに検出した音程のまま
+  v0.1.41 (2026-11-03) - 4/4 の小節で割り切れるループでも変拍子を判定 (meter.odd_runs。4/4 以外の小節は 3 小節以上続くときだけ、
+                         Ys 8 曲目)。--no-odd-meter / GUI「変拍子を検出する」。曲の最後の半端な数秒に別のテンポを付けない
 """
 
-APP_VERSION = "v0.1.40"
+APP_VERSION = "v0.1.41"
 
 import argparse
 import csv
@@ -88,7 +90,7 @@ from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split
                    summarize, GM_NAMES, DROP_DRUM_CHANNELS, DROP_DRUM_MIN)
 from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
 from expansion import channel_table  # noqa: E402
-from meter import odd_bars, SNARES as SNARE_NOTES  # noqa: E402
+from meter import odd_bars, odd_runs, SNARES as SNARE_NOTES  # noqa: E402
 
 PPQ = 480
 MIDI_CH = {"P1": 0, "P2": 1, "TRI": 2}
@@ -389,7 +391,8 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
 
 
 def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
-    """v0.1.30: a loop that is not a whole number of 4/4 bars gets its odd bars (meter.odd_bars)."""
+    """v0.1.30: a loop that is not a whole number of 4/4 bars gets its odd bars (meter.odd_bars).
+    v0.1.41: a loop of whole 4/4 bars is searched for odd stretches too (meter.odd_runs)."""
     part = tmap.parts[0]
     if tmap.downbeat_tick is None or part.meter != (4, 4):
         return
@@ -400,7 +403,8 @@ def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
     events = [(tmap(n.start), ch, n.pitch, False) for ch, lst in notes.items() for n in lst if n.start < end_frame]
     events += [(tmap(d.start), "DRUM_" + d.src, str(d.gm if d.pitch is None else d.pitch),
                 d.pitch is None and d.gm in SNARE_NOTES) for d in drums if d.start < end_frame]
-    bars = odd_bars(events, start, start + span)
+    n8 = int(round(span / (PPQ / 2)))
+    bars = (odd_runs if n8 % 8 == 0 else odd_bars)(events, start, start + span)
     if not bars:
         return
     rep = [(t + k * span, m) for k in range(loops) for t, m in bars]
@@ -545,6 +549,8 @@ def build_parser():
     ap.add_argument("--no-loop", action="store_true", help="disable loop detection (emulate --seconds fully)")
     ap.add_argument("--time-sig", default="",
                     help='time signature per tempo segment, e.g. "6/8,4/4" ("-" = auto)')
+    ap.add_argument("--no-odd-meter", action="store_true",
+                    help="do not detect odd bars (6/8, 9/8, 5/8 ...) inside the loop")
     ap.add_argument("--tri-octave", type=int, default=0,
                     help="octave shift for triangle notes in the MIDI (default 0 = APU pitch)")
     ap.add_argument("--programs", default="",
@@ -711,7 +717,7 @@ def convert(args, should_stop=None):
                   f"{sg.meter[0]}/{sg.meter[1]}" + ("  [tempo tracked]" if sg.tracked else ""))
             if sg.score < 0.8 and not sg.tracked:
                 print("    Warning: poor grid fit (rubato or unsupported rhythm?)")
-        if loop:
+        if loop and not args.no_odd_meter:
             odd_loop_meters(tmap, loop, notes, drums, end_frame, max(1, args.loops))
         mid_path = mid_out or stem + ".mid"
         write_smf(mid_path, build_midi(notes, drums, tmap, h.title, track, end_frame, loop, transpose, programs), PPQ)
