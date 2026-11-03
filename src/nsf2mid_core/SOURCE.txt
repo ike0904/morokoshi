@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.34
-commit:  c59c34b 2026-11-03 v0.1.34: pickup bars of tunes without a loop only for tunes >= 30 s whose opening leads into the first long note on the downbeat (user check: James Bond Jr., Solitaire, Antarctic Adventure, Adventure Island 3)
+version: v0.1.35
+commit:  efaa94c 2026-11-03 v0.1.35: sections whose figure repeats bar by bar take their tempo, start, end and grid unit from that period; the next section takes over inside the last bar (Dragon Quest III t26 bars 57-65)
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
