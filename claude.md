@@ -104,7 +104,13 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.7 (2026-11-03) ← 最新（プロンプト直接指示: Wrecking Crew 1 曲目の小節頭、DQ3 15 曲目のリタルダンド）
+### v2.9.8 (2026-11-03) ← 最新（プロンプト直接指示: 繰り返しから変拍子を判定）
+- nsf2mid v0.1.30 を同期（新規 nsf2mid_core/meter.py。詳細は nsf2mid の CLAUDE.md / spec.md）
+  - ループが 4/4 の小節で割り切れない曲は、ループ内の変拍子をリズムの繰り返しとドラムのフィルインから求める
+  - 沙羅曼蛇 3 面（Life Force 3 曲目）・Shatterhand JP 1 曲目はユーザー提示の拍子と一致
+- 他の候補（確認待ち）: Ninja Gaiden II（7/8）、Silent Service（5/8）など。DQ4 戦闘は未対応（ループが見つからない）
+
+### v2.9.7 (2026-11-03)（プロンプト直接指示: Wrecking Crew 1 曲目の小節頭、DQ3 15 曲目のリタルダンド）
 - nsf2mid v0.1.29 を同期（詳細は nsf2mid の CLAUDE.md / spec.md）
   - ループ開始を小節頭とみなし、曲頭に 1〜3 拍の短い小節を置く。Wrecking Crew 1 曲目: 3/4 + 4/4 で本編が小節の 1 拍目に
   - DQ3 15 曲目: ループ途中と最後の 2 か所のリタルダンドを検出してテンポ変更で追う → ループがちょうど 64 拍、曲頭 2/4 でループ開始が 1 拍目に

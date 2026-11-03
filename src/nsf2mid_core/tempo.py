@@ -409,7 +409,7 @@ RIT_RUN = 3              # ... for this many notes in a row is a ritardando
 CONTINUOUS_ROWS = 2      # v0.1.29: a segment starting this close after the last note keeps its natural tick
 
 
-def has_ritardando(starts):
+def has_ritardando(starts, unit):
     """A ritardando inside a segment that still fits its grid: the notes of one channel get
     gradually longer than its usual note (e.g. 19 frames per 8th -> 21, 24, 26, 28, 26, 24, 21),
     so the slow notes round up to extra rows and the bars drift. Runs of one longer value
@@ -423,8 +423,9 @@ def has_ritardando(starts):
     if len(iois) < 8:
         return False
     common = Counter(iois).most_common(1)[0][0]
-    near = [i for i in iois if abs(i - common) <= max(1, 0.06 * common)]
-    d = sum(near) / len(near)
+    # the usual note in whole grid rows: accumulator drivers alternate e.g. 5 and 6 frames for
+    # a 6.002-frame row (Shatterhand), which must not look like a slow-down
+    d = max(1, round(common / unit)) * unit
     if d < 4:
         return False
     run = []
@@ -544,6 +545,8 @@ class TickMap:
         self.fr = frame_rate
         onsets = sorted(set(onsets or []))
         self.onset_set = set(onsets)     # note starts (only they may go on 16ths in a triplet grid)
+        self.extra_meters = []
+        self.downbeat_tick = None        # tick of the loop start's bar line (_set_downbeat)
         segs = tmap["segments"]
         self.parts = []
         for k, s in enumerate(segs):
@@ -566,7 +569,7 @@ class TickMap:
                 origin_tick = self._bar_after(self.parts[-1], origin)
             anchors, unit_end = [], s.unit
             rit = s.score >= TRACK_FIT and notes is not None and any(
-                has_ritardando([n.start for n in lst if (k == 0 or n.start >= s.start) and n.start < end])
+                has_ritardando([n.start for n in lst if (k == 0 or n.start >= s.start) and n.start < end], s.unit)
                 for lst in notes.values())
             s.rit = rit
             if (s.score < TRACK_FIT or rit) and len(seg_on) >= 4:
@@ -608,6 +611,7 @@ class TickMap:
             return
         beat = self._tick_in(part, frame) / self.ppq
         b = round(beat) if abs(beat - round(beat)) <= 0.25 else math.floor(beat)
+        self.downbeat_tick = max(0, b) * self.ppq
         lead = b % num
         if b < 1 or lead == 0:
             return
@@ -729,4 +733,25 @@ class TickMap:
             if p.lead_beats:
                 ev.append((int(round(p.origin_tick)), (p.lead_beats, 4)))
             ev.append((int(round(p.bar_origin)), p.meter))
+        if self.extra_meters:
+            # odd bars inside the loop (meter.odd_bars, v0.1.30): they replace the meter events
+            # in their range; the base meter comes back at the end of the range
+            lo, hi, base = self.extra_meters[0][0], self.extra_range_end, self.extra_base
+            ev = [e for e in ev if not lo <= e[0] < hi] + list(self.extra_meters)
+            if not any(t == hi for t, _ in ev):
+                ev.append((hi, base))
+            ev.sort(key=lambda e: e[0])
+            out = []
+            for t, m in ev:
+                if out and out[-1][0] == t:
+                    out[-1] = (t, m)
+                elif not out or out[-1][1] != m:
+                    out.append((t, m))
+            ev = out
         return ev
+
+    def set_odd_meters(self, events, range_end, base):
+        """Time signatures [(tick, meter)] for a stretch (the loop, repeated) ending at range_end."""
+        self.extra_meters = sorted(events)
+        self.extra_range_end = range_end
+        self.extra_base = base
