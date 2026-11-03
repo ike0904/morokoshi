@@ -18,8 +18,8 @@ per sample (SRCN) from the waveform and from how the song plays it:
   centroid and the length of the sample):
   - noisy loop / long noisy one-shot -> crash cymbal 49
   - centroid < LOW_HZ at one pitch -> bass drum 36
-  - centroid < MID_HZ (clear pitch): one pitch -> low tom 45 (timpani, conga...), several
-    pitches -> toms 41..50 from the lowest to the highest pitch
+  - centroid < MID_HZ (clear pitch): one pitch -> low tom 45 (timpani, conga...); several
+    pitches -> not a GM drum: own track "ChN S<n>" with the detected pitches (v0.1.40)
   - centroid < HAT_HZ -> snare 38
   - brighter: short -> closed hi-hat 42, longer -> open hi-hat 46
 Measured on FF4 / FF5 / FF6 / Chrono Trigger / ActRaiser / Zelda ALttP battle and field themes.
@@ -41,7 +41,6 @@ HAT_HZ = 4500.0
 HAT_CLOSED_MS = 140.0
 CRASH_MS = 500.0
 HIGH_NOTE = 96        # a one-shot at 1-2 pitches above C7 (ActRaiser S17 at 115): percussion
-TOMS = (41, 43, 45, 47, 48, 50)
 
 
 def _vel(peak):
@@ -64,6 +63,17 @@ def sample_kind(feat, pitches):
     return None
 
 
+def pitched_percussion(feat, kind, n_pitches):
+    """v0.1.40 (user decision): a percussion sample with a clear, low-mid pitch played at several
+    pitches (tom, timpani, conga... hard to tell apart) is not mapped to GM tom notes: it stays
+    on its own track "ChN S<n>" with the detected pitches. Noisy sounds (snare, hi-hat) at
+    several rates keep their GM note (their pitch means nothing)."""
+    if n_pitches <= 1 or kind in ("cymbal", "bell"):
+        return False
+    cen = feat["cen"] * feat["rate"]
+    return cen < MID_HZ and (cen < LOW_HZ or feat["corr"] >= NOISY)
+
+
 def hit_gm(feat, kind, rate, rank, n_pitches):
     cen = feat["cen"] * rate
     ms = feat["ms"] / rate if rate > 0 else feat["ms"]
@@ -74,9 +84,7 @@ def hit_gm(feat, kind, rate, rank, n_pitches):
     if cen < LOW_HZ and n_pitches <= 1:
         return 36
     if cen < MID_HZ and (cen < LOW_HZ or feat["corr"] >= NOISY):
-        if n_pitches <= 1:
-            return 45
-        return TOMS[int(round(rank * (len(TOMS) - 1) / (n_pitches - 1)))]
+        return 45       # one pitch (several pitches: pitched_percussion, kept as notes)
     if cen < HAT_HZ:
         return 38
     return 42 if ms <= HAT_CLOSED_MS else 46
@@ -103,6 +111,8 @@ def split_spc_drums(notes, frames, dsp, drum_map=None):
             rates = Counter(s["period"] for s, nz in zip(st, noise) if not nz)
             feat["rate"] = rates.most_common(1)[0][0] / 4096.0 if rates else 1.0
             kind = "drum" if forced else sample_kind(feat, pitches)
+            if not forced and kind and pitched_percussion(feat, kind, len(pitches)):
+                kind = None
             for n, s, nz in zip(ns, st, noise):
                 if nz:          # noise generator: hi-hat / cymbal by length
                     d = n.gate_end - n.start
@@ -127,8 +137,7 @@ ALTERNATIVES = {
     36: (35, 41, 43), 35: (36, 41, 43), 38: (40, 37, 39, 54), 40: (38, 37, 39, 54),
     37: (39, 40, 38), 39: (37, 40, 54), 42: (44, 54, 70, 69), 44: (42, 54, 70, 69),
     46: (53, 55, 51, 59), 49: (57, 52, 55, 51), 57: (49, 52, 55, 51), 56: (75, 76, 77, 67, 68),
-    41: (43, 45, 47, 48, 50), 43: (41, 45, 47, 48, 50), 45: (47, 43, 48, 41, 50),
-    47: (45, 48, 43, 50, 41), 48: (47, 50, 45, 43, 41), 50: (48, 47, 45, 43, 41),
+    45: (47, 43, 48, 41, 50),
 }
 PERCUSSION = range(35, 82)
 

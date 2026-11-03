@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.39
-commit:  8641af9 2026-11-03 v0.1.39: SPC loop start never before the first note (all voices repeating from their first note gave a negative start: ActRaiser Sky Palast)
+version: v0.1.40
+commit:  bf9dba2 2026-11-03 v0.1.40: SPC pitched percussion played at several pitches stays on its sample track with the detected pitches (no GM tom mapping; user decision)
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, cpu_spc700.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, spc.py, spc_drums.py, spc_dsp.py, tempo.py
