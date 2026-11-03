@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.40
-commit:  bf9dba2 2026-11-03 v0.1.40: SPC pitched percussion played at several pitches stays on its sample track with the detected pitches (no GM tom mapping; user decision)
+version: v0.1.41
+commit:  4ce956b 2026-11-03 v0.1.41: odd meters also in loops of whole 4/4 bars (meter.odd_runs, odd bars only 3+ in a row; Ys t8), --no-odd-meter / GUI option, short last tempo window joins the previous one; docs/meter_check.md
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, cpu_spc700.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, spc.py, spc_drums.py, spc_dsp.py, tempo.py

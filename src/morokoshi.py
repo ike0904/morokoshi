@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.18"
+APP_VERSION = "v2.9.19"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -267,7 +267,7 @@ def save_global_settings(zoom, volume):
 # ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
 NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "triplets": "auto",
                     "keep_tail": False,
-                    "quantize": True, "drop_drums": 3}
+                    "quantize": True, "odd_meter": True, "drop_drums": 3}
 NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
 
@@ -299,6 +299,7 @@ def _nsf2mid_argv(o):
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
     if o["keep_tail"]: a.append("--keep-tail")
     if not o["quantize"]: a.append("--no-quantize")
+    if not o["odd_meter"]: a.append("--no-odd-meter")
     return a
 
 def _fhash(path):
@@ -4753,6 +4754,7 @@ class Nsf2MidDialog(QDialog):
             "Short notes that keep falling by at least this many semitones\n(triangle kicks, pulse toms) go to their own drum tracks\n(MIDI ch stays 1-3)\n0: off\nWheel: change")
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
         self.ck_quant = check("Quantize", "Snap notes to the detected beat grid\nOff: keep the exact timing (the tempo is still detected)")
+        self.ck_oddmeter = check("Detect odd meters", "Find bars other than 4/4 (6/8, 9/8, 5/8 ...) in the loop\nfrom the repeating rhythm\nOff: no odd meters")
         bl = QHBoxLayout(); bl.setSpacing(S(6))
         b_def = QPushButton(tr("Defaults")); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
         b_def.setAutoDefault(False)
@@ -4770,7 +4772,7 @@ class Nsf2MidDialog(QDialog):
         self._rclick = {}
         for key, w in (("loops", self.sp_loops), ("seconds", self.sp_seconds), ("tempo", self.cb_tempo),
                        ("triplets", self.cb_triplets), ("drop_drums", self.sp_dropdrums),
-                       ("keep_tail", self.ck_tail), ("quantize", self.ck_quant)):
+                       ("keep_tail", self.ck_tail), ("quantize", self.ck_quant), ("odd_meter", self.ck_oddmeter)):
             targets = [w]
             if isinstance(w, QSpinBox): targets.append(w.lineEdit())   # 右クリックは中の入力欄に届く
             lb = g.itemAtPosition(g.getItemPosition(g.indexOf(w))[0], 0).widget()
@@ -4796,6 +4798,7 @@ class Nsf2MidDialog(QDialog):
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
         self.ck_tail.setChecked(bool(o["keep_tail"]))
         self.ck_quant.setChecked(bool(o["quantize"]))
+        self.ck_oddmeter.setChecked(bool(o["odd_meter"]))
         self.sp_dropdrums.setValue(int(o["drop_drums"]))
 
     def values(self):
@@ -4803,7 +4806,8 @@ class Nsf2MidDialog(QDialog):
                 "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1],
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "keep_tail": self.ck_tail.isChecked(),
-                "quantize": self.ck_quant.isChecked(), "drop_drums": self.sp_dropdrums.value()}
+                "quantize": self.ck_quant.isChecked(), "odd_meter": self.ck_oddmeter.isChecked(),
+                "drop_drums": self.sp_dropdrums.value()}
 
     def done(self, r):
         hide_tt(); super().done(r)

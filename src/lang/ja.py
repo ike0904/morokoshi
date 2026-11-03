@@ -111,6 +111,9 @@ STRINGS = {
     "Quantize": "クオンタイズする",
     "Snap notes to the detected beat grid\nOff: keep the exact timing (the tempo is still detected)":
         "音符を検出した拍のグリッドに合わせます\nオフ: 実際のタイミングのまま（テンポは検出します）",
+    "Detect odd meters": "変拍子を検出する",
+    "Find bars other than 4/4 (6/8, 9/8, 5/8 ...) in the loop\nfrom the repeating rhythm\nOff: no odd meters":
+        "ループ内の 4/4 以外の小節（6/8・9/8・5/8 など）を\nリズムの繰り返しから求めます\nオフ: 変拍子を検出しない",
     "Defaults": "既定値に戻す",
     "OK": "OK",
     "Cancel": "キャンセル",

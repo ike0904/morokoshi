@@ -287,11 +287,154 @@ def odd_bars(events, start_tick, end_tick):
     inner = split_phrase(events, start_tick, n, s0, Lp, snare, snare_on)
     rhythm = _events(events, start_tick, n, "none")
     bars = [BAR] * (s0 // BAR) + inner + inner + [BAR] * ((n - s0 - 2 * Lp) // BAR)
-    out, prev, a = [], None, 0
+    # one time signature per run of bars of the same length (majority: 6/8 or 3/4), so that a
+    # bar of rests does not switch it
+    starts, a = [], 0
     for L in bars:
-        m = _meter(L, _pat(rhythm, a, L))
+        starts.append(a)
+        a += L
+    meters = [_meter(L, _pat(rhythm, a, L)) for a, L in zip(starts, bars)]
+    i = 0
+    while i < len(bars):
+        j = i
+        while j < len(bars) and bars[j] == bars[i]:
+            j += 1
+        ms = [m for a, m in zip(starts[i:j], meters[i:j]) if _pat(rhythm, a, bars[i])] or meters[i:j]
+        top = max(set(ms), key=ms.count)
+        meters[i:j] = [top] * (j - i)
+        i = j
+    out, prev = [], None
+    for a, m in zip(starts, meters):
         if m != prev:
             out.append((start_tick + a * EIGHTH, m))
             prev = m
+    return out
+
+
+# ---------------------------------------------------------------- v0.1.41: loops of whole 4/4 bars
+RUN_MIN = 3             # odd bars in a row; an excursion that is back in 4/4 within 2 bars stays 4/4 (user)
+RUN_ENTER = 1.0         # penalty of an odd stretch (leaving 4/4)
+RUN_PEN = 0.1           # penalty of each odd bar (5, 6, 7, 9 eighths)
+RUN_PEN_SHORT = 0.4     # ... of a bar of 2, 3 or 4 eighths
+RUN_SWITCH = 0.3        # penalty of a change of the bar length inside the odd stretch
+
+
+def _wrapped(events, start_tick, span):
+    """The loop's events, repeated one loop before and after (the loop is played round)."""
+    out = []
+    for tick, ch, kind, sn in events:
+        if start_tick <= tick < start_tick + span:
+            for k in (-1, 0, 1):
+                out.append((tick + k * span, ch, kind, sn))
+    return out
+
+
+def _rep_funcs(events, start_tick, n):
+    """rep(a, L) in 0..1: how well the bar of L eighths at a is repeated by the bar(s) next to it
+    (half rhythm without the channels sounding on every eighth, half the notes of one channel)."""
+    rhythm = _events(events, start_tick, n, "none")
+    notes = _events(events, start_tick, n, "exact")
+    chans = sorted({k[0] for s_ in notes.values() for k in s_})
+
+    @lru_cache(None)
+    def rep_rhythm(a, L):
+        best = 0.0
+        for b in (a - L, a + L):
+            P, Q = set(), set()
+            for ch in chans:
+                p, q = _pat(rhythm, a, L, ch), _pat(rhythm, b, L, ch)
+                if not ch.startswith("DRUM") and \
+                        len({x[0] for x in p}) + len({x[0] for x in q}) >= DENSE * 2 * L:
+                    continue
+                P |= p
+                Q |= q
+            best = max(best, _jac(P, Q))
+        return max(0.0, 2 * best - 1)
+
+    @lru_cache(None)
+    def rep_notes(a, L):
+        best = 0.0
+        for k in (-2, -1, 1, 2):
+            for ch in chans:
+                p, q = _pat(notes, a, L, ch), _pat(notes, a + k * L, L, ch)
+                if len(p) >= 3 and len(q) >= 3:
+                    best = max(best, _jac(p, q))
+        return max(0.0, 2 * best - 1)
+
+    def rep(a, L):
+        return 0.5 * rep_rhythm(a, L) + 0.5 * rep_notes(a, L)
+    return rep, rhythm
+
+
+def odd_runs(events, start_tick, end_tick):
+    """v0.1.41: odd bars in a loop that is a whole number of 4/4 bars (Ys t8: 4/4 x8, 6/8 x8,
+    4/4, 9/8 x8, 3/4 x8, 4/4 x2 = 64 beats). The loop is cut into bars so that each bar is
+    repeated by its neighbours as well as possible (the same measure as split_phrase); bars that
+    are not 4/4 cost a penalty and must come at least RUN_MIN in a row.
+    Returns [(tick, (num, den))] or None when the loop stays 4/4."""
+    span = end_tick - start_tick
+    n = int(round(span / EIGHTH))
+    if n <= 0 or abs(span - n * EIGHTH) > EIGHTH / 8 or n % BAR:
+        return None
+    ev = _wrapped(events, start_tick, span)
+    rep, rhythm = _rep_funcs(ev, start_tick, n)
+
+    def pen(L):
+        return 0.0 if L == BAR else RUN_PEN_SHORT if L <= 4 else RUN_PEN
+
+    # state: (eighth, run, last): run = odd bars in a row (capped at RUN_MIN), last = length of the
+    # last odd bar; last = -1: one 4/4 bar right after an odd stretch (Ys t8: 6/8 x8, one 4/4 bar,
+    # 9/8 - going on in odd bars then costs only a switch)
+    best = {(0, 0, 0): (0.0, None)}
+    for a in range(n):
+        for k in [s for s in best if s[0] == a]:
+            c0 = best[k][0]
+            _, run, last = k
+            for L in LENGTHS:
+                b = a + L
+                if b > n:
+                    continue
+                if L == BAR:
+                    if 0 < run < RUN_MIN:
+                        continue
+                    nk = (b, 0, -1 if run else 0)
+                    c = c0 - rep(a, L)
+                else:
+                    enter = RUN_SWITCH if last == -1 else RUN_ENTER if run == 0 else 0.0
+                    nk = (b, min(run + 1, RUN_MIN), L)
+                    c = c0 + pen(L) + enter + (RUN_SWITCH if last > 0 and last != L else 0.0)                         - rep(a, L) * L / BAR
+                if nk not in best or c < best[nk][0] - 1e-9:
+                    best[nk] = (c, (k, L))
+    ends = [k for k in best if k[0] == n and k[1] in (0, RUN_MIN)]
+    if not ends:
+        return None
+    k = min(ends, key=lambda x: best[x][0])
+    bars = []
+    while best[k][1]:
+        k, L = best[k][1]
+        bars.append(L)
+    bars.reverse()
+    if all(L == BAR for L in bars):
+        return None
+    # one time signature per run of bars of the same length (majority: 6/8 or 3/4), so that a
+    # bar of rests does not switch it
+    starts, a = [], 0
+    for L in bars:
+        starts.append(a)
         a += L
+    meters = [_meter(L, _pat(rhythm, a, L)) for a, L in zip(starts, bars)]
+    i = 0
+    while i < len(bars):
+        j = i
+        while j < len(bars) and bars[j] == bars[i]:
+            j += 1
+        ms = [m for a, m in zip(starts[i:j], meters[i:j]) if _pat(rhythm, a, bars[i])] or meters[i:j]
+        top = max(set(ms), key=ms.count)
+        meters[i:j] = [top] * (j - i)
+        i = j
+    out, prev = [], None
+    for a, m in zip(starts, meters):
+        if m != prev:
+            out.append((start_tick + a * EIGHTH, m))
+            prev = m
     return out
