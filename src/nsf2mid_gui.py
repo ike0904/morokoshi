@@ -51,6 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import nsf2mid  # noqa: E402
 from nsf import read_header, read_nsf_bytes, zip_contents  # noqa: E402
+from spc import SPCHeader, is_spc_path, read_spc_bytes, spc_members  # noqa: E402
 from player import NsfPlayer  # noqa: E402
 
 SETTINGS_PATH = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "nsf2mid", "settings.json")
@@ -381,6 +382,21 @@ def _m3u_sources(nsf_path):
     return os.path.basename(nsf_path), m3u
 
 
+def spc_track_list(path):
+    """v0.1.38: [(track, title, length)] of an SPC file / a zip of SPC files (ID666 tags)."""
+    rows = []
+    for i, m in enumerate(spc_members(path) or [None]):
+        try:
+            h = SPCHeader(read_spc_bytes(path, m))
+            title, sec = h.title, h.length_sec
+        except (OSError, ValueError, KeyError):
+            title, sec = "", 0
+        if not title and m:
+            title = os.path.splitext(os.path.basename(m))[0]
+        rows.append((i + 1, title, f"{sec // 60}:{sec % 60:02d}" if sec else ""))
+    return rows
+
+
 def read_m3u(nsf_path):
     """Return [(track 1-based, title, length)] in playlist order from .m3u files next to the NSF
     (or inside the zip)."""
@@ -562,7 +578,7 @@ class MainWindow(QMainWindow):
 
         # file row
         row = QHBoxLayout()
-        row.addWidget(QLabel("NSF / GBS:"))
+        row.addWidget(QLabel("NSF / GBS / SPC:"))
         self.ed_file = QLineEdit()
         self.ed_file.setReadOnly(True)
         self.ed_file.setPlaceholderText("開くボタン（右クリックで履歴）またはウィンドウへドラッグ＆ドロップ")
@@ -945,14 +961,14 @@ class MainWindow(QMainWindow):
     def dropEvent(self, e):
         for u in e.mimeData().urls():
             p = u.toLocalFile()
-            if p.lower().endswith((".nsf", ".gbs", ".zip")):
+            if p.lower().endswith((".nsf", ".gbs", ".spc", ".zip")):
                 self.load_nsf(p)
                 return
-        QMessageBox.warning(self, "nsf2mid", "NSF / GBS ファイル（.nsf / .gbs / それらの入った .zip）をドロップしてください。")
+        QMessageBox.warning(self, "nsf2mid", "NSF / GBS / SPC ファイル（.nsf / .gbs / .spc / それらの入った .zip）をドロップしてください。")
 
     def on_open(self):
-        p, _ = QFileDialog.getOpenFileName(self, "NSF / GBS ファイルを開く", self.settings.get("last_dir", ""),
-                                           "NSF / GBS (*.nsf *.gbs *.zip);;All files (*)")
+        p, _ = QFileDialog.getOpenFileName(self, "NSF / GBS / SPC ファイルを開く", self.settings.get("last_dir", ""),
+                                           "NSF / GBS / SPC (*.nsf *.gbs *.spc *.zip);;All files (*)")
         if p:
             self.load_nsf(p)
 
@@ -960,7 +976,11 @@ class MainWindow(QMainWindow):
         if self.worker:
             return
         try:
-            hdr = read_header(read_nsf_bytes(path)[:0x80])
+            if is_spc_path(path):                # v0.1.38: SPC / zip of SPC files
+                hdr = SPCHeader(read_spc_bytes(path, (spc_members(path) or [None])[0]))
+                hdr.total_songs = max(1, len(spc_members(path)))
+            else:
+                hdr = read_header(read_nsf_bytes(path)[:0x80])
         except (OSError, ValueError, zipfile.BadZipFile) as e:
             QMessageBox.warning(self, "nsf2mid", f"読み込めませんでした:\n{path}\n{e}")
             return
@@ -971,8 +991,13 @@ class MainWindow(QMainWindow):
         self.settings["last_dir"] = os.path.dirname(self.nsf_path)
         self._add_history(self.nsf_path)
         self.ed_file.setText(self.nsf_path)
-        info = f"<b>{_esc(hdr.title)}</b>　{_esc(hdr.artist)}　{_esc(hdr.copyright)}　" \
-               f"曲数 {hdr.total_songs}（開始 {hdr.start_song}）　"                f"{'GBS（ゲームボーイ、ch 1〜4 に出力）' if hdr.__class__.__name__ == 'GBSHeader' else 'PAL' if hdr.is_pal else 'NTSC'}"
+        spc = isinstance(hdr, SPCHeader)
+        if spc:     # the game, not the title of the first file
+            info = f"<b>{_esc(hdr.game)}</b>　{_esc(hdr.artist)}　曲数 {hdr.total_songs}　" \
+                   "SPC（スーパーファミコン、8 ボイス → ch 1〜8）"
+        else:
+            info = f"<b>{_esc(hdr.title)}</b>　{_esc(hdr.artist)}　{_esc(hdr.copyright)}　" \
+                   f"曲数 {hdr.total_songs}（開始 {hdr.start_song}）　"                f"{'GBS（ゲームボーイ、ch 1〜4 に出力）' if hdr.__class__.__name__ == 'GBSHeader' else 'PAL' if hdr.is_pal else 'NTSC'}"
         if len(hdr.expansion_names) > 1:
             info += f"　<span style='color:#E08040'>拡張音源 {', '.join(hdr.expansion_names)}" \
                     f"（複数の組み合わせは未対応。ch 6 から順に出力）</span>"
@@ -980,7 +1005,8 @@ class MainWindow(QMainWindow):
             info += f"　拡張音源 {hdr.expansion_names[0]}（ch 6〜 に出力）"
         self.lb_info.setText(info)
 
-        playlist = [e for e in read_m3u(self.nsf_path) if 1 <= e[0] <= hdr.total_songs]
+        playlist = spc_track_list(self.nsf_path) if spc else \
+            [e for e in read_m3u(self.nsf_path) if 1 <= e[0] <= hdr.total_songs]
         self.m3u_tracks = {e[0] for e in playlist}
         rows = list(playlist)
         rows += [(t, "", "") for t in range(1, hdr.total_songs + 1) if t not in self.m3u_tracks]
@@ -1043,7 +1069,7 @@ class MainWindow(QMainWindow):
 
     def on_convert(self):
         if not self.nsf_path:
-            QMessageBox.information(self, "nsf2mid", "NSF / GBS ファイルを開いてください。")
+            QMessageBox.information(self, "nsf2mid", "NSF / GBS / SPC ファイルを開いてください。")
             return
         tracks = []
         for i in range(self.table.rowCount()):

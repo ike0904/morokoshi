@@ -24,6 +24,8 @@ per sample (SRCN) from the waveform and from how the song plays it:
   - brighter: short -> closed hi-hat 42, longer -> open hi-hat 46
 Measured on FF4 / FF5 / FF6 / Chrono Trigger / ActRaiser / Zelda ALttP battle and field themes.
 
+Two different sounds never share a GM note (unique_notes).
+
 Override per sample with --drum-map "S67=38,S12=0" (0 = not a drum: keep the notes).
 """
 
@@ -112,7 +114,43 @@ def split_spc_drums(notes, frames, dsp, drum_map=None):
                     rate = s["period"] / 4096.0
                     gm = forced or hit_gm(feat, kind, rate, pitches.index(n.pitch), len(pitches))
                     info = f"S{srcn} cen {feat['cen'] * rate:.0f}Hz {feat['ms'] / max(rate, 1e-3):.0f}ms"
-                hits.append(DrumHit(ch, n.start, n.gate_end, gm, _vel(n.peak), (ch, srcn), info))
+                hits.append(DrumHit(ch, n.start, n.gate_end, gm, _vel(n.peak),
+                                    (ch, "noise" if nz else srcn), info))
         if keep:
             tonal[ch] = sorted(keep, key=lambda n: n.start)
+    unique_notes(hits, {k[1] for k in drum_map if k[0] == "S" and drum_map[k]})
     return tonal, sorted(hits, key=lambda d: d.start)
+
+
+# other GM notes for a sound whose note another sample already uses (closest kind first)
+ALTERNATIVES = {
+    36: (35, 41, 43), 35: (36, 41, 43), 38: (40, 37, 39, 54), 40: (38, 37, 39, 54),
+    37: (39, 40, 38), 39: (37, 40, 54), 42: (44, 54, 70, 69), 44: (42, 54, 70, 69),
+    46: (53, 55, 51, 59), 49: (57, 52, 55, 51), 57: (49, 52, 55, 51), 56: (75, 76, 77, 67, 68),
+    41: (43, 45, 47, 48, 50), 43: (41, 45, 47, 48, 50), 45: (47, 43, 48, 41, 50),
+    47: (45, 48, 43, 50, 41), 48: (47, 50, 45, 43, 41), 50: (48, 47, 45, 43, 41),
+}
+PERCUSSION = range(35, 82)
+
+
+def unique_notes(hits, fixed=()):
+    """v0.1.37 (user request): two different sounds (samples, or the noise generator) never share
+    a GM note. The sound with more hits keeps its note; the other moves to a related unused note
+    (ALTERNATIVES), else the nearest unused percussion note. Samples set with --drum-map keep
+    their note. The same sample may use several notes (toms, rates)."""
+    groups = {}
+    for h in hits:
+        groups.setdefault((h.kind[1], h.gm), []).append(h)
+    owner = {}
+    order = sorted(groups, key=lambda g: (g[0] not in fixed, -len(groups[g])))
+    for snd, gm in order:
+        if snd in fixed or owner.get(gm, snd) == snd:
+            owner.setdefault(gm, snd)
+            continue
+        free = [x for x in ALTERNATIVES.get(gm, ()) if x not in owner]
+        free = free or sorted((x for x in PERCUSSION if x not in owner), key=lambda x: abs(x - gm))
+        if not free:
+            continue
+        owner[free[0]] = snd
+        for h in groups[(snd, gm)]:
+            h.gm = free[0]

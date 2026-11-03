@@ -86,7 +86,14 @@ class NsfPlayer:
         if not self.lib:
             self.error = "libgme.dll not found"
             return False
-        raw = read_nsf_bytes(path)
+        self.gme_track = track - 1
+        from spc import is_spc_path, read_spc_bytes, spc_members
+        if is_spc_path(path):       # v0.1.38: one SPC file per track (track 0 of each file)
+            members = spc_members(path)
+            raw = read_spc_bytes(path, members[track - 1] if members else None)
+            self.gme_track = 0
+        else:
+            raw = read_nsf_bytes(path)
         self._raw = _ct.create_string_buffer(raw, len(raw))   # kept alive while the emulator lives
         emu = _ct.c_void_p()
         err = self.lib.gme_open_data(self._raw, len(raw), _ct.byref(emu), SR)
@@ -101,7 +108,7 @@ class NsfPlayer:
 
     def _start_track(self):
         with self._lock:
-            err = self.lib.gme_start_track(self.emu, self.track - 1)
+            err = self.lib.gme_start_track(self.emu, self.gme_track)
             if err:
                 self.error = err.decode(errors="replace")
                 return False

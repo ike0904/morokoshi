@@ -8,7 +8,8 @@ Phase 4: GUI (nsf2mid_gui.py). Started when no arguments are given.
 Phase 5: expansion audio (expansion.py): FDS, VRC6, VRC7, MMC5, N163, Sunsoft 5B on MIDI ch 6-.
 Phase 6: GBS (Game Boy, gbs.py / cpu_sm83.py / gb_apu.py): Square 1/2, Wave, Noise on MIDI ch 1-4.
 Phase 7: SPC (Super Famicom, spc.py / cpu_spc700.py / spc_dsp.py): 8 voices on MIDI ch 1-8, one track
-         per sample (in progress: drums and tempo to come).
+         per sample, percussion samples as GM drums on "ChN Drums" (spc_drums.py), tempo followed
+         bar by bar (driver tempo drift).
 
 Usage:
     python nsf2mid.py                (GUI)
@@ -60,9 +61,12 @@ Usage:
   v0.1.37 (2026-11-03) - SPC 第 3 段階: 打楽器のサンプルを判定して GM ドラムのノートに (ボイスの ch の「ChN Drums」トラック。
                          spc_drums.py)。--drum-map に SPC のサンプル指定 (S67=38、0 = ドラムにしない)。
                          低い音域を探せないサンプルで音高推定が落ちる不具合を修正
+  v0.1.38 (2026-11-03) - SPC 第 4・5 段階: ドラムは音色ごとに別のノート番号。テンポは数秒ごとの位相で合わせ、1 小節ずつ追従
+                         (ドライバーのテンポの揺れ・小さなテンポ変化)、1 拍 6 行 (3 連・6 連) の判定。ループ: 鳴っているのに
+                         繰り返さないボイスがあれば不採用、途中から加わるボイスの前の無音もループの一部。GUI で .spc / SPC の zip
 """
 
-APP_VERSION = "v0.1.37"
+APP_VERSION = "v0.1.38"
 
 import argparse
 import csv
@@ -501,7 +505,7 @@ def analyze_spc(frames, args, frame_cycles, dsp, drum_map):
                 n.start = f["kon"][k] / frame_cycles
     detect = dict(notes)
     events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in detect.items()}
-    loop = None if args.no_loop else detect_loop(events)
+    loop = None if args.no_loop else detect_loop(events, strict=True)
     tonal, drums = split_spc_drums(notes, frames, dsp, drum_map)
     tonal = {k: tonal.get(k, []) for k in notes}
     return frames, tonal, stats, drums, events, loop, detect
@@ -517,8 +521,9 @@ class Cancelled(Exception):
 
 
 def build_parser():
-    ap = argparse.ArgumentParser(description=f"nsf2mid {APP_VERSION} - NSF / GBS to MIDI converter")
-    ap.add_argument("nsf", help="input .nsf / .gbs file, or a zip containing one (zophar.net style)")
+    ap = argparse.ArgumentParser(description=f"nsf2mid {APP_VERSION} - NSF / GBS / SPC to MIDI converter")
+    ap.add_argument("nsf", help="input .nsf / .gbs / .spc file, or a zip containing one (zophar.net style; "
+                                "a zip of SPC files: one track per file in name order)")
     ap.add_argument("-t", "--track", type=int, default=0, help="track number (1-based, default: start song)")
     ap.add_argument("-s", "--seconds", type=float, default=600.0,
                     help="maximum length to emulate in seconds (stops early when a loop or the end is found)")
@@ -590,6 +595,9 @@ def convert(args, should_stop=None):
     frame_rate = player.cpu_hz / player.frame_cycles
     max_frames = int(args.seconds * frame_rate)
     chunk = int(CHUNK_SEC * frame_rate)
+    if getattr(player, "is_spc", False) and track != 1:
+        # SPC (v0.1.38): one file per track; the summary above is of the first file
+        print(f"\nTrack {track}:\n{h.summary()}")
     print(f"\nEmulating track {track} (max {args.seconds:.0f} s @ {frame_rate:.3f} Hz)")
     n_frames = 0
     end_reason = "max length"
@@ -679,7 +687,7 @@ def convert(args, should_stop=None):
     chan_notes = {ch: {n.start: n.pitch for n in full[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
                   for ch in notes}
     tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
-                             args.tempo)
+                             args.tempo, drift=getattr(player, "is_spc", False))
     tmap = None
     if tempo is None:
         print("\nTempo: not enough notes to detect")

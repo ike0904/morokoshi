@@ -60,9 +60,31 @@ def _phase(onsets, unit):
     return (math.atan2(sy, sx) / two_pi) * unit % unit
 
 
+DRIFT_WINDOW = None     # v0.1.38: frames; set while detecting a SPC tune (detect_tempo_map(drift=True))
+
+
+def _drift_hits(onsets, unit):
+    """Hits with the phase taken per DRIFT_WINDOW: the tempo of SPC drivers wanders by a few
+    frames over a minute (FF4 "Red Wings": 27.0-27.5 frames per beat), so one phase for the
+    whole tune misses most notes of a fine grid."""
+    hits = 0
+    i = 0
+    while i < len(onsets):
+        j = i
+        while j < len(onsets) and onsets[j] < onsets[i] + DRIFT_WINDOW:
+            j += 1
+        sub = onsets[i:j]
+        hits += sum(_hits(sub, unit, _phase(sub, unit)))
+        i = j
+    return hits
+
+
 def _fit(onsets, unit):
     phase = _phase(onsets, unit)
-    score = sum(_hits(onsets, unit, phase)) / len(onsets)
+    if DRIFT_WINDOW and onsets[-1] - onsets[0] > DRIFT_WINDOW:
+        score = _drift_hits(onsets, unit) / len(onsets)
+    else:
+        score = sum(_hits(onsets, unit, phase)) / len(onsets)
     chance = min(0.999, 2 * _tol(unit) / unit)
     norm = (score - chance) / (1 - chance)
     return score, norm, phase
@@ -185,6 +207,37 @@ def triplet_note(channel_notes, force=False):
     if rep[3] - rep[4] >= TRIPLET_REP_GAIN and fit[3] - fit[4] >= TRIPLET_FIT_GAIN:
         return d
     return None
+
+
+SEXT_MIN_NOTES = 12     # v0.1.38: long notes needed to call the beat 6 rows instead of 8 ...
+SEXT_GAIN = 0.2         # ... when they line up on 6 rows clearly better than on 8 ...
+SEXT_FIT = 0.6          # ... and well on 6 rows
+
+
+def sextuplet_beat(channel_notes, unit):
+    """v0.1.38: a grid of 6 rows per beat on a binary-looking grid: triplet 8ths (2 rows) and
+    sextuplets (1 row) with 8ths (3 rows) and quarters (6 rows). The intervals are mostly even
+    numbers of rows, so is_ternary says binary and the beat became 8 rows (FF4 "Red Wings":
+    4.5-frame grid, 99 BPM). The long notes (>= 6 rows to the next note of the channel: melody,
+    cymbals) decide: the gaps between them are multiples of 6 rows, not of 8. Notes within a frame of the grid
+    count (SPC drivers' tempo rounding)."""
+    longs = []
+    for c in (channel_notes or {}).values():
+        st = sorted(c)
+        longs += [a for a, b in zip(st, st[1:]) if b - a >= 6 * unit - 1]
+    longs = sorted(set(round(x, 1) for x in longs))
+    # the gaps between them (not one phase over the tune: the tempo of a SPC driver drifts
+    # by a few frames over a minute)
+    rows = []
+    for x, y in zip(longs, longs[1:]):
+        r = round((y - x) / unit)
+        if r > 0 and abs(y - x - r * unit) <= 1.0:
+            rows.append(r)
+    if len(rows) < SEXT_MIN_NOTES:
+        return False
+    six = sum(1 for r in rows if r % 6 == 0) / len(rows)
+    eight = sum(1 for r in rows if r % 8 == 0) / len(rows)
+    return six >= SEXT_FIT and six - eight >= SEXT_GAIN
 
 
 BAR_REPEAT = 0.85       # v0.1.35: share of a section's onsets that come again one bar later
@@ -333,7 +386,18 @@ class Segment:
 
 
 def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto",
-                     tempo="auto"):
+                     tempo="auto", drift=False):
+    """drift=True (SPC, v0.1.38): grid fits take the phase per few seconds (_drift_hits)."""
+    global DRIFT_WINDOW
+    DRIFT_WINDOW = 4.0 * frame_rate if drift else None
+    try:
+        return _detect_tempo_map(onsets, frame_rate, rows_per_beat, unit, channel_notes, triplets, tempo)
+    finally:
+        DRIFT_WINDOW = None
+
+
+def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto",
+                      tempo="auto"):
     """triplets: "auto" (detect), "on" (always triplet feel) or "off" (always binary).
     tempo: "auto", "half" (rows per beat x2) or "double" (rows per beat /2, only where the rows are even).
     Applied per segment after detection, so segments / triplets / shuffle are still detected."""
@@ -357,7 +421,8 @@ def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_
         ternary, shuffle = False, False
     elif not rows_per_beat and not ternary:
         trip_d = triplet_note(channel_notes or {}, force=triplets == "on")
-        ternary = bool(trip_d) or triplets == "on"
+        # (SPC only: on NES tunes it changed Tom & Jerry and T&C Surf Designs, unchecked)
+        ternary = bool(trip_d) or triplets == "on" or bool(DRIFT_WINDOW and sextuplet_beat(channel_notes, g["unit"]))
     prev = None
     for s in segs:
         if rows_per_beat:
@@ -374,7 +439,7 @@ def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_
             s.rows = 3 * step if 60.0 * frame_rate / (s.unit * 3 * step) < 240.0 else 6 * step
         else:
             s.rows = None
-            if prev is not None:
+            if prev is not None and not DRIFT_WINDOW:
                 # v0.1.35: a new section whose figure repeats bar by bar takes its tempo from it
                 k = segs.index(s)
                 end = segs[k + 1].start if k + 1 < len(segs) else float("inf")
@@ -409,7 +474,7 @@ def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_
             else:
                 kept += 1
             s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
-    return {"tempo_kept": kept, "global": g, "segments": segs, "ternary": ternary, "shuffle": shuffle, "triplet": bool(trip_d)}
+    return {"drift": bool(DRIFT_WINDOW), "tempo_kept": kept, "global": g, "segments": segs, "ternary": ternary, "shuffle": shuffle, "triplet": bool(trip_d)}
 
 
 def _segment(onsets, frame_rate, g):
@@ -438,7 +503,8 @@ def _segment(onsets, frame_rate, g):
             continue
         lg = detect_grid(sub, max(2.0, g["unit"] / 2.2), min(48.0, g["unit"] * 2.2))
         if (lg and abs(lg["unit"] - g["unit"]) / g["unit"] >= 0.015
-                and lg["score"] >= LOCAL_MIN and lg["score"] - gfit >= LOCAL_GAIN):
+                and lg["score"] >= LOCAL_MIN and lg["score"] - gfit >= LOCAL_GAIN
+                and not (DRIFT_WINDOW and _multiple(lg["unit"], g["unit"]))):
             labels.append(lg["unit"])
         else:
             labels.append(None)
@@ -458,6 +524,11 @@ def _segment(onsets, frame_rate, g):
         u = g["unit"] if lab is None else lab
         if merged:
             pu = g["unit"] if merged[-1][0] is None else merged[-1][0]
+            if DRIFT_WINDOW and _multiple(u, pu):      # SPC: the same grid at another level
+                if u < pu:
+                    merged[-1][0] = lab
+                merged[-1][1].extend(sub)
+                continue
             if abs(u - pu) / pu < MERGE_RATIO:
                 merged[-1][1].extend(sub)
                 continue
@@ -467,12 +538,14 @@ def _segment(onsets, frame_rate, g):
     segs = []
     for lab, sub in runs:
         u = g["unit"] if lab is None else lab
-        if lab is not None:
+        if DRIFT_WINDOW:        # SPC: the exact tempo of each section (best fit near the unit)
+            u = max((v for v in _candidates(u * 0.985, u * 1.015)), key=lambda v: _fit(sub, v)[1])
+        elif lab is not None:
             lg = detect_grid(sub, max(2.0, u * 0.95), min(48.0, u * 1.05))
             if lg:
                 u = lg["unit"]
         ph = _phase(sub, u)
-        sc = sum(_hits(sub, u, ph)) / len(sub)
+        sc = _fit(sub, u)[0]          # (v0.1.38: per few seconds for SPC)
         segs.append(Segment(sub[0], u, ph, sc))
 
     # refine boundaries: move each split to the onset that maximizes total hits
@@ -509,6 +582,16 @@ def _segment(onsets, frame_rate, g):
             continue
         clean.append(s)
     return clean
+
+
+def _multiple(a, b):
+    """v0.1.38 (SPC): a and b are the same grid up to a whole factor and the drift of the driver
+    (FF4 "Red Wings" 49 s: triplet 8ths alone, 9.14 frames on a 4.53-frame grid). The window
+    keeps the global grid; tempo tracking follows the drift."""
+    if a < b:
+        a, b = b, a
+    k = round(a / b)
+    return k >= 1 and abs(a / (k * b) - 1) < MERGE_RATIO
 
 
 def _same(a, b):
@@ -627,6 +710,35 @@ def track_rows(onsets, unit, origin):
     return anchors
 
 
+def track_rows_drift(onsets, unit, origin, bar_rows):
+    """v0.1.38 (SPC): track_rows for drivers whose notes are exact in tempo but land up to
+    ~0.5 frame off (timer ticks) and whose tempo may change by a percent (FF4 "Red Wings").
+    The unit is measured over about a bar (from the anchor at least bar_rows back), so the
+    jitter of single notes does not move it; one tempo per bar is written as usual."""
+    anchors = []
+    u = unit
+    f_prev, r_prev = origin, 0
+    for i, o in enumerate(onsets):
+        if i + 1 < len(onsets) and onsets[i + 1] - o < 0.5 * u:
+            continue
+        r = int(round((o - f_prev) / u))
+        if r < 1:
+            continue
+        r_now = r_prev + r
+        anchors.append((o, r_now))
+        base = None
+        for fa, ra in reversed(anchors[:-1]):
+            if r_now - ra >= bar_rows:
+                base = (fa, ra)
+                break
+        if base:
+            est = (o - base[0]) / (r_now - base[1])
+            if abs(est / u - 1) < 0.05:
+                u = 0.7 * u + 0.3 * est
+        f_prev, r_prev = o, r_now
+    return anchors
+
+
 class _Part:
     def __init__(self, seg, origin_frame, origin_tick, tpu, anchors, unit_end):
         self.seg = seg
@@ -714,7 +826,13 @@ class TickMap:
                 for lst in notes.values())
             s.rit = rit
             jitter = s.score < TRACK_FIT and not rit and steady_with_jitter(seg_on, s.unit, s.phase)
-            if (s.score < TRACK_FIT and not jitter or rit) and len(seg_on) >= 4:
+            if tmap.get("drift") and len(seg_on) >= 4:
+                # v0.1.38 (SPC): always followed bar by bar (tempo drift, small tempo changes)
+                anchors = track_rows_drift([o for o in seg_on if o > origin], s.unit, origin, 4 * s.rows)
+                if len(anchors) >= 2:
+                    (fa, ra), (fb, rb) = anchors[-2], anchors[-1]
+                    unit_end = (fb - fa) / (rb - ra)
+            elif (s.score < TRACK_FIT and not jitter or rit) and len(seg_on) >= 4:
                 anchors = track_rows([o for o in seg_on if o > origin], s.unit, origin)
                 if len(anchors) >= 2:
                     (fa, ra), (fb, rb) = anchors[-2], anchors[-1]
