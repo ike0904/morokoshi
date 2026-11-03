@@ -20,6 +20,7 @@ grooves such as 6,7,6,7 give 6.5.
 """
 
 import math
+from bisect import bisect_left
 from collections import Counter
 
 BPM_LO = 70.0
@@ -186,6 +187,85 @@ def triplet_note(channel_notes, force=False):
     return None
 
 
+BAR_REPEAT = 0.85       # v0.1.35: share of a section's onsets that come again one bar later
+BAR_MIN_ONSETS = 12
+BAR_REPEAT_WALK = 0.7   # ... when following the figure to the end of the section (a slowing bar misses some)
+
+
+def _repeat_share(onsets, idx, lo, hi, lag, min_n=BAR_MIN_ONSETS):
+    sel = [o for o in onsets if lo <= o < hi and o + lag < hi]
+    if len(sel) < min_n:
+        return 0.0, len(sel)
+    hit = 0
+    for o in sel:
+        i = bisect_left(onsets, o + lag - 1.0)
+        if i < len(onsets) and onsets[i] <= o + lag + 1.0:
+            hit += 1
+    return hit / len(sel), len(sel)
+
+
+def bar_period(onsets, lo, hi, unit, frame_rate):
+    """A section (a later tempo segment) whose figure repeats bar by bar: the shortest lag (whole
+    grid units, a multiple of 4 = one 4/4 bar) at which BAR_REPEAT of its onsets come again,
+    giving a tempo of 70-240 BPM. Returns (lag in units, first onset of the repeating figure,
+    start of the last bar = the bar after the last repeat, grid unit measured over the bars) or None. The section start moves back to where the figure starts repeating (the window-based
+    segmentation finds it a little late).
+    Example: Dragon Quest III t26 - from frame 8100 the same 16th figure every 106.7 frames
+    (32 units of 3.33) = one bar of 135 BPM, after 100 BPM (it was 89.9 BPM, 2.67 beats a bar)."""
+    if hi == float("inf"):
+        hi = onsets[-1] + 1
+    for lag_units in range(8, 129):
+        lag = lag_units * unit
+        share, n = _repeat_share(onsets, None, lo, hi, lag)
+        if share < BAR_REPEAT:
+            continue
+        if lag_units % 4:
+            return None
+        bpm = 60.0 * frame_rate * 4 / lag
+        if not BPM_LO <= bpm < 240.0:
+            return None
+        def repeats(o, need=BAR_REPEAT):     # the figure starting at onset o comes again a bar later
+            sh, m = _repeat_share(onsets, None, o, o + 2 * lag, lag, 4)
+            i = bisect_left(onsets, o + lag - 1.0)
+            return sh >= need and i < len(onsets) and onsets[i] <= o + lag + 1.0
+        # earliest onset (up to one bar before lo) from which the figure keeps repeating
+        start = lo
+        for o in [x for x in onsets if lo - lag <= x < lo]:
+            if repeats(o):
+                start = o
+                break
+        # the figure repeats bar by bar from `start`; the bar after the last repeat is the last
+        # one of the section (Dragon Quest III t26: the 8th bar slows down into the intro tempo)
+        f, bars = start, 0
+        while f + lag < hi + 2 * lag and repeats(f, BAR_REPEAT_WALK):
+            f = min(onsets[bisect_left(onsets, f + lag - 1.0):][:1] or [f + lag])   # follow the onsets
+            bars += 1
+        # the grid unit from the bars themselves (the window estimate drifts by half a row over
+        # 7 bars: 3.338 instead of 3.330 frames)
+        if bars >= 2:
+            unit = (f - start) / (bars * lag_units)
+        return lag_units, start, f, unit
+    return None
+
+
+def _on_grid(d, unit, tol=0.75):
+    r = d / unit
+    return abs(r - round(r)) * unit <= tol
+
+
+def _section_handover(onsets, bar_start, unit, downbeat, next_unit):
+    """Where the next section's tempo takes over inside the last bar of a repeating section:
+    the earliest onset from which every onset up to the next downbeat sits on the next
+    section's grid (counted back from the downbeat) while the ones before it sit on this
+    section's grid. Dragon Quest III t26: the last fast bar plays its figure for 3 beats, then
+    G C D in triplets of the intro tempo lead into the long G (the slowing-down of bar 64)."""
+    cand = [o for o in onsets if bar_start <= o <= downbeat]
+    for i, c in enumerate(cand):
+        if all(_on_grid(o - bar_start, unit) for o in cand[:i]) and                 all(_on_grid(downbeat - o, next_unit) for o in cand[i:]):
+            return c
+    return downbeat
+
+
 def melody_onsets(channel_notes):
     """v0.1.33: note starts of the melody = the channel with the highest notes (at least 16 notes).
     The 8th-note rule of choose_rows looks at the melody, not at all channels merged: running
@@ -293,7 +373,30 @@ def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_
             # 1 beat = one long-short pair (2s + s); double it if that would exceed 240 BPM
             s.rows = 3 * step if 60.0 * frame_rate / (s.unit * 3 * step) < 240.0 else 6 * step
         else:
-            s.rows = choose_rows(s.unit, frame_rate, ternary, prev, melody_onsets(channel_notes) or onsets)
+            s.rows = None
+            if prev is not None:
+                # v0.1.35: a new section whose figure repeats bar by bar takes its tempo from it
+                k = segs.index(s)
+                end = segs[k + 1].start if k + 1 < len(segs) else float("inf")
+                per = bar_period(onsets, s.start, end, s.unit, frame_rate)
+                if per:
+                    lag_units, start, last_bar, s.unit = per
+                    sec_end = last_bar + lag_units * s.unit
+                    if k + 1 < len(segs) and segs[k + 1].start < sec_end - 1:
+                        nxt = [o for o in onsets if o >= sec_end - 1]
+                        if nxt and (k + 2 >= len(segs) or nxt[0] < segs[k + 2].start):
+                            segs[k + 1].start = _section_handover(onsets, last_bar, s.unit,
+                                                                  nxt[0], segs[k + 1].unit)
+                            segs[k + 1].start_fixed = True      # keep it, no jump to a bar line
+                    # the shortest repeat may be half a bar: of one / two repeats per bar, the
+                    # tempo nearer to the previous section (Dragon Quest III t26: back to 100 BPM
+                    # after 135, its figure repeats every 2 beats)
+                    s.rows = min((lag_units // 4, lag_units // 2),
+                                 key=lambda r: abs(math.log(60.0 * frame_rate / (s.unit * r) / prev)))
+                    if start < s.start and (k == 0 or start > segs[k - 1].start)                             and not getattr(s, "start_fixed", False):
+                        s.start = start
+            if not s.rows:
+                s.rows = choose_rows(s.unit, frame_rate, ternary, prev, melody_onsets(channel_notes) or onsets)
         s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
         prev = s.bpm
     kept = 0  # segments left as detected ("double" on an odd number of rows, e.g. 3 rows per beat)
@@ -600,7 +703,11 @@ class TickMap:
                         origin -= (s.rows - p) * s.unit
             else:
                 origin = s.start
-                origin_tick = self._bar_after(self.parts[-1], origin)
+                if getattr(s, "start_fixed", False):
+                    # v0.1.35: section handover inside a bar (bar_period): continue the bar
+                    origin_tick = int(round(self._tick_in(self.parts[-1], origin)))
+                else:
+                    origin_tick = self._bar_after(self.parts[-1], origin)
             anchors, unit_end = [], s.unit
             rit = s.score >= TRACK_FIT and notes is not None and any(
                 has_ritardando([n.start for n in lst if (k == 0 or n.start >= s.start) and n.start < end], s.unit)
