@@ -186,6 +186,18 @@ def triplet_note(channel_notes, force=False):
     return None
 
 
+def melody_onsets(channel_notes):
+    """v0.1.33: note starts of the melody = the channel with the highest notes (at least 16 notes).
+    The 8th-note rule of choose_rows looks at the melody, not at all channels merged: running
+    accompaniment in 16ths would otherwise count as 8ths (Dragon Quest III t26: bass / pulse in
+    9-frame 16ths, melody mostly 18-frame 8ths -> 100 BPM, not 200)."""
+    chans = {ch: c for ch, c in (channel_notes or {}).items() if len(c) >= 16}
+    if not chans:
+        return None
+    mel = max(chans, key=lambda ch: sorted(chans[ch].values())[len(chans[ch]) // 2])
+    return sorted(chans[mel])
+
+
 def choose_rows(unit, frame_rate, ternary, prefer_bpm=None, onsets=None):
     family = (12, 6, 3, 24) if ternary else (4, 2, 8, 16)
     if prefer_bpm:
@@ -194,7 +206,7 @@ def choose_rows(unit, frame_rate, ternary, prefer_bpm=None, onsets=None):
     if ternary and onsets and len(onsets) > 8:
         # the most common interval is an 8th note (half a beat), if that gives a sane tempo
         # (Super Mario Bros.: grid 3 frames, mostly 9-frame 8ths -> 6 rows/beat = 200 BPM,
-        # triplets are 6 frames = 2 rows)
+        # triplets are 6 frames = 2 rows). v0.1.33: the onsets of the melody (melody_onsets)
         iois = Counter(round((b - a) / unit) for a, b in zip(onsets, onsets[1:]))
         mode = max((i for i in iois if i > 0), key=lambda i: iois[i], default=0)
         m = 2 * mode
@@ -281,7 +293,7 @@ def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_
             # 1 beat = one long-short pair (2s + s); double it if that would exceed 240 BPM
             s.rows = 3 * step if 60.0 * frame_rate / (s.unit * 3 * step) < 240.0 else 6 * step
         else:
-            s.rows = choose_rows(s.unit, frame_rate, ternary, prev, onsets)
+            s.rows = choose_rows(s.unit, frame_rate, ternary, prev, melody_onsets(channel_notes) or onsets)
         s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
         prev = s.bpm
     kept = 0  # segments left as detected ("double" on an odd number of rows, e.g. 3 rows per beat)
@@ -406,6 +418,8 @@ TRACK_FIT = 0.9          # segments fitting worse than this are tempo-tracked (r
 RIT_MIN = 1.045          # v0.1.29: a run of notes this much longer than the channel's usual note ...
 RIT_MAX = 1.6            # ... (but not as long as a different note value) ...
 RIT_RUN = 3              # ... for this many notes in a row is a ritardando
+PHASE_GAIN = 1.25       # v0.1.33: the downbeat by note weight must beat beat 0 by this much ...
+PHASE_MIN_NOTES = 16    # ... over at least this many notes on beats
 CONTINUOUS_ROWS = 2      # v0.1.29: a segment starting this close after the last note keeps its natural tick
 
 
@@ -608,6 +622,8 @@ class TickMap:
             s.tracked = bool(anchors)
             if k == 0 and downbeat is not None and (len(segs) == 1 or downbeat < segs[1].start):
                 self._set_downbeat(part, downbeat)
+            elif k == 0 and downbeat is None and quantize and notes:
+                self._phase_downbeat(part, notes, end)
             elif k > 0:
                 # a segment that starts mid-bar (continuous music, see _bar_after) keeps the
                 # previous bar lines; its meter starts at the next bar line
@@ -637,6 +653,45 @@ class TickMap:
             return
         part.lead_beats = lead
         part.bar_origin = part.origin_tick + lead * self.ppq
+
+    def _phase_downbeat(self, part, notes, end):
+        """v0.1.33: a tune without a loop has no loop start to put on a bar line. Long notes and
+        bass notes start on the downbeat more than on the other beats, so the beat of the bar
+        (0 .. num-1, counted from the start) where they weigh most is taken as the downbeat when it
+        clearly beats beat 0 (the first beats then become a pickup bar).
+        Weight of a note starting on a beat: its length in beats (up to 4), twice for the bass
+        (the channel with the lowest notes).
+        Example: Dragon Quest III t26 - a 2-beat pickup (triplet run into a long G); per beat of
+        the bar 275 / 102 / 313 / 126 for the long notes and 50 / 39 / 95 / 42 for the bass."""
+        num, den = part.meter
+        if den != 4 or num < 2:
+            return
+        per = {}
+        for ch, lst in notes.items():
+            sel = [n for n in lst if part.origin_frame - 1 <= n.start < end]
+            if len(sel) >= 8:
+                per[ch] = sel
+        if not per:
+            return
+        bass = min(per, key=lambda ch: sorted(n.pitch for n in per[ch])[len(per[ch]) // 2])
+        score = [0.0] * num
+        count = 0
+        for ch, sel in per.items():
+            for n in sel:
+                t = self._tick_in(part, n.start) - part.origin_tick
+                if t < 0 or t % self.ppq:
+                    continue
+                dur = (self._tick_in(part, n.gate_end if n.gate_end is not None else n.end)
+                       - part.origin_tick - t) / self.ppq
+                if dur <= 0:
+                    continue
+                score[int(t // self.ppq) % num] += min(4.0, dur) * (2 if ch == bass else 1)
+                count += 1
+        best = max(range(num), key=lambda p: score[p])
+        if count < PHASE_MIN_NOTES or best == 0 or score[best] < PHASE_GAIN * score[0]:
+            return
+        part.lead_beats = best
+        part.bar_origin = part.origin_tick + best * self.ppq
 
     def _detect_meter(self, part, notes, end):
         """6/8 if notes longer than one 8th start on 3-eighth boundaries, else 4/4."""

@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.32
-commit:  f38c026 2026-11-03 v0.1.32: odd meters phrase first - find a phrase played twice (pitch class, octave transpositions match), cut only the phrase into bars (rhythm + best channel notes, +-2 bars); Life Force t3, Shatterhand t1, Dragon Quest IV t13 all match the user's meters
+version: v0.1.33
+commit:  83b0c59 2026-11-03 v0.1.33: downbeat of tunes without a loop from long notes / bass per beat (pickup bar); ternary 8th rule uses the melody channel (Dragon Quest III t26: 2-beat pickup, 100 BPM)
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
