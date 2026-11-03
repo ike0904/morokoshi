@@ -49,9 +49,10 @@ Usage:
                          リズムの繰り返しとフィルインから求めて拍子を入れる (meter.py)。リタルダンド判定の基準をグリッドの行に
   v0.1.31 (2026-11-03) - 周期が小数のループを検出 (許容差 3 フレーム・周期の平均)。1/60 秒の丸めの揺れだけの区間はテンポを追わない。
                          変拍子に 9/8 を追加
+  v0.1.32 (2026-11-03) - 変拍子をフレーズ単位で判定: 2 回続けて鳴るフレーズ (オクターブ違いも可) を探し、その中だけを小節に分ける
 """
 
-APP_VERSION = "v0.1.31"
+APP_VERSION = "v0.1.32"
 
 import argparse
 import csv
@@ -359,7 +360,7 @@ def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
     span = tmap(loop["start"] + loop["period"]) - tmap(loop["start"])
     if len(tmap.parts) > 1 and tmap.parts[1].origin_tick < start + span * loops:
         return
-    events = [(tmap(n.start), ch, "", False) for ch, lst in notes.items() for n in lst if n.start < end_frame]
+    events = [(tmap(n.start), ch, n.pitch, False) for ch, lst in notes.items() for n in lst if n.start < end_frame]
     events += [(tmap(d.start), "DRUM_" + d.src, str(d.gm if d.pitch is None else d.pitch),
                 d.pitch is None and d.gm in SNARE_NOTES) for d in drums if d.start < end_frame]
     bars = odd_bars(events, start, start + span)
