@@ -95,6 +95,13 @@ def detect_grid(onsets, min_unit=2.0, max_unit=48.0):
                 s2 = _fit(onsets, snap)
                 if s2[0] >= score - 0.005:
                     u, (score, norm, phase) = snap, s2
+            # v0.1.28: short tunes leave the unit loose (Wrecking Crew t5: 8.083 for an exact
+            # 8-frame grid); take the whole number of frames when it fits every onset as well
+            snap = round(u)
+            if snap != u and abs(snap - u) / u < 0.02:
+                s2 = _fit(onsets, snap)
+                if s2[0] >= score:
+                    u, (score, norm, phase) = snap, s2
             return {"unit": u, "score": score, "norm": norm, "phase": phase}
     return None
 
@@ -110,6 +117,7 @@ def is_ternary(onsets, unit):
 
 
 SHUFFLE_PAIRS = 0.45   # share of consecutive interval pairs that are long-short (2:1) or short-long
+SHUFFLE_MIN_ONSETS = 8 # v0.1.28 (16 before): short jingles in shuffle (Wrecking Crew t5: 13 onsets)
 
 
 def shuffle_step(onsets, unit):
@@ -121,7 +129,7 @@ def shuffle_step(onsets, unit):
     Plain runs of equal notes, dotted rhythms (3:1) or 8th+16th figures do not qualify.
     """
     onsets = sorted(set(onsets))
-    if len(onsets) < 16:
+    if len(onsets) < SHUFFLE_MIN_ONSETS:
         return None
     iois = [round((b - a) / unit) for a, b in zip(onsets, onsets[1:])]
     pairs = list(zip(iois, iois[1:]))
@@ -398,6 +406,28 @@ TRACK_FIT = 0.9          # segments fitting worse than this are tempo-tracked (r
 COMPOUND_MIN_NOTES = 3
 COMPOUND_FIT = 0.85      # long notes on 3-eighth boundaries (dotted-quarter beats) ...
 COMPOUND_GAIN = 0.15     # ... clearly more often than on 2-eighth boundaries
+BEAT_PHASE_GAIN = 1.15   # ternary grid: another row starts the beat if it scores this much better (v0.1.28)
+MIXED_TRIPLET_ERR = 1.5  # ternary grid: an onset this many frames off the triplet rows ...
+MIXED_16TH_ERR = 0.5     # ... and this close to a 16th of the beat is placed on the 16th (v0.1.28)
+
+
+def beat_phase(onsets, unit, origin, rows):
+    """Ternary grids (3 / 6 rows per beat): which row (mod rows) starts the beat. Each onset
+    scores the rows until the next onset (capped at one beat): in a shuffle the long note of
+    the long-short pair starts on the beat, and longer notes start on beats in general.
+    Returns the row offset p (0 = the grid point near frame 0 is a beat), a multiple of rows / 3.
+
+    Example: Wrecking Crew t1 - grid 8 frames from frame -4, 16+8 shuffle from frame 108
+    (row 14): the beats are rows 2, 5, 8, ... (p = 2)."""
+    score = [0.0] * rows
+    pos = [round((o - origin) / unit) for o in onsets]
+    for a, b in zip(pos, pos[1:] + [None]):
+        w = rows if b is None else min(rows, b - a)
+        if w > 0:
+            score[a % rows] += w
+    # only shifts by whole triplet 8ths (a shift by half a beat is a binary question, not handled)
+    best = max(range(0, rows, rows // 3), key=lambda p: score[p])
+    return best if score[best] >= BEAT_PHASE_GAIN * score[0] and score[best] > score[0] else 0
 
 
 def track_rows(onsets, unit, origin):
@@ -476,6 +506,7 @@ class TickMap:
         self.quantize = quantize
         self.fr = frame_rate
         onsets = sorted(set(onsets or []))
+        self.onset_set = set(onsets)     # note starts (only they may go on 16ths in a triplet grid)
         segs = tmap["segments"]
         self.parts = []
         for k, s in enumerate(segs):
@@ -487,6 +518,12 @@ class TickMap:
                 # on the first PLAY call), so the first grid point at/near frame 0 is tick 0
                 origin = s.phase + s.unit * round((0 - s.phase) / s.unit)
                 origin_tick = 0
+                if s.rows % 3 == 0 and quantize:
+                    # v0.1.28: put the beat on the right triplet row; the rows before it become a
+                    # rest at the start (frame 0 then sits inside the first beat)
+                    p = beat_phase(seg_on, s.unit, origin, s.rows)
+                    if p:
+                        origin -= (s.rows - p) * s.unit
             else:
                 origin = s.start
                 origin_tick = self._bar_after(self.parts[-1], origin)
@@ -546,7 +583,16 @@ class TickMap:
     def _tick_in(self, part, frame):
         rows = part.rows_at(frame)
         if self.quantize:
-            rows = round(rows)
+            r = round(rows)
+            R = part.seg.rows
+            if (R % 3 == 0 and R % 4 and frame in self.onset_set
+                    and abs(rows - r) * part.seg.unit >= MIXED_TRIPLET_ERR):
+                # v0.1.28: 16ths inside a triplet grid (Wrecking Crew t1: a 16th pickup before
+                # the shuffle) go on the 16th of the beat instead of the nearest triplet row
+                q = rows * 4 / R
+                if abs(q - round(q)) * part.seg.unit * R / 4 <= MIXED_16TH_ERR:
+                    return part.origin_tick + round(q) * R / 4 * part.tpu
+            rows = r
         return part.origin_tick + rows * part.tpu
 
     def _part_for(self, frame):

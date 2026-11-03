@@ -41,9 +41,11 @@ Usage:
   v0.1.27 (2026-11-03) - GBS (ゲームボーイ) 対応: SM83 CPU・GB APU モデル・GBS プレイヤー (メモリ配置・起動は libgme に合わせる)。
                          Square 1/2・Wave・Noise を MIDI ch 1〜4 に。音量変更のための再トリガーは同じ音の続きとする。
                          GUI: .gbs / GBS 入りの zip と GBS の m3u (0 始まり)
+  v0.1.28 (2026-11-03) - 3 連系のグリッド: 拍の頭になる行を選ぶ (シャッフルの長い音が拍の頭)、16 分の位置の発音は 16 分に置く。
+                         短い曲 (8 オンセット〜) もシャッフル判定。グリッド単位がほぼ整数なら整数に
 """
 
-APP_VERSION = "v0.1.27"
+APP_VERSION = "v0.1.28"
 
 import argparse
 import csv
