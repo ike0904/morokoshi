@@ -14,6 +14,18 @@ The loop start and the loop end are bar lines (TickMap puts the loop start on a 
 
 A dynamic programme over the eighths of the loop finds the cheapest bars. Channels that start a
 note on (almost) every eighth (a bass ostinato) carry no rhythm and are left out.
+
+v0.1.32: phrase first (the user's idea: find the blocks of bars). The odd bars usually come as a
+phrase played twice in a row (Dragon Quest IV t13: 45 eighths, the second time an octave up;
+Life Force t3: 17; Shatterhand t1: 34 = 6/8 x3 + 4/4 x2). The best such repeat that is not a
+whole number of 4/4 bars (compared by pitch class, so octave transpositions match) fixes the odd
+stretch; only the phrase is then cut into bars, the same way both times:
+  - a bar is good when the next / previous bar (or the one after that: 9/8 bars 1 and 3 of Dragon
+    Quest IV are the same notes) repeats it - half by rhythm (all channels, without the ones
+    sounding on every eighth), half by the notes of the best single channel (a bass ostinato
+    repeating exactly marks the 7/8 bars); the better of the two rounds of the phrase counts
+  - a penalty for each bar that is not 4/4, smaller for longer bars
+If no phrase repeats well enough, the v0.1.30 method is used.
 """
 
 from functools import lru_cache
@@ -46,8 +58,9 @@ def _meter(L, pattern):
     return (L, 8)
 
 
-def odd_bars(events, start_tick, end_tick):
-    """events: [(tick, channel, kind, is_snare)] of all notes and drum hits.
+def _region_bars(events, start_tick, end_tick):
+    """v0.1.30 method: one stretch of odd bars between 4/4 locked to the loop ends.
+    events: [(tick, channel, kind, is_snare)] of all notes and drum hits.
     Returns [(tick, (num, den))] time signatures for the loop [start_tick, end_tick), or None
     when the loop is a whole number of 4/4 bars or not a whole number of eighths."""
     span = end_tick - start_tick
@@ -126,4 +139,159 @@ def odd_bars(events, start_tick, end_tick):
         if m != prev:
             out.append((start_tick + a * EIGHTH, m))
             prev = m
+    return out
+
+
+# ---------------------------------------------------------------- v0.1.32: phrase first
+PHRASE_MIN = 9          # eighths
+PHRASE_SIM = 0.8        # share of the notes (pitch class) the two rounds have in common
+PH_PEN = 0.25           # penalty of an odd bar (5, 6, 7 eighths) inside the phrase
+PH_PEN_4 = 0.4          # ... of a 2/4 bar
+PH_PEN_LONG = 0.3       # ... of a 9/8 bar
+PH_PEN_SHORT = 0.75     # ... of a bar of 2 or 3 eighths
+PH_PEN_TRIPLE = 0.5     # extra for a 9/8 bar made of three equal groups of 3 eighths (that is 6/8)
+
+
+def _events(events, start_tick, n, pitch):
+    """{eighth: {(channel, offset, key)}}; key of a tonal note: "exact" pitch, pitch "class" or
+    none (rhythm only); drums always keep their kind."""
+    ev = {}
+    for tick, ch, kind, _ in events:
+        e, off = divmod(tick - start_tick, EIGHTH)
+        if -BAR * 3 <= e < n + BAR * 3:
+            if ch.startswith("DRUM") or pitch == "exact":
+                k = kind
+            else:
+                k = kind % 12 if pitch == "class" else ""
+            ev.setdefault(e, set()).add((ch, off, k))
+    return ev
+
+
+def _pat(ev, a, L, ch=None):
+    return {(i,) + k for i in range(L) for k in ev.get(a + i, ()) if ch is None or k[0] == ch}
+
+
+def _jac(p, q):
+    return len(p & q) / max(len(p), len(q)) if (p or q) else 0.0
+
+
+def find_phrase(events, start_tick, n):
+    """(start, length) in eighths of the best phrase played twice in a row whose two rounds are
+    not whole 4/4 bars and leave whole 4/4 bars around them, or None."""
+    ev = _events(events, start_tick, n, "class")
+    best = None
+    for s0 in range(0, n, BAR):
+        for Lp in range(PHRASE_MIN, (n - s0) // 2 + 1):
+            if (2 * Lp) % BAR != n % BAR or (n - s0 - 2 * Lp) % BAR:
+                continue
+            sim = _jac(_pat(ev, s0, Lp), _pat(ev, s0 + Lp, Lp))
+            if sim >= PHRASE_SIM and (best is None or sim > best[0]):
+                best = (sim, s0, Lp)
+    return best and best[1:]
+
+
+def split_phrase(events, start_tick, n, s0, Lp, snare, snare_on):
+    """Bar lengths (eighths) that cut the phrase [s0, s0 + Lp) (played again right after)."""
+    rhythm = _events(events, start_tick, n, "none")
+    notes = _events(events, start_tick, n, "exact")
+    chans = sorted({k[0] for s_ in notes.values() for k in s_})
+
+    @lru_cache(None)
+    def rep_rhythm(a, L):
+        best = 0.0
+        for b in (a - L, a + L):
+            P, Q = set(), set()
+            for ch in chans:
+                p, q = _pat(rhythm, a, L, ch), _pat(rhythm, b, L, ch)
+                if not ch.startswith("DRUM") and \
+                        len({x[0] for x in p}) + len({x[0] for x in q}) >= DENSE * 2 * L:
+                    continue                    # sounds on every eighth: no rhythm information
+                P |= p
+                Q |= q
+            best = max(best, _jac(P, Q))
+        return max(0.0, 2 * best - 1)
+
+    @lru_cache(None)
+    def rep_notes(a, L):
+        best = 0.0
+        for k in (-2, -1, 1, 2):
+            for ch in chans:
+                p, q = _pat(notes, a, L, ch), _pat(notes, a + k * L, L, ch)
+                if len(p) >= 3 and len(q) >= 3:
+                    best = max(best, _jac(p, q))
+        return max(0.0, 2 * best - 1)
+
+    def fill_end(a):
+        return all(e in snare for e in (a - 1, a - 2, a - 3)) and a not in snare_on
+
+    def three_groups(a):
+        """The 3-eighth groups of a 9/8 bar are all alike (Shatterhand: a 3-eighth figure that
+        6/8 bars explain as well; real 9/8 bars of Dragon Quest IV run 2 + 2 + 2 + 3)."""
+        g = [_pat(rhythm, a + 3 * i, 3) for i in range(3)]
+        return all(_jac(g[0], g[i]) >= 0.9 for i in (1, 2)) and len(g[0]) > 0
+
+    def cost(a, L):
+        if L == BAR:
+            pen = 0.0
+        elif L <= 3:
+            pen = PH_PEN_SHORT
+        elif L == 4:
+            pen = PH_PEN_4
+        elif L > BAR:
+            pen = PH_PEN_LONG
+        else:
+            pen = PH_PEN
+        if L == 9 and any(three_groups(c + a) for c in (s0, s0 + Lp)):
+            pen += PH_PEN_TRIPLE
+        r = max(0.5 * rep_rhythm(c + a, L) + 0.5 * rep_notes(c + a, L) for c in (s0, s0 + Lp))
+        bonus = sum(FILL_BONUS for c in (s0, s0 + Lp) if fill_end(c + a)) / 2
+        return pen - r * L / BAR - bonus
+
+    best = {0: (0.0, None)}
+    for a in range(Lp):
+        if a not in best:
+            continue
+        for L in LENGTHS:
+            if a + L <= Lp:
+                c = best[a][0] + cost(a, L)
+                if a + L not in best or c < best[a + L][0] - 1e-9:
+                    best[a + L] = (c, (a, L))
+    bars, b = [], Lp
+    while best[b][1]:
+        a, L = best[b][1]
+        bars.append(L)
+        b = a
+    return bars[::-1]
+
+
+def odd_bars(events, start_tick, end_tick):
+    """events: [(tick, channel, kind, is_snare)]; kind = MIDI note of a tonal note, drum kind of
+    a drum hit. Returns [(tick, (num, den))] time signatures for the loop [start_tick, end_tick),
+    or None when the loop is a whole number of 4/4 bars or not a whole number of eighths."""
+    span = end_tick - start_tick
+    n = int(round(span / EIGHTH))
+    if n <= 0 or abs(span - n * EIGHTH) > EIGHTH / 8 or n % BAR == 0:
+        return None
+    ph = find_phrase(events, start_tick, n)
+    if not ph:
+        return _region_bars([(t, ch, k if ch.startswith("DRUM") else "", sn) for t, ch, k, sn in events],
+                            start_tick, end_tick)
+    s0, Lp = ph
+    snare, snare_on = set(), set()
+    for tick, ch, kind, is_snare in events:
+        if is_snare:
+            e, off = divmod(tick - start_tick, EIGHTH)
+            snare.add(e)
+            if off == 0:
+                snare_on.add(e)
+    inner = split_phrase(events, start_tick, n, s0, Lp, snare, snare_on)
+    rhythm = _events(events, start_tick, n, "none")
+    bars = [BAR] * (s0 // BAR) + inner + inner + [BAR] * ((n - s0 - 2 * Lp) // BAR)
+    out, prev, a = [], None, 0
+    for L in bars:
+        m = _meter(L, _pat(rhythm, a, L))
+        if m != prev:
+            out.append((start_tick + a * EIGHTH, m))
+            prev = m
+        a += L
     return out
