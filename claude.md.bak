@@ -104,6 +104,20 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
+### v2.9.5 (2026-11-03) ← 最新（プロンプト直接指示: GBS の MIDI 化に対応）
+- GBS を開いているときも Save で MIDI を選べるようにした（nsf2mid v0.1.27 を同期。GBS 対応の本体は nsf2mid 側）
+  - MIDI ch はチャンネルボタンと同じ: Square 1 = ch 1、Square 2 = ch 2、Wave = ch 3（トラック Ch3 Wave）、Noise = ch 4（GM ドラム）
+  - morokoshi が読み込んだ GBS データを一時ファイル（%TEMP%\morokoshi_midi_src.gbs）にして渡す（フォルダ読み込み・複数 GBS 入りの zip でも同じ曲になる）
+  - 曲番号は再生中の曲（GBS の曲番号 + 1）。MIDI オプションは NSF と共通
+  - morokoshi.spec: hiddenimports に gbs / gb_apu / cpu_sm83 を追加（関数内 import のため）
+- nsf2mid 側の内容: ゲームボーイの CPU（SM83）・APU のモデル・GBS プレイヤーを新規作成（起動手順は libgme に合わせた）。
+  音量変更のための再トリガー（GB のドライバーに多い）は同じ音の続きとする。150 Hz を超える PLAY は約 60 Hz にまとめる
+- 確認: libgme で 1 ch ずつ鳴らした音程とほぼ一致（カービィ・ゼルダ夢をみる島・テトリス・ポケモン赤 など 12 本）。
+  ランダム 60 本を 90 秒ずつ変換してエラーなし。NSF の回帰テストは完全一致。
+  morokoshi 本体（画面なし）でカービィの GBS を読み込み → MIDI 保存まで通ることを確認
+- 要確認（耳）: GB のノイズは高めの音が多く、NES と同じ基準ではほとんどハイハットに分類される曲がある（カービィなど）
+- マニュアル（Save の MIDI は NSF のみ、の記述など）は次の公開時に更新
+
 ### N163 のチャンネル数一覧 (2026-11-03)（プロンプト直接指示、コード変更なし）
 - N163 の NSF 13 本・458 曲を各 30 秒動かし、$7F（使うチャンネル数）を音が出ている間だけ集計
   - 8 ch: Erika to Satoru no Yume Bouken、King of Kings → MIDI ch 6〜13
@@ -112,7 +126,7 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
   - N163 の音なし: 独眼竜政宗、Family Circuit '91、Hydlide 3、Wagyan Land 2（基板だけ N163）、三國志 II（データ破損）
   - どの曲も途中でチャンネル数を変えない
 
-### v2.9.4 (2026-11-02) ← 最新（プロンプト直接指示: 他の拡張音源もすべて調査・実装、タム候補の調査）
+### v2.9.4 (2026-11-02)（プロンプト直接指示: 他の拡張音源もすべて調査・実装、タム候補の調査）
 - NSF の MIDI 変換が全拡張音源に対応（nsf2mid v0.1.26 を同期。新規ファイル nsf2mid_core/expansion.py）
   - MIDI ch = チャンネルボタンの番号: VRC6 は Saw 6・Pulse 7・8、VRC7 FM 6〜11、MMC5 6・7、N163 Wave 1〜8 = 6〜13、5B 6〜8、FDS 6
   - libgme で 1 ch ずつ鳴らして音程を比較し、ほぼ一致（詳細は nsf2mid の spec.md「Phase 5」）

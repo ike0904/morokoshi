@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.27
-commit:  e200c32 2026-11-03 v0.1.27: GBS (Game Boy) support: SM83 CPU, GB APU model and GBS player (libgme-compatible start-up); Square 1/2, Wave, Noise on MIDI ch 1-4; volume re-triggers continue the note; GUI opens .gbs and GBS m3u
+version: v0.1.28
+commit:  f9d4321 2026-11-03 v0.1.28: triplet grids - choose the beat row (long note of a shuffle on the beat), 16th onsets on 16ths; shuffle detection for short tunes; near-integer grid units snap to integers (Wrecking Crew t1/t5)
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, midi.py, notes.py, nsf.py, nsf2mid.py, tempo.py
