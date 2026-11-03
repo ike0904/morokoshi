@@ -403,6 +403,41 @@ def _same(a, b):
 
 
 TRACK_FIT = 0.9          # segments fitting worse than this are tempo-tracked (rubato / ritardando)
+RIT_MIN = 1.045          # v0.1.29: a run of notes this much longer than the channel's usual note ...
+RIT_MAX = 1.6            # ... (but not as long as a different note value) ...
+RIT_RUN = 3              # ... for this many notes in a row is a ritardando
+CONTINUOUS_ROWS = 2      # v0.1.29: a segment starting this close after the last note keeps its natural tick
+
+
+def has_ritardando(starts):
+    """A ritardando inside a segment that still fits its grid: the notes of one channel get
+    gradually longer than its usual note (e.g. 19 frames per 8th -> 21, 24, 26, 28, 26, 24, 21),
+    so the slow notes round up to extra rows and the bars drift. Runs of one longer value
+    (dotted notes: 28, 28, 28) do not count - the lengths must change along the run, step by
+    step (no jump of more than 0.2 x the usual note), and grow from the first note of the run
+    (a run that only gets shorter is a speed-up into the tempo, e.g. the Airball intro).
+
+    Example: Dragon Quest III t15 - 8ths of 19 frames slow down twice in the loop."""
+    st = sorted(starts)
+    iois = [b - a for a, b in zip(st, st[1:])]
+    if len(iois) < 8:
+        return False
+    common = Counter(iois).most_common(1)[0][0]
+    near = [i for i in iois if abs(i - common) <= max(1, 0.06 * common)]
+    d = sum(near) / len(near)
+    if d < 4:
+        return False
+    run = []
+    for i in iois + [0]:
+        r = i / d
+        if RIT_MIN < r < RIT_MAX:
+            run.append(r)
+            continue
+        if (len(run) >= RIT_RUN and max(run) - min(run) >= 0.05 and any(abs(x - 1.5) > 0.07 for x in run)
+                and max(run) >= run[0] + 0.05 and all(abs(b - a) <= 0.2 for a, b in zip(run, run[1:]))):
+            return True
+        run = []
+    return False
 COMPOUND_MIN_NOTES = 3
 COMPOUND_FIT = 0.85      # long notes on 3-eighth boundaries (dotted-quarter beats) ...
 COMPOUND_GAIN = 0.15     # ... clearly more often than on 2-eighth boundaries
@@ -465,6 +500,8 @@ class _Part:
         self.last_onset = origin_frame
         self.meter = (4, 4)
         self.bar_ticks = 4 * 480
+        self.bar_origin = origin_tick   # tick the bar lines count from (after a pickup bar, v0.1.29)
+        self.lead_beats = 0             # length of the pickup bar at the start (0 = none)
 
     def rows_at(self, frame):
         s = self.seg
@@ -501,7 +538,7 @@ class TickMap:
     """
 
     def __init__(self, tmap, ppq, quantize=True, frame_rate=60.0, onsets=None, notes=None,
-                 meters=None):
+                 meters=None, downbeat=None):
         self.ppq = ppq
         self.quantize = quantize
         self.fr = frame_rate
@@ -528,7 +565,11 @@ class TickMap:
                 origin = s.start
                 origin_tick = self._bar_after(self.parts[-1], origin)
             anchors, unit_end = [], s.unit
-            if s.score < TRACK_FIT and len(seg_on) >= 4:
+            rit = s.score >= TRACK_FIT and notes is not None and any(
+                has_ritardando([n.start for n in lst if (k == 0 or n.start >= s.start) and n.start < end])
+                for lst in notes.values())
+            s.rit = rit
+            if (s.score < TRACK_FIT or rit) and len(seg_on) >= 4:
                 anchors = track_rows([o for o in seg_on if o > origin], s.unit, origin)
                 if len(anchors) >= 2:
                     (fa, ra), (fb, rb) = anchors[-2], anchors[-1]
@@ -542,9 +583,37 @@ class TickMap:
             part.bar_ticks = int(round(ppq * 4 * part.meter[0] / part.meter[1]))
             s.meter = part.meter
             s.tracked = bool(anchors)
+            if k == 0 and downbeat is not None and (len(segs) == 1 or downbeat < segs[1].start):
+                self._set_downbeat(part, downbeat)
+            elif k > 0:
+                # a segment that starts mid-bar (continuous music, see _bar_after) keeps the
+                # previous bar lines; its meter starts at the next bar line
+                pb = self.parts[-1]
+                rel = origin_tick - pb.bar_origin
+                if rel % pb.bar_ticks:
+                    part.bar_origin = pb.bar_origin + math.ceil(rel / pb.bar_ticks) * pb.bar_ticks
             self.parts.append(part)
 
     # ------------------------------------------------------------------ meter
+    def _set_downbeat(self, part, frame):
+        """v0.1.29: make `frame` (the loop start) a bar line by putting a short bar at the start:
+        the beats before it that do not fill whole bars become the first bar (a pickup bar of
+        1-3 beats, e.g. 3/4, then 4/4).
+        The loop start is rounded to the beat when it lies within a quarter beat of one, else the
+        beat before it is taken (the loop often starts on the pickup note just after the beat).
+        Examples: Wrecking Crew t1 - loop start 15.67 beats -> 3/4 + 4/4 from beat 3 (the main
+        theme starts on a downbeat); Dragon Quest III t15 - loop start beat 2 -> 2/4 pickup bar."""
+        num, den = part.meter
+        if den != 4:
+            return
+        beat = self._tick_in(part, frame) / self.ppq
+        b = round(beat) if abs(beat - round(beat)) <= 0.25 else math.floor(beat)
+        lead = b % num
+        if b < 1 or lead == 0:
+            return
+        part.lead_beats = lead
+        part.bar_origin = part.origin_tick + lead * self.ppq
+
     def _detect_meter(self, part, notes, end):
         """6/8 if notes longer than one 8th start on 3-eighth boundaries, else 4/4."""
         rows = part.seg.rows
@@ -572,12 +641,16 @@ class TickMap:
         """Tick of the bar line where a segment starting at `frame` begins."""
         last_tick = self._tick_in(prev, prev.last_onset)
         bar = prev.bar_ticks
-        rel = last_tick - prev.origin_tick
-        nxt = prev.origin_tick + (int(rel // bar) + 1) * bar
+        rel = last_tick - prev.bar_origin
+        nxt = prev.bar_origin + (int(rel // bar) + 1) * bar
         natural = self._tick_in(prev, frame)
+        if frame - prev.last_onset <= CONTINUOUS_ROWS * prev.seg.unit:
+            # v0.1.29: the music goes on without a break (a ritardando that became its own
+            # segment, Dragon Quest III t15): no bar-line jump, the segment starts where it falls
+            return natural
         if natural - nxt > 2 * bar:
             # a real multi-bar rest: keep its length, aligned to the bar grid
-            nxt = prev.origin_tick + int(round((natural - prev.origin_tick) / bar)) * bar
+            nxt = prev.bar_origin + int(round((natural - prev.bar_origin) / bar)) * bar
         return nxt
 
     def _tick_in(self, part, frame):
@@ -651,4 +724,9 @@ class TickMap:
         return out
 
     def meter_events(self):
-        return [(int(round(p.origin_tick)), p.meter) for p in self.parts]
+        ev = []
+        for p in self.parts:
+            if p.lead_beats:
+                ev.append((int(round(p.origin_tick)), (p.lead_beats, 4)))
+            ev.append((int(round(p.bar_origin)), p.meter))
+        return ev
