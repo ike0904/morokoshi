@@ -109,6 +109,7 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
   パートの番号を再生すると 1 ch だけ鳴る（例: 76 = 全体、77 = Square 1、78 = Square 2、79 = Triangle）。不具合ではない
 - 全チャンネルの曲: 76・82・86・90・94・98・102・106・110・114・118・122・128・133。
   tmp/nsf_downloads の「Meikyuu Jiin Dababa」（14 曲版）の 1〜14 曲目と波形が一致（相関 0.99999）。nsf2mid でも同じ鳴り方
+- パートの曲番号を自動で見分ける・合成する案は、ユーザー判断で見送り
 
 ### v2.9.21 (2026-11-04)（プロンプト直接指示: DABABA.NSF が鳴らない、DokiDokiPanic.NSF が読み込みエラー）
 - 原因: どちらもロード先 $6000・バンク切り替えありの FDS の NSF。本体の _nsf_fix_low_load（$6000 台を $8000 以降へ移すトランポリン）は
