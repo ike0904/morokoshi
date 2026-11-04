@@ -104,7 +104,21 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.20 (2026-11-04) ← 最新（プロンプト直接指示: Exciting Soccer - Konami Cup の音がおかしい）
+### v2.9.21 (2026-11-04) ← 最新（プロンプト直接指示: DABABA.NSF が鳴らない、DokiDokiPanic.NSF が読み込みエラー）
+- 原因: どちらもロード先 $6000・バンク切り替えありの FDS の NSF。本体の _nsf_fix_low_load（$6000 台を $8000 以降へ移すトランポリン）は
+  バンク切り替えを考えておらず、壊れたデータを libgme に渡していた
+- 対策:
+  - 改造 libgme（game-music-emu-morokoshi a41c155）: FDS の NSF はロード先・INIT が $6000〜$7FFF でも読めるように。
+    $6000/$7000 の初期内容は、バンク切り替えなしなら曲データ、ありならヘッダーの $76/$77 のバンク
+  - 本体: FDS の NSF には _nsf_fix_low_load を使わない（libgme がそのまま読む）
+  - 改造 libgme: FDS の NSF は INIT が戻るのを最大 60 フレーム待ってから PLAY を呼ぶ（従来 4 フレーム）。
+    INIT でプログラムを RAM にコピーする曲（Seiken Psycho Calibur）で、INIT の途中に PLAY が割り込んで止まっていた
+- 確認（画面なし）: DABABA は 133 曲すべて、DokiDokiPanic は 36 曲を読み込んで音が出る。
+  ロード先 $6000 台の FDS の NSF 13 本（tmp/nsf_downloads）: 旧方式で鳴っていたのは 4 本 → 13 本すべて鳴る。
+  FDS の NSF 125 本を直前の DLL と比較し、変化は 7 本（曲頭が 0〜50ms ずれる程度。INIT の終了を待つようになったため）
+- 耳での確認はユーザー待ち
+
+### v2.9.20 (2026-11-04)（プロンプト直接指示: Exciting Soccer - Konami Cup の音がおかしい）
 - 原因: FDS の NSF で、$6000〜$7FFF にヘッダーのバンク（$76/$77）を読み込んでいなかった（libgme は 0 のまま）。
   この曲のドライバーは $6000〜$7FFF のデータを読むため、1・2・4・8 曲目が無音、3・5 曲目も音が違っていた
   （v2.1.6 の FDS 無音修正は $8000〜$DFFF の書き込みだけで、この場合は対象外だった）
