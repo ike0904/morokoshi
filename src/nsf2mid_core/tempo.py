@@ -372,6 +372,92 @@ def beat_fit(onsets, period, tol=0.75):
     return (score - chance) / (1 - chance), score, best[1]
 
 
+PULSE_NORM = 0.4      # v0.1.42: the long notes line up on the pulse at least this well ...
+PULSE_FRAMES = (18.0, 51.0)   # ... searched over this range (frames at 60 Hz)
+PULSE_LONG = 10       # a note followed by this many frames (60 Hz) in its channel is a long note
+
+
+def _residue_fit(onsets, period, tol=1.0):
+    """beat_fit with a sliding window over the sorted residues (fast; same norm)."""
+    res = sorted(o % period for o in onsets)
+    n = len(res)
+    ext = res + [r + period for r in res]
+    best = 0
+    j = 0
+    for i in range(n):
+        if j < i:
+            j = i
+        while j < i + n and ext[j] <= ext[i] + 2 * tol:
+            j += 1
+        best = max(best, j - i)
+    score = best / n
+    chance = min(0.999, 2 * tol / period)
+    return (score - chance) / (1 - chance)
+
+
+def note_pulse(channel_notes, frame_rate, drum_onsets=None):
+    """v0.1.42: the period (frames) on which the long notes of all channels line up best: the beat
+    or half / double of it. Unlike the grid search this works for triplets that the driver
+    rounds to whole frames (7, 7, 6 frames in a 20-frame beat: Minna no Taabou t1, Super Spike
+    V'Ball t2; 9, 9, 6 in 24: Super Team Games t1), and it finds the beat when the fine grid
+    divides it in a way choose_rows does not expect (a 4-frame grid with a 24-frame beat:
+    Elnark no Zaihou t3, Ganbare Pennant Race t1). Returns (period, norm) or None."""
+    k = frame_rate / 60.0
+    longs = set()
+    # drums count as channels of their own (kick / snare mark the beat: Ikinari Musician t2 is
+    # mostly drums)
+    for c in list((channel_notes or {}).values()) + list((drum_onsets or {}).values()):
+        st = sorted(set(c))
+        longs.update(a for a, b in zip(st, st[1:]) if b - a >= PULSE_LONG * k)
+    longs = sorted(longs)
+    if len(longs) < 24:
+        return None
+    best = None
+    p = PULSE_FRAMES[0] * k
+    while p <= PULSE_FRAMES[1] * k:
+        nm = _residue_fit(longs, p)
+        if best is None or nm > best[1] + 1e-9:
+            best = (p, nm)
+        p += 0.1 * k
+    return best
+
+
+def _pulse_grid(onsets, frame_rate, g, pulse):
+    """v0.1.42: the grid and rows per beat from the pulse when the detected grid does not divide
+    it. Returns (unit, rows, ternary) or None."""
+    P = pulse
+    best = None
+    for kk in (2, 3, 4, 6, 8, 12, 16):
+        u = P / kk
+        if u < 2.0:
+            break
+        sc = _fit(onsets, u)[0]
+        # the coarsest grid that explains the onsets about as well as the finest
+        if best is None or sc > best[1] + 0.03:
+            best = (u, sc, kk)
+    # the detected grid itself when the pulse is a whole number of its rows (Ikinari Musician t2:
+    # 2-frame grid of arpeggios, pulse 20 frames)
+    n = pulse / g["unit"]
+    if round(n) >= 2 and abs(n - round(n)) < 0.05 and (best is None or best[1] < g["score"] - 0.03):
+        best = (g["unit"], g["score"], round(n))
+    if best is None:
+        return None
+    u, sc, kk = best
+    # as well as the detected grid (Ikinari Musician t2: 1-2 frame arpeggios leave every grid
+    # near 76 %), and well in absolute terms when the detected grid fitted well
+    if sc < min(0.85, g["score"] - 0.03):
+        return None
+    ternary = kk % 3 == 0 and kk % 4 != 0 and kk % 5 != 0
+    rows = kk
+    # the pulse may be half a beat: binary music keeps BPM_LO..BPM_HI, triplets up to 240
+    hi = 240.0 if ternary else BPM_HI
+    while 60.0 * frame_rate / (u * rows) >= hi:
+        rows *= 2
+    while 60.0 * frame_rate / (u * rows) < BPM_LO and rows % 2 == 0:
+        rows //= 2
+    return u, rows, ternary
+
+
 class Segment:
     def __init__(self, start, unit, phase, score):
         self.start = start      # first onset frame belonging to the segment
@@ -386,18 +472,19 @@ class Segment:
 
 
 def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto",
-                     tempo="auto", drift=False):
+                     tempo="auto", drift=False, drum_onsets=None):
     """drift=True (SPC, v0.1.38): grid fits take the phase per few seconds (_drift_hits)."""
     global DRIFT_WINDOW
     DRIFT_WINDOW = 4.0 * frame_rate if drift else None
     try:
-        return _detect_tempo_map(onsets, frame_rate, rows_per_beat, unit, channel_notes, triplets, tempo)
+        return _detect_tempo_map(onsets, frame_rate, rows_per_beat, unit, channel_notes, triplets, tempo,
+                                 drum_onsets)
     finally:
         DRIFT_WINDOW = None
 
 
 def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto",
-                      tempo="auto"):
+                      tempo="auto", drum_onsets=None):
     """triplets: "auto" (detect), "on" (always triplet feel) or "off" (always binary).
     tempo: "auto", "half" (rows per beat x2) or "double" (rows per beat /2, only where the rows are even).
     Applied per segment after detection, so segments / triplets / shuffle are still detected."""
@@ -464,6 +551,22 @@ def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel
                 s.rows = choose_rows(s.unit, frame_rate, ternary, prev, melody_onsets(channel_notes) or onsets)
         s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
         prev = s.bpm
+    # v0.1.42: the beat must line up with the pulse of the long notes (1/2, 1 or 2 pulses);
+    # otherwise the grid and the beat come from the pulse (one tempo for the tune only)
+    pulse = False
+    if not rows_per_beat and not unit and not DRIFT_WINDOW and len(segs) == 1 and triplets != "off":
+        pl = note_pulse(channel_notes, frame_rate, drum_onsets)
+        s = segs[0]
+        if pl and pl[1] >= PULSE_NORM:
+            beat = s.unit * s.rows
+            if not any(abs(beat / (pl[0] * m) - 1) < 0.03 for m in (0.5, 1, 2)):
+                pg = _pulse_grid(onsets, frame_rate, g, pl[0])
+                if pg:
+                    s.unit, s.rows, ternary = pg
+                    s.score, _, s.phase = _fit(onsets, s.unit)
+                    s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
+                    g = {"unit": s.unit, "score": s.score, "norm": _fit(onsets, s.unit)[1], "phase": s.phase}
+                    shuffle, trip_d, pulse = False, None, True
     kept = 0  # segments left as detected ("double" on an odd number of rows, e.g. 3 rows per beat)
     if not rows_per_beat and tempo in ("half", "double"):
         for s in segs:
@@ -474,7 +577,7 @@ def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel
             else:
                 kept += 1
             s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
-    return {"drift": bool(DRIFT_WINDOW), "tempo_kept": kept, "global": g, "segments": segs, "ternary": ternary, "shuffle": shuffle, "triplet": bool(trip_d)}
+    return {"drift": bool(DRIFT_WINDOW), "tempo_kept": kept, "global": g, "segments": segs, "ternary": ternary, "shuffle": shuffle, "triplet": bool(trip_d), "pulse": pulse}
 
 
 def _segment(onsets, frame_rate, g):

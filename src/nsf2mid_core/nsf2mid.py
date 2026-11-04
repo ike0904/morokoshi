@@ -68,9 +68,11 @@ Usage:
   v0.1.40 (2026-11-03) - SPC: 複数の音程で鳴らす音程のある打楽器 (タム・ティンパニなど) は GM のタムにせず、音色のトラックに検出した音程のまま
   v0.1.41 (2026-11-03) - 4/4 の小節で割り切れるループでも変拍子を判定 (meter.odd_runs。4/4 以外の小節は 3 小節以上続くときだけ、
                          Ys 8 曲目)。--no-odd-meter / GUI「変拍子を検出する」。曲の最後の半端な数秒に別のテンポを付けない
+  v0.1.42 (2026-11-04) - 長い音とドラムの打点がそろう周期から拍を決める (tempo.note_pulse)。フレームに丸めた 3 連符
+                         (7・7・6 フレーム) や、グリッドと 1 拍の行数の取り違えで変拍子と誤判定していた曲が 4/4 に
 """
 
-APP_VERSION = "v0.1.41"
+APP_VERSION = "v0.1.42"
 
 import argparse
 import csv
@@ -694,15 +696,18 @@ def convert(args, should_stop=None):
     onsets += [d.start for d in in_range if d.src == "DMC"]
     chan_notes = {ch: {n.start: n.pitch for n in full[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
                   for ch in notes}
+    drum_on = {}
+    for d in in_range:
+        drum_on.setdefault(d.src, []).append(d.start)
     tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
-                             args.tempo, drift=getattr(player, "is_spc", False))
+                             args.tempo, drift=getattr(player, "is_spc", False), drum_onsets=drum_on)
     tmap = None
     if tempo is None:
         print("\nTempo: not enough notes to detect")
     else:
         g = tempo["global"]
         print(f"\nTempo: grid unit {g['unit']:g} frames (fit {g['score'] * 100:.1f}%), "
-              f"{'shuffle (long-short on a straight grid)' if tempo.get('shuffle') else 'triplet feel (3 notes per beat)' if tempo.get('triplet') else 'ternary (triplet/shuffle)' if tempo['ternary'] else 'binary'}")
+              f"{'beat from the long notes (' + ('ternary' if tempo['ternary'] else 'binary') + ')' if tempo.get('pulse') else 'shuffle (long-short on a straight grid)' if tempo.get('shuffle') else 'triplet feel (3 notes per beat)' if tempo.get('triplet') else 'ternary (triplet/shuffle)' if tempo['ternary'] else 'binary'}")
         if tempo.get("tempo_kept"):
             print(f"  Tempo double: {tempo['tempo_kept']} segment(s) kept as detected "
                   "(odd rows per beat cannot be halved)")

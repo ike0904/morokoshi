@@ -1,4 +1,4 @@
 Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.41
-commit:  4ce956b 2026-11-03 v0.1.41: odd meters also in loops of whole 4/4 bars (meter.odd_runs, odd bars only 3+ in a row; Ys t8), --no-odd-meter / GUI option, short last tempo window joins the previous one; docs/meter_check.md
+version: v0.1.42
+commit:  ef14814 2026-11-04 v0.1.42: beat from the pulse of long notes and drum hits (tempo.note_pulse): frame-rounded triplets (7,7,6) and wrong rows per beat no longer read as odd meters; meter_check.md with the user's answers
 files:   apu_state.py, cpu6502.py, cpu_sm83.py, cpu_spc700.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, spc.py, spc_drums.py, spc_dsp.py, tempo.py
