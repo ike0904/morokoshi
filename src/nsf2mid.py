@@ -70,9 +70,12 @@ Usage:
                          Ys 8 曲目)。--no-odd-meter / GUI「変拍子を検出する」。曲の最後の半端な数秒に別のテンポを付けない
   v0.1.42 (2026-11-04) - 長い音とドラムの打点がそろう周期から拍を決める (tempo.note_pulse)。フレームに丸めた 3 連符
                          (7・7・6 フレーム) や、グリッドと 1 拍の行数の取り違えで変拍子と誤判定していた曲が 4/4 に
+  v0.1.43 (2026-11-04) - 周期: 長い曲は区間ごとに見る、ループのある曲でループが 4/4 の小節ちょうどになるときだけ。
+                         6/8 のアウフタクト (8 分 1・2 個ずれ、休符で付点 4 分に埋める)、8 分が続く 6/8 (旋律が 8 分 6 個で戻る)、
+                         3 連系の曲・周期で拍を決めた曲は割り切れるループの変拍子を判定しない
 """
 
-APP_VERSION = "v0.1.42"
+APP_VERSION = "v0.1.43"
 
 import argparse
 import csv
@@ -406,6 +409,14 @@ def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
     events += [(tmap(d.start), "DRUM_" + d.src, str(d.gm if d.pitch is None else d.pitch),
                 d.pitch is None and d.gm in SNARE_NOTES) for d in drums if d.start < end_frame]
     n8 = int(round(span / (PPQ / 2)))
+    if n8 % 8 == 0 and getattr(tmap, "pulse_beat", False):
+        # v0.1.43: the beat was taken from the pulse of the long notes, which made the loop whole
+        # 4/4 bars; no odd stretches on top (M.C. Kids t2, Downtown Nekketsu t2: odd bars appeared)
+        return
+    if n8 % 8 == 0 and part.seg.rows % 3 == 0 and part.seg.rows % 4:
+        # v0.1.43: triplet / shuffle tunes (3 or 6 rows per beat) have no straight 8ths to cut
+        # bars from; a loop of whole 4/4 bars stays 4/4 (Hot Slots t2: 3/4 from beat 14 before)
+        return
     bars = (odd_runs if n8 % 8 == 0 else odd_bars)(events, start, start + span)
     if not bars:
         return
@@ -700,7 +711,8 @@ def convert(args, should_stop=None):
     for d in in_range:
         drum_on.setdefault(d.src, []).append(d.start)
     tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
-                             args.tempo, drift=getattr(player, "is_spc", False), drum_onsets=drum_on)
+                             args.tempo, drift=getattr(player, "is_spc", False), drum_onsets=drum_on,
+                             loop_period=loop["period"] if loop else None)
     tmap = None
     if tempo is None:
         print("\nTempo: not enough notes to detect")
@@ -715,7 +727,8 @@ def convert(args, should_stop=None):
                   for m in args.time_sig.split(",")] if args.time_sig else None
         tmap = TickMap(tempo, PPQ, not args.no_quantize, frame_rate, onsets,
                        {ch: [n for n in lst if n.start < end_frame] for ch, lst in full.items()}, meters,
-                       downbeat=loop["start"] if loop else None)
+                       downbeat=loop["start"] if loop else None, loop_period=loop["period"] if loop else None)
+        tmap.pulse_beat = bool(tempo.get("pulse"))
         for sg in tempo["segments"]:
             print(f"  from {sg.start / frame_rate:7.2f} s: {sg.bpm:7.2f} BPM  "
                   f"(unit {sg.unit:.4g} frames x {sg.rows} rows/beat, fit {sg.score * 100:.1f}%)  "
