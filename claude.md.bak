@@ -104,7 +104,19 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.19 (2026-11-03) ← 最新（プロンプト直接指示: Ys 8 曲目の拍子解析）
+### v2.9.20 (2026-11-04) ← 最新（プロンプト直接指示: Exciting Soccer - Konami Cup の音がおかしい）
+- 原因: FDS の NSF で、$6000〜$7FFF にヘッダーのバンク（$76/$77）を読み込んでいなかった（libgme は 0 のまま）。
+  この曲のドライバーは $6000〜$7FFF のデータを読むため、1・2・4・8 曲目が無音、3・5 曲目も音が違っていた
+  （v2.1.6 の FDS 無音修正は $8000〜$DFFF の書き込みだけで、この場合は対象外だった）
+- 対策（改造 libgme、game-music-emu-morokoshi 15bd191）: FDS の NSF は
+  ① 曲の開始時に $6000/$7000 へヘッダーの $E000/$F000 のバンクを読み込む（NSF の仕様どおり。nsf2mid と同じ）
+  ② $5FF6/$5FF7 のバンク切り替えに対応 ③ $E000〜$FFFF も書き込み可能に
+- 確認（画面なし）: Exciting Soccer は本体の処理経由で全 8 曲鳴る。FDS の NSF 109 本（tmp/nsf_downloads）で旧 DLL と比較し、
+  無音だった曲が多数鳴るようになった（Almana no Kiseki・Egger Land・Exciting Baseball / Billiard・Lipstick など）。元から鳴っていた曲の音量は同じ
+- 未対応（今回の範囲外）: ロード先 $6000 の FDS の NSF（Downloads の DABABA.NSF・DokiDokiPanic.NSF）は旧 DLL でも無音のまま
+- src/dll/libgme.dll を更新。dist/（v2.9.0 のリリース）は未変更。耳での確認はユーザー待ち
+
+### v2.9.19 (2026-11-03)（プロンプト直接指示: Ys 8 曲目の拍子解析）
 - nsf2mid v0.1.41 を同期: ループが 4/4 で割り切れる曲でも変拍子を判定（4/4 以外は 3 小節以上続くときだけ。ユーザー指示）。曲の最後の半端な数秒に別テンポを付けない
   - Ys 8 曲目 = 4/4 ×10、6/8 ×8、4/4 ×1、9/8 ×8、3/4 ×8（最後は無音）。ユーザー提示（6/8 ×9、2/4 ×2 の無音）とはデータの長さが 1 小節分違う（報告済み）
 - MIDI オプションに「変拍子を検出する」（既定オン、オフ = --no-odd-meter）を追加（JP/EN）

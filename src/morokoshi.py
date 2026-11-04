@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.20"
+APP_VERSION = "v2.9.21"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -675,6 +675,9 @@ def _nsf_fix_low_load(nsf_raw: bytes) -> bytes:
     load = nsf_raw[8] | (nsf_raw[9] << 8)
     init = nsf_raw[10] | (nsf_raw[11] << 8)
     if load >= 0x8000:
+        return nsf_raw
+    if nsf_raw[0x7B] & 0x04:
+        # FDS: the modified libgme loads $6000-$7FFF itself (with bankswitching)
         return nsf_raw
     code = nsf_raw[0x80:]
     ram_size = 0x8000 - load
