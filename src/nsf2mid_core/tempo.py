@@ -375,6 +375,7 @@ def beat_fit(onsets, period, tol=0.75):
 PULSE_NORM = 0.4      # v0.1.42: the long notes line up on the pulse at least this well ...
 PULSE_FRAMES = (18.0, 51.0)   # ... searched over this range (frames at 60 Hz)
 PULSE_LONG = 10       # a note followed by this many frames (60 Hz) in its channel is a long note
+PULSE_WINDOW = 10.0   # seconds per window of the fit
 
 
 def _residue_fit(onsets, period, tol=1.0):
@@ -412,29 +413,90 @@ def note_pulse(channel_notes, frame_rate, drum_onsets=None):
     longs = sorted(longs)
     if len(longs) < 24:
         return None
-    best = None
-    p = PULSE_FRAMES[0] * k
-    while p <= PULSE_FRAMES[1] * k:
-        nm = _residue_fit(longs, p)
-        if best is None or nm > best[1] + 1e-9:
-            best = (p, nm)
-        p += 0.1 * k
-    return best
+    # the fit per window of PULSE_WINDOW seconds, averaged: a period 0.01 frame off drifts by a
+    # whole frame over a long tune (Super Spike V'Ball t2: 19.82 frames, 3 minutes)
+    win = PULSE_WINDOW * frame_rate
+    parts, cur = [], []
+    for o in longs:
+        if cur and o >= cur[0] + win:
+            parts.append(cur)
+            cur = []
+        cur.append(o)
+    parts.append(cur)
+    parts = [x for x in parts if len(x) >= 8] or [longs]
+
+    def scan(fit):
+        best = None
+        p = PULSE_FRAMES[0] * k
+        while p <= PULSE_FRAMES[1] * k:
+            nm = fit(p)
+            if best is None or nm > best[1] + 1e-9:
+                best = (p, nm)
+            p += 0.1 * k
+        return best
+    # over the whole tune first; per window only when that finds nothing
+    best = scan(lambda p: _residue_fit(longs, p))
+    if best[1] >= PULSE_NORM or len(parts) < 2:
+        return best
+    best = scan(lambda p: sum(_residue_fit(x, p) * len(x) for x in parts) / sum(len(x) for x in parts))
+    # the exact period over the whole tune
+    # (the middle of the periods that fit best: with a 1-frame tolerance a range of them ties)
+    p0 = best[0]
+    qs = [p0 + i * 0.001 * k for i in range(-60, 61)]
+    fits = [_residue_fit(longs, q) for q in qs]
+    top = max(fits)
+    tied = [q for q, f in zip(qs, fits) if f >= top - 1e-9]
+    return tied[len(tied) // 2], best[1]
 
 
-def _pulse_grid(onsets, frame_rate, g, pulse):
+def _ioi_share(channel_notes, u):
+    """Share of the note intervals (per channel, at least 4 frames) that are a whole number of
+    grid rows u (within a frame)."""
+    hit = tot = 0
+    for c in (channel_notes or {}).values():
+        st = sorted(c)
+        for a, b in zip(st, st[1:]):
+            d = b - a
+            if d >= 4:
+                tot += 1
+                hit += abs(d - round(d / u) * u) <= 1.0
+    return hit / tot if tot else 0.0
+
+
+def _pulse_grid(onsets, frame_rate, g, pulse, channel_notes=None):
     """v0.1.42: the grid and rows per beat from the pulse when the detected grid does not divide
     it. Returns (unit, rows, ternary) or None."""
     P = pulse
     best = None
+    cands = []
     for kk in (2, 3, 4, 6, 8, 12, 16):
-        u = P / kk
-        if u < 2.0:
+        if P / kk < 2.0:
             break
-        sc = _fit(onsets, u)[0]
+        # the pulse is only known to about a frame: the best grid near P / kk (+-0.3 %)
+        sc, u = max((_fit(onsets, v)[0], v) for v in (P / kk * (1 + i * 0.0004) for i in range(-8, 9)))
+        if abs(u - g["unit"]) / g["unit"] < 0.003 and g["score"] >= sc - 0.005:
+            # the detected grid when it is this one (exact: Kkachi-Wa Norae Chingu 8.0133 frames)
+            sc, u = g["score"], g["unit"]
+        else:
+            # a whole, half or third of a frame when it fits as well (drivers count whole frames)
+            for snap in sorted({round(u), round(u * 2) / 2, round(u * 3) / 3}, key=lambda v: abs(v - u)):
+                if snap >= 2.0 and abs(snap - u) / u < 0.003:
+                    s2 = _fit(onsets, snap)[0]
+                    if s2 >= sc - 0.005:
+                        sc, u = s2, snap
+                        break
         # the coarsest grid that explains the onsets about as well as the finest
         if best is None or sc > best[1] + 0.03:
             best = (u, sc, kk)
+        cands.append((u, sc, kk))
+    if best is not None and channel_notes:
+        # of the grids about as good as the chosen one, the one the note intervals are made of
+        # (Tom & Jerry t1: 10 / 5-frame notes - 2.5 frames, not the triplet 3.33 of a 20-frame pulse)
+        near = [c for c in cands if c[1] >= best[1] - 0.03]
+        if len(near) > 1:
+            share = {c[2]: _ioi_share(channel_notes, c[0]) for c in near}
+            top = max(share.values())
+            best = next(c for c in near if share[c[2]] >= top - 0.02)
     # the detected grid itself when the pulse is a whole number of its rows (Ikinari Musician t2:
     # 2-frame grid of arpeggios, pulse 20 frames)
     n = pulse / g["unit"]
@@ -472,19 +534,19 @@ class Segment:
 
 
 def detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto",
-                     tempo="auto", drift=False, drum_onsets=None):
+                     tempo="auto", drift=False, drum_onsets=None, loop_period=None):
     """drift=True (SPC, v0.1.38): grid fits take the phase per few seconds (_drift_hits)."""
     global DRIFT_WINDOW
     DRIFT_WINDOW = 4.0 * frame_rate if drift else None
     try:
         return _detect_tempo_map(onsets, frame_rate, rows_per_beat, unit, channel_notes, triplets, tempo,
-                                 drum_onsets)
+                                 drum_onsets, loop_period)
     finally:
         DRIFT_WINDOW = None
 
 
 def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel_notes=None, triplets="auto",
-                      tempo="auto", drum_onsets=None):
+                      tempo="auto", drum_onsets=None, loop_period=None):
     """triplets: "auto" (detect), "on" (always triplet feel) or "off" (always binary).
     tempo: "auto", "half" (rows per beat x2) or "double" (rows per beat /2, only where the rows are even).
     Applied per segment after detection, so segments / triplets / shuffle are still detected."""
@@ -552,15 +614,23 @@ def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel
         s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
         prev = s.bpm
     # v0.1.42: the beat must line up with the pulse of the long notes (1/2, 1 or 2 pulses);
-    # otherwise the grid and the beat come from the pulse (one tempo for the tune only)
+    # otherwise the grid and the beat come from the pulse (one tempo for the tune only).
+    # v0.1.43: only for tunes with a loop, and only when the new beat makes the loop a whole
+    # number of 4/4 bars (a check the tune itself gives; 480 tunes: tempos of tunes without a
+    # loop changed by 3/2, 4/3 ... with nothing to tell which is right)
     pulse = False
-    if not rows_per_beat and not unit and not DRIFT_WINDOW and len(segs) == 1 and triplets != "off":
+    if (not rows_per_beat and not unit and not DRIFT_WINDOW and len(segs) == 1 and triplets != "off"
+            and loop_period):
         pl = note_pulse(channel_notes, frame_rate, drum_onsets)
         s = segs[0]
         if pl and pl[1] >= PULSE_NORM:
             beat = s.unit * s.rows
             if not any(abs(beat / (pl[0] * m) - 1) < 0.03 for m in (0.5, 1, 2)):
-                pg = _pulse_grid(onsets, frame_rate, g, pl[0])
+                pg = _pulse_grid(onsets, frame_rate, g, pl[0], channel_notes)
+                if pg:
+                    beats = loop_period / (pg[0] * pg[1])
+                    if abs(beats - round(beats)) > 0.1 or round(beats) % 4:
+                        pg = None
                 if pg:
                     s.unit, s.rows, ternary = pg
                     s.score, _, s.phase = _fit(onsets, s.unit)
@@ -770,6 +840,8 @@ def has_ritardando(starts, unit):
 COMPOUND_MIN_NOTES = 3
 COMPOUND_FIT = 0.85      # long notes on 3-eighth boundaries (dotted-quarter beats) ...
 COMPOUND_GAIN = 0.15     # ... clearly more often than on 2-eighth boundaries
+REP6_MIN = 0.15          # v0.1.43: the melody comes back after 6 8ths at least this often ...
+REP6_RATIO = 2.0         # ... and this many times as often as after 4 or 8
 BEAT_PHASE_GAIN = 1.15   # ternary grid: another row starts the beat if it scores this much better (v0.1.28)
 MIXED_TRIPLET_ERR = 1.5  # ternary grid: an onset this many frames off the triplet rows ...
 MIXED_16TH_ERR = 0.5     # ... and this close to a 16th of the beat is placed on the 16th (v0.1.28)
@@ -860,6 +932,9 @@ class _Part:
         self.bar_ticks = 4 * 480
         self.bar_origin = origin_tick   # tick the bar lines count from (after a pickup bar, v0.1.29)
         self.lead_beats = 0             # length of the pickup bar at the start (0 = none)
+        self.lead_meter = None          # v0.1.43: meter of a pickup bar in 8ths (6/8 tunes), at lead_tick
+        self.lead_tick = 0
+        self.meter_phase = 0            # v0.1.43: 6/8 bar lines this many 8ths after the grid origin
 
     def rows_at(self, frame):
         s = self.seg
@@ -896,8 +971,9 @@ class TickMap:
     """
 
     def __init__(self, tmap, ppq, quantize=True, frame_rate=60.0, onsets=None, notes=None,
-                 meters=None, downbeat=None):
+                 meters=None, downbeat=None, loop_period=None):
         self.ppq = ppq
+        self.loop = (downbeat, loop_period) if downbeat is not None and loop_period else None
         self.quantize = quantize
         self.fr = frame_rate
         onsets = sorted(set(onsets or []))
@@ -954,7 +1030,11 @@ class TickMap:
             part.bar_ticks = int(round(ppq * 4 * part.meter[0] / part.meter[1]))
             s.meter = part.meter
             s.tracked = bool(anchors)
-            if k == 0 and downbeat is not None and (len(segs) == 1 or downbeat < segs[1].start):
+            if k == 0 and part.meter_phase:
+                self._compound_pickup(part, notes, end,
+                                      downbeat if downbeat is not None and (len(segs) == 1 or downbeat < segs[1].start)
+                                      else None)
+            elif k == 0 and downbeat is not None and (len(segs) == 1 or downbeat < segs[1].start):
                 self._set_downbeat(part, downbeat)
             elif k == 0 and downbeat is None and quantize and notes:
                 self._phase_downbeat(part, notes, end)
@@ -987,6 +1067,39 @@ class TickMap:
             return
         part.lead_beats = lead
         part.bar_origin = part.origin_tick + lead * self.ppq
+
+    def _compound_pickup(self, part, notes, end, downbeat):
+        """v0.1.43: a 6/8 tune whose dotted-quarter beats start one or two 8ths after the grid
+        origin (part.meter_phase) begins with a pickup. The downbeat is the beat the loop start
+        falls on (or just after), else the beat where the long notes weigh more. A pickup that is
+        not a whole dotted beat gets rests in front (user rule: pad the pickup to whole beats), so
+        the first bar is 3/8 or 6/8.
+        Example: Ma Bu Mi Zhen & Qu Wei Cheng t3 - one 8th (D#4) before the first bass drum:
+        3/8 (two 8ths rest + the pickup), then 6/8."""
+        e = self.ppq / 2
+        o = part.meter_phase
+        cands = (o, o + 3)
+        if downbeat is not None:
+            ls = (self._tick_in(part, downbeat) - part.origin_tick) / e
+            d = min(cands, key=lambda c: (ls - c) % 6)
+        else:
+            w = {c: 0.0 for c in cands}
+            for lst in (notes or {}).values():
+                starts = [n.start for n in lst if part.origin_frame - 1 <= n.start < end]
+                for a, b in zip(starts, starts[1:]):
+                    q = round((self._tick_in(part, a) - part.origin_tick) / e)
+                    if q % 6 in w:
+                        w[q % 6] += min(6.0, (self._tick_in(part, b) - self._tick_in(part, a)) / e)
+            d = max(cands, key=lambda c: w[c])
+        lead = d % 6
+        if lead == 0:
+            part.bar_origin = part.origin_tick
+            return
+        pad = (3 - lead % 3) % 3
+        part.lead_tick = part.origin_tick
+        part.origin_tick += pad * e
+        part.bar_origin = part.origin_tick + lead * e
+        part.lead_meter = (lead + pad, 8)
 
     def _phase_downbeat(self, part, notes, end):
         """v0.1.33: a tune without a loop has no loop start to put on a bar line. Long notes and
@@ -1064,7 +1177,50 @@ class TickMap:
         s2 = sum(1 for p in pos if p % 2 == 0) / len(pos)
         if s3 >= COMPOUND_FIT and s3 - s2 >= COMPOUND_GAIN:
             return (6, 8)
+        # v0.1.43: the same with the beats one or two 8ths later (a pickup 8th: Ma Bu Mi Zhen & Qu
+        # Wei Cheng t3, 99 % of the long notes one 8th after the 3-8th boundaries from the start)
+        s2 = max(sum(1 for p in pos if (p - o) % 2 == 0) for o in (0, 1)) / len(pos)
+        for o in (1, 2):
+            s3 = sum(1 for p in pos if (p - o) % 3 == 0) / len(pos)
+            if s3 >= COMPOUND_FIT and s3 - s2 >= COMPOUND_GAIN:
+                part.meter_phase = o
+                return (6, 8)
+        if self._repeats_in_six(part, notes, end):
+            # the phase: where most long notes start on the 3-8th boundaries
+            part.meter_phase = max((0, 1, 2), key=lambda o: (sum(1 for p in pos if (p - o) % 3 == 0), -o))
+            return (6, 8)
         return (4, 4)
+
+    def _repeats_in_six(self, part, notes, end):
+        """v0.1.43: 6/8 in running 8ths (no long notes to tell the bars): the melody comes back
+        after 6 8ths far more often than after 4 or 8 (Indora no Hikari t1: 0.75 vs 0 / 0,
+        Relics t3: 0.25 vs 0.04 / 0.07), and the loop is a whole number of 6/8 bars (Minna no Taabou
+        t2 repeats after 6 8ths too, but its loop of 128 8ths is 4/4). Channels sounding the same
+        pitch all the time (a pedal) are left out."""
+        if not self.loop or part.seg.rows % 2:
+            return False
+        e = part.seg.rows // 2
+        start, period = self.loop
+        if not part.origin_frame - 1 <= start < end:
+            return False
+        n8 = (part.rows_at(start + period) - part.rows_at(start)) / e
+        if abs(n8 - round(n8)) > 0.1 or round(n8) % 6 or round(n8) % 8 == 0 and round(n8) % 24:
+            return False
+        best = None
+        for lst in notes.values():
+            sel = [n for n in lst if part.origin_frame - 1 <= n.start < end]
+            if len(sel) < 40:
+                continue
+            at = {round(part.rows_at(n.start)): n.pitch for n in sel}
+            rep = {}
+            for k in (4, 6, 8):
+                lag = k * e
+                rep[k] = sum(1 for r, p in at.items() if any(at.get(r + lag + x) == p for x in (-1, 0, 1))) / len(at)
+            if min(rep.values()) >= 0.9:
+                continue                    # a pedal
+            if best is None or rep[6] > best[6]:
+                best = rep
+        return bool(best) and best[6] >= REP6_MIN and best[6] >= REP6_RATIO * max(best[4], best[8])
 
     # -------------------------------------------------------------- mapping
     def _bar_after(self, prev, frame):
@@ -1156,7 +1312,9 @@ class TickMap:
     def meter_events(self):
         ev = []
         for p in self.parts:
-            if p.lead_beats:
+            if p.lead_meter:
+                ev.append((int(round(p.lead_tick)), p.lead_meter))
+            elif p.lead_beats:
                 ev.append((int(round(p.origin_tick)), (p.lead_beats, 4)))
             ev.append((int(round(p.bar_origin)), p.meter))
         if self.extra_meters:
