@@ -73,9 +73,13 @@ Usage:
   v0.1.43 (2026-11-04) - 周期: 長い曲は区間ごとに見る、ループのある曲でループが 4/4 の小節ちょうどになるときだけ。
                          6/8 のアウフタクト (8 分 1・2 個ずれ、休符で付点 4 分に埋める)、8 分が続く 6/8 (旋律が 8 分 6 個で戻る)、
                          3 連系の曲・周期で拍を決めた曲は割り切れるループの変拍子を判定しない
+  v0.1.44 (2026-11-05) - 他のチャンネルの同じ音程を少し遅れて鳴らす音 (エコー) はテンポ・拍子の検出に使わない。
+                         8 分 3 個の分散和音が 4/4 の小節線で始まり直す区間は 6/8 にしない、8 分が続く 6/8 の小節頭はループ開始。
+                         繰り返さないチャンネルが周期の倍数で繰り返すならその倍数をループに。1 つのチャンネルが
+                         グリッドに乗り続ける区間はテンポを追わない
 """
 
-APP_VERSION = "v0.1.43"
+APP_VERSION = "v0.1.44"
 
 import argparse
 import csv
@@ -395,6 +399,56 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
     return tracks
 
 
+ECHO_MAX = 24        # v0.1.44: frames; a note this soon after the same pitch in another channel ...
+ECHO_SHARE = 0.5     # ... is an echo when this share of the channel's notes follow that channel so ...
+ECHO_MIN = 16        # ... (at least this many notes) with the same delay
+
+
+def drop_echoes(notes):
+    """v0.1.44 (user rule: echoes are common on the NES and must not count for tempo / meter):
+    a channel whose notes mostly repeat the same pitch of another channel a little later (the
+    same delay, 1..ECHO_MAX frames) is an echo of it; those notes are left out of tempo and meter
+    detection (the MIDI keeps them). Two channels that would each be the other's echo play one
+    figure in turns (Bikkuriman World t2), not an echo: both are kept.
+    Examples: Relics t3 - P2 plays P1 one 8th (16 frames) later, Minna no Taabou t2 - P2 one 16th
+    later."""
+    found = {}
+    for b, lb in notes.items():
+        if len(lb) < ECHO_MIN:
+            continue
+        best = None
+        for a, la in notes.items():
+            if a == b or not la:
+                continue
+            by = {}
+            for n in la:
+                by.setdefault(n.pitch, []).append(n.start)
+            hist = {}
+            for n in lb:
+                for f in by.get(n.pitch, ()):
+                    d = int(round(n.start - f))
+                    if 1 <= d <= ECHO_MAX:
+                        hist[d] = hist.get(d, 0) + 1
+            for d in hist:
+                c = hist[d] + hist.get(d - 1, 0) + hist.get(d + 1, 0)
+                if best is None or c > best[0]:
+                    best = (c, a, d)
+        if best and best[0] >= max(ECHO_MIN, ECHO_SHARE * len(lb)):
+            found[b] = best[1:]
+    out = dict(notes)
+    for b, (a, d) in found.items():
+        if found.get(a, (None,))[0] == b:
+            continue                    # each the other's "echo": one figure in turns
+        src = {}
+        for n in notes[a]:
+            src.setdefault(n.pitch, []).append(n.start)
+        lb = notes[b]
+        out[b] = [n for n in lb if not any(abs(n.start - f - d) <= 1 for f in src.get(n.pitch, ()))]
+        print(f"  Echo: {b} repeats {a} {d} frames later ({len(lb) - len(out[b])} of {len(lb)} notes "
+              "left out of tempo / meter detection)")
+    return out
+
+
 def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
     """v0.1.30: a loop that is not a whole number of 4/4 bars gets its odd bars (meter.odd_bars).
     v0.1.41: a loop of whole 4/4 bars is searched for odd stretches too (meter.odd_runs)."""
@@ -701,7 +755,7 @@ def convert(args, should_stop=None):
             else:
                 print(f"  {src:3} {str(kind):28} {cnt:4} -> {gm:3} {GM_NAMES.get(gm, ''):16} "
                       f"MIDI ch {DRUM_CH[src] + 1} ({info})")
-    full = detect
+    full = drop_echoes(detect)
 
     onsets = [o for o in tempo_onsets(full, frames) if o < end_frame]
     onsets += [d.start for d in in_range if d.src == "DMC"]
@@ -732,11 +786,15 @@ def convert(args, should_stop=None):
         for sg in tempo["segments"]:
             print(f"  from {sg.start / frame_rate:7.2f} s: {sg.bpm:7.2f} BPM  "
                   f"(unit {sg.unit:.4g} frames x {sg.rows} rows/beat, fit {sg.score * 100:.1f}%)  "
-                  f"{sg.meter[0]}/{sg.meter[1]}" + ("  [tempo tracked]" if sg.tracked else ""))
+                  f"{sg.meter[0]}/{sg.meter[1]}"
+                  # v0.1.44: compound meters read in dotted quarters (user: Bikkuriman World t2 = 100)
+                  + (f" (dotted quarter = {sg.bpm * 2 / 3:.2f})" if sg.meter[1] == 8 and sg.meter[0] % 3 == 0 else "")
+                  + ("  [tempo tracked]" if sg.tracked else ""))
             if sg.score < 0.8 and not sg.tracked:
                 print("    Warning: poor grid fit (rubato or unsupported rhythm?)")
         if loop and not args.no_odd_meter:
-            odd_loop_meters(tmap, loop, notes, drums, end_frame, max(1, args.loops))
+            odd_loop_meters(tmap, loop, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame,
+                            max(1, args.loops))
         mid_path = mid_out or stem + ".mid"
         write_smf(mid_path, build_midi(notes, drums, tmap, h.title, track, end_frame, loop, transpose, programs), PPQ)
         outputs.insert(0, mid_path)

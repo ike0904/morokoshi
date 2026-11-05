@@ -525,7 +525,10 @@ def summarize(lines):
         bpms = []
         for l in segs:
             m = re.search(r"([\d.]+) BPM", l)
-            if m:
+            dq = re.search(r"dotted quarter = ([\d.]+)", l)
+            if dq:
+                bpms.append(float(dq.group(1)))     # v0.1.44: 6/8 in dotted quarters
+            elif m:
                 bpms.append(float(m.group(1)))
         meters = []
         for l in segs:
@@ -534,7 +537,8 @@ def summarize(lines):
                 meters.append(m.group(1))
         if bpms:
             lo, hi = min(bpms), max(bpms)
-            parts.append(f"{lo:.0f} BPM" if round(lo) == round(hi) else f"{lo:.0f}-{hi:.0f} BPM")
+            unit = "BPM（付点 4 分）" if all("dotted quarter" in l for l in segs) else "BPM"
+            parts.append(f"{lo:.0f} {unit}" if round(lo) == round(hi) else f"{lo:.0f}-{hi:.0f} {unit}")
         if meters:
             parts.append("→".join(meters))
     else:

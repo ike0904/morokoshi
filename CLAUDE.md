@@ -40,6 +40,19 @@
 
 ## 作業記録
 
+### v0.1.44 エコー・分散和音の 6/8・長いループ (2026-11-05) ← 最新（プロンプト直接指示: meter_check の確認結果・エコーの指示）
+- ユーザー回答: Relics 3 曲目の 1 拍目は「F」（ベースが入る所。検出できなくても許容）、Minna 2 曲目は 3+3+3+3+4 = 16 で 4/4、M.C. Kids・Downtown 2 曲目は難しい（検出できなくても仕方ない）、
+  Kkachi-Wa は似た 4 小節 ×4 → 別のフレーズ、Tom & Jerry・Balda は 180 くらい・頭 2 拍が弱起、Ys 8 曲目は今の解釈で完全に正しい。v0.1.43 の 31 曲の回答も meter_check.md に記入
+- ユーザー指示: エコー（他のチャンネルの同じ音程を少し遅れて鳴らす）はテンポ・拍子の検出に使わない → nsf2mid.drop_echoes（互いにエコーになる組は対象外: Bikkuriman 2 曲目）
+- meter._drop_cycle_runs: 8 分 3 個の分散和音が 4/4 の小節線だけで始まり直す区間は 6/8 にしない → Minna 2 曲目 4/4
+- 8 分が続く 6/8 の小節頭 = ループ開始 → Relics 3 曲目は F から 6/8
+- loop.detect_loop: 繰り返さないチャンネルが周期の倍数（6000 フレームまで）で 90 % 以上繰り返すならその倍数をループに → Kkachi-Wa 68 秒（32 小節）、Loopz・Platoon・Metal Slader なども長くなった
+- tempo.steady_channel: 1 つのチャンネルが区間全体でグリッドに乗っていればテンポを追わない（Kkachi-Wa のエコーで 119〜135 BPM に揺れていた）
+- 6/8 のとき、ログに「dotted quarter = X」、GUI の一覧は「X BPM（付点 4 分）」（ユーザー「6/8 の BPM 表記を再考」。MIDI のテンポは 4 分音符のまま）
+- 確認: 正解の変拍子曲（沙羅曼蛇 3 面・Shatterhand・DQ4 13 曲目・Ys 8・Starship Hector）、Ma Bu Mi・Indora・Super Spike・Minna 1・Wrecking Crew は変化なし。
+  回帰テスト 6 本変化（Balda・Ikari II の追従、Kkachi-Wa・Loopz・SD Gundam のループ、King of Kings のグリッド）。480 曲: 35 曲変化（21 曲は追従なしだけ）、変拍子 29 → 25 曲。MIDI は morokoshi/tmp/meter_check/v044/
+- 未対応・提案: 6/8 でテンポが半分（Elnark 2 曲目・Star Soldier 2 曲目）、Tom & Jerry・Balda の 180 BPM、meter_check.md の「誤り（次の課題）」8 曲
+
 ### v0.1.43 段階 2・3: 6/8 のアウフタクト・3 連系の変拍子・周期の改良 (2026-11-04) ← 最新（プロンプト直接指示: 段階 2・3、ユーザー離席中に実施）
 - ユーザー確認（v0.1.42 の回帰 4 曲）: Lolo 2・Ai Sensei は 3 連ノリで正しい（Ai Sensei は 1 拍のアウフタクト）、Kkachi-Wa はテンポ正しいがループはもっと長い、Tom & Jerry は曲番号を疑問視
 - ユーザー指示: アウフタクトが 1 拍で割り切れないときは頭に休符を入れて割り切れるようにする。6/8 と 4/4 はどちらでも良いが急に切り替わる曲に注意

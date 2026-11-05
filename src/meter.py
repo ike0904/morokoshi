@@ -366,6 +366,54 @@ def _rep_funcs(events, start_tick, n):
     return rep, rhythm
 
 
+def _cycle_breaks(events, start_tick, a, b):
+    """{channel: (held, breaks)} for the 8ths a..b-1: a figure of 3 8ths repeating (an arpeggio
+    in 8ths) holds while each note is the one 3 8ths before; a break is the first note that is
+    not (the figure starts again / the chord changes). Only notes on the 8ths count."""
+    at = {}
+    for tick, ch, kind, _ in events:
+        if not ch.startswith("DRUM") and (tick - start_tick) % EIGHTH == 0:
+            at.setdefault(ch, {})[(tick - start_tick) // EIGHTH] = kind
+    out = {}
+    for ch, m in at.items():
+        held, brk = 0, []
+        for p in range(a, b):
+            if all(m.get(p - i) is not None and m.get(p - i) == m.get(p - i - 3) for i in (1, 2, 3)):
+                held += 1
+                if m.get(p) != m.get(p - 3):
+                    brk.append(p - a)
+        out[ch] = (held, brk)
+    return out
+
+
+def _drop_cycle_runs(events, start_tick, bars):
+    """v0.1.44: a run of 6/8 (9/8, 3/4) bars on an arpeggio of 3 8ths is 4/4 when the figure starts
+    again on the 4/4 bar lines and never on its own bar lines (user: Minna no Taabou t2 is
+    3+3+3+3+4 = 16 8ths - the last 4 shows the 4/4). The run must keep the 4/4 bar lines (it
+    starts on one and is a whole number of 4/4 bars), else it stays."""
+    out, a, i = [], 0, 0
+    while i < len(bars):
+        L = bars[i]
+        j = i
+        while j < len(bars) and bars[j] == L:
+            j += 1
+        span = L * (j - i)
+        if L != BAR and L % 3 == 0 and a % BAR == 0 and span % BAR == 0:
+            cyc = _cycle_breaks(events, start_tick, a, a + span)
+            ch = max(cyc, key=lambda c: cyc[c][0]) if cyc else None
+            if ch is not None and cyc[ch][0] >= span // 2:
+                brk = cyc[ch][1]
+                if len(brk) >= 2 and all(p % BAR == 0 and p % L for p in brk):
+                    out += [BAR] * (span // BAR)
+                    a += span
+                    i = j
+                    continue
+        out += bars[i:j]
+        a += span
+        i = j
+    return out
+
+
 def odd_runs(events, start_tick, end_tick):
     """v0.1.41: odd bars in a loop that is a whole number of 4/4 bars (Ys t8: 4/4 x8, 6/8 x8,
     4/4, 9/8 x8, 3/4 x8, 4/4 x2 = 64 beats). The loop is cut into bars so that each bar is
@@ -414,6 +462,7 @@ def odd_runs(events, start_tick, end_tick):
         k, L = best[k][1]
         bars.append(L)
     bars.reverse()
+    bars = _drop_cycle_runs(ev, start_tick, bars)
     if all(L == BAR for L in bars):
         return None
     # one time signature per run of bars of the same length (majority: 6/8 or 3/4), so that a

@@ -790,6 +790,9 @@ CONTINUOUS_ROWS = 2      # v0.1.29: a segment starting this close after the last
 
 JITTER_TOL = 1.5        # v0.1.31: frames; onsets this close to the grid ...
 JITTER_FIT = 0.9        # ... this often = a steady tempo whose notes are rounded to frames
+STEADY_MIN_NOTES = 16   # v0.1.44: a channel with this many notes in a segment ...
+STEADY_SPREAD = 0.8     # ... spread over this share of it ...
+STEADY_FIT = 0.98       # ... this often on the grid = a steady tempo (steady_channel)
 
 
 def steady_with_jitter(onsets, unit, phase):
@@ -805,6 +808,27 @@ def steady_with_jitter(onsets, unit, phase):
         if min(d, unit - d) <= JITTER_TOL:
             hits += 1
     return hits / len(onsets) >= JITTER_FIT
+
+
+def steady_channel(notes, start, end, unit, phase):
+    """v0.1.44: a segment keeps one steady tempo when one channel plays on the grid all through it
+    (STEADY_FIT of at least STEADY_MIN_NOTES notes spread over the segment): a tempo change would
+    move that channel too; the other channels' misses are ornaments off the grid.
+    Example: Kkachi-Wa Norae Chingu t1 - the melody's echo notes 7 and 14 frames after its 8ths
+    gave a fit of 74 % and a tracked tempo of 119-135 BPM in a tune of 112.69 BPM throughout;
+    the chords and the bass stay on the 8-frame grid."""
+    if not notes:
+        return False
+    for lst in notes.values():
+        on = [n.start for n in lst if start <= n.start < end]
+        if len(on) < STEADY_MIN_NOTES:
+            continue
+        span = min(end, max(n.end for n in lst)) - max(start, min(on))
+        if on[-1] - on[0] < STEADY_SPREAD * span:
+            continue
+        if sum(_hits(on, unit, phase)) / len(on) >= STEADY_FIT:
+            return True
+    return False
 
 
 def has_ritardando(starts, unit):
@@ -1009,7 +1033,9 @@ class TickMap:
                 has_ritardando([n.start for n in lst if (k == 0 or n.start >= s.start) and n.start < end], s.unit)
                 for lst in notes.values())
             s.rit = rit
-            jitter = s.score < TRACK_FIT and not rit and steady_with_jitter(seg_on, s.unit, s.phase)
+            jitter = s.score < TRACK_FIT and not rit and (
+                steady_with_jitter(seg_on, s.unit, s.phase)
+                or steady_channel(notes, s.start if k else -1, end, s.unit, s.phase))
             if tmap.get("drift") and len(seg_on) >= 4:
                 # v0.1.38 (SPC): always followed bar by bar (tempo drift, small tempo changes)
                 anchors = track_rows_drift([o for o in seg_on if o > origin], s.unit, origin, 4 * s.rows)
@@ -1186,8 +1212,11 @@ class TickMap:
                 part.meter_phase = o
                 return (6, 8)
         if self._repeats_in_six(part, notes, end):
-            # the phase: where most long notes start on the 3-8th boundaries
-            part.meter_phase = max((0, 1, 2), key=lambda o: (sum(1 for p in pos if (p - o) % 3 == 0), -o))
+            # v0.1.44: the phase of the loop start (running 8ths: the long notes do not tell the
+            # bars; Relics t3 - the loop starts on the F where the bass comes in, the user's
+            # downbeat, one 8th after the 3-8th boundaries of the long notes)
+            ls = part.rows_at(self.loop[0]) / eighth
+            part.meter_phase = int(round(ls)) % 3
             return (6, 8)
         return (4, 4)
 
