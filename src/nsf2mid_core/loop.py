@@ -28,6 +28,7 @@ MIN_EVENTS = 8          # a channel needs this many events to take part
 MIN_LOOP_FRAMES = 120   # ignore periods shorter than 2 s
 LOOSE_MIN = 2           # v0.1.38: events of a non-repeating channel inside the loop that refute it
 REPEATS = 3             # the loop body must be heard this many times in a row
+MULT_MAX_FRAMES = 6000  # v0.1.44: longest multiple of the period tried for a non-repeating channel
 
 
 def _scan(t, tok, k, period=None):
@@ -156,10 +157,25 @@ def detect_loop(channel_events, strict=False):
     start = max(first, max(starts.values()))
     # v0.1.38: a channel that still plays in the loop but does not repeat (a melody over a
     # repeating ostinato: FF6 "The Mines of Narshe", 2.18 s found after 17 s) -> not the loop yet
-    for name in (loose if strict else ()):    # SPC only (on NES it changed 3 tunes of the test set)
-        ev = channel_events[name]
-        if sum(1 for f, _ in ev if f >= start) >= LOOSE_MIN and repeat_share(ev, start, period) < 0.9:
-            return None
+    busy = [name for name in loose
+            if sum(1 for f, _ in channel_events[name] if f >= start) >= LOOSE_MIN
+            and repeat_share(channel_events[name], start, period) < 0.9]
+    if busy:
+        # v0.1.44: it may repeat with a multiple of the period (Kkachi-Wa Norae Chingu t1: bass and
+        # chords every 512 frames, the melody A A' A A' B B' B'' B''' every 4096 - the B phrases
+        # with other echo notes each round, 0.94 alike); the smallest multiple up to
+        # MULT_MAX_FRAMES is the loop. Until the tune has been heard long enough to test them all,
+        # no loop yet.
+        last = max(ev[-1][0] for ev in channel_events.values() if ev)
+        for k in range(2, int(MULT_MAX_FRAMES // period) + 1):
+            if last - start < 2 * k * period:
+                return None
+            if all(repeat_share(channel_events[name], start, k * period) >= 0.9 for name in busy):
+                period *= k
+                break
+        else:
+            if strict:                  # SPC only (on NES it changed 3 tunes of the test set)
+                return None
     return {"start": start, "period": period, "channels": per}
 
 
