@@ -102,9 +102,35 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ---
 
+## MIDI 変換（nsf2mid）の決まりごと（v2.9.25 で nsf2mid を統合）
+
+- ソースは `src/nsf2mid_core/`（直接編集してよい。nsf2mid 本体との同期は不要になった）。バージョンは morokoshi の `APP_VERSION` だけで管理する
+- 仕様書: `docs/midi/spec.md`。確認リスト: `docs/midi/meter_check.md`・`spc_check.md`。統合前の作業記録: `docs/midi/nsf2mid_history.md`
+- CLI（調査用）: `python src/nsf2mid_core/nsf2mid.py FILE [-t TRACK] [-s SECONDS] [-o OUTDIR] ...`
+- 回帰テスト: `python tools/regress.py > 結果.txt` → 前回の結果と diff。判定ロジックを変えたら必ず実行する
+  （nsf2mid v0.1.9 で 12 曲しか確認せず、45 本でテンポ 2 倍の誤判定が出た前例あり）
+- テストデータ: NSF 1934 本 `tmp/nsf_downloads/*.zip`、展開済みの確認用 `tmp/nsf2mid_test/`（出力は `tmp/nsf2mid_test/nsf2mid_out/`、12 曲は変更のたびに作り直すのが慣例）
+- ユーザーの判断（確定）:
+  - 三角波は APU の物理的な音高のまま（オクターブ移動しない）
+  - 音色（プログラムチェンジ）は出力しない（Sibelius が音色から楽器を決めて並べ替えるため）
+  - トラック名は楽器名と紛らわしくない名前にする（「Triangle」は Sibelius で打楽器トライアングルになった）
+  - ループ確定は 3 回連続一致（2 回繰り返した後にサビが入る曲がある）
+  - 冒頭の空白は保持する。3 連ノリ（シャッフル）は 3 連として出す
+  - テンポの半分・2 倍は許容（MIDI オプションで調整できる）
+
+---
+
 ## 作業記録
 
-### v2.9.24 (2026-11-05) ← 最新（プロンプト直接指示: meter_check の確認結果、エコーの指示「同じ音程で少し遅い音が他のチャンネルにあればテンポ・拍子の検出に使わない」）
+### v2.9.25 (2026-11-06) ← 最新（プロンプト直接指示: nsf2mid を morokoshi に完全統合。py は分けたまま）
+- nsf2mid の git 履歴（52 コミット）を morokoshi に取り込んだ（並べ替えたクローンを --allow-unrelated-histories でマージ）。
+  `git log --follow src/nsf2mid_core/〇〇.py` で nsf2mid 時代の履歴も見られる
+- src/nsf2mid_core/ を本体に: SOURCE.txt・tools/sync_nsf2mid.py を削除。nsf2mid.py の APP_VERSION は廃止（"(morokoshi)" 表示）、引数なしで GUI → 使い方の表示
+- ユーザー判断: nsf2mid の GUI（nsf2mid_gui.py）・簡易再生（player.py）・dll・アイコン・マニュアルは廃止
+- 移動: 仕様書類 → docs/midi/、nsf2mid の CLAUDE.md → docs/midi/nsf2mid_history.md、回帰テスト → tools/regress.py、testdata → tmp/nsf2mid_test/
+- 確認: 回帰テストで統合前（nsf2mid）と統合後（morokoshi）の結果が一致。ローカルの nsf2mid フォルダは削除
+
+### v2.9.24 (2026-11-05)（プロンプト直接指示: meter_check の確認結果、エコーの指示「同じ音程で少し遅い音が他のチャンネルにあればテンポ・拍子の検出に使わない」）
 - nsf2mid v0.1.44 を同期: エコーをテンポ・拍子の検出から外す、8 分 3 個の分散和音が 4/4 の小節線で始まり直す区間は 6/8 にしない（Minna 2 曲目 → 4/4）、
   8 分が続く 6/8 の小節頭はループ開始（Relics 3 曲目 → F から 6/8）、繰り返さないチャンネルが周期の倍数で繰り返すならその倍数をループに（Kkachi-Wa → 68 秒）、
   1 つのチャンネルがグリッドに乗り続ける区間はテンポを追わない、6/8 のテンポを付点 4 分でも表示（nsf2mid のログ・画面）

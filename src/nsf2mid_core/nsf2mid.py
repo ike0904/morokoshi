@@ -78,6 +78,8 @@ Usage:
                          グリッドに乗り続ける区間はテンポを追わない
   (2026-11-06) morokoshi に統合 (morokoshi v2.9.25)。以後のバージョンは morokoshi の APP_VERSION で管理する。
                GUI (nsf2mid_gui.py)・簡易再生 (player.py) は廃止。CLI は回帰テスト・調査用に残す
+  v2.9.26 (2026-11-06) アルペジオ (2〜3 音を 3 フレーム以下で繰り返す) はテンポ・拍子の判定では最初の音だけ (MIDI は元のまま)。
+               判定で粗くなったグリッドは 1 拍の行数を 2・4 倍に (fine_rows)。上昇下降型 (FOLD_SWEEPS) は停止中
 """
 
 APP_VERSION = "(morokoshi)"   # merged into morokoshi v2.9.25; versions are morokoshi's APP_VERSION
@@ -92,8 +94,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from nsf import open_player, nsf_base_name  # noqa: E402
 from apu_state import APUState, note_name  # noqa: E402
-from notes import extract_notes, tempo_onsets  # noqa: E402
-from tempo import detect_tempo_map, TickMap  # noqa: E402
+from notes import Note, extract_notes, tempo_onsets, _frame_info  # noqa: E402
+from tempo import detect_tempo_map, TickMap, _hits as grid_hits, _phase as grid_phase  # noqa: E402
 from midi import Track, write_smf  # noqa: E402
 from spc_drums import split_spc_drums  # noqa: E402
 from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split, parse_drum_map,  # noqa: E402
@@ -398,6 +400,183 @@ def build_midi(notes, drums, tmap, title, track_no, end_frame, loop, transpose, 
             tr.note(st, en, DRUM_CH[src], max(0, min(127, num)), d.vel)
         tracks.append(tr)
     return tracks
+
+
+FAST_GAP = 3         # v2.9.26: frames between the notes of an arpeggio (chord figure) ...
+FAST_MIN = 4         # ... of at least this many notes
+SWEEP_STEP = 2       # frames between the steps of a sweep (pitch moving one way very fast) ...
+SWEEP_RUN = 3        # ... of at least this many steps
+SWEEP_TAIL = 2       # frames after a sweep in which the note it lands on starts
+FOLD_SWEEPS = False  # v2.9.26: sweeps are not folded yet: Silver Surfer t1/t4/t9 got steadier, but
+                     # Bayou Billy JP (real 3-frame notes in a falling 5-note figure) broke up
+
+
+def _sweeps(frames, ch):
+    """(a, b) frame ranges where the pitch of ch keeps moving one way, a step every
+    1..SWEEP_STEP frames (a = the frame of the first pitch, b = the frame of the last step).
+    Silver Surfer t1 TRI: A#2 E2 C2 A1 G#1 retriggered frame by frame, then the bass B1;
+    t6 P2: B4 A#4 A4 G#4 G4 F#4 and again from C5 every 6 frames.
+    A retrigger SWEEP_STEP + 1 frames or more after the previous one (or the start) is a note of its
+    own and ends the sweep (Bayou Billy JP P2: 3-frame notes falling in a 5-note figure, real 32nds)."""
+    out = []
+    prev = last = start = None
+    dirn = run = 0
+    last_trig = None
+    for f, fr in enumerate(frames):
+        vol, note, trig, _ = _frame_info(fr["state"], fr["written"], ch)
+        if vol == 0 or note is None:
+            if run >= SWEEP_RUN:
+                out.append((start, last))
+            prev, run = None, 0
+            continue
+        if trig:
+            if run and f - max(last_trig if last_trig is not None else start, start) > SWEEP_STEP:
+                if run >= SWEEP_RUN:
+                    out.append((start, last))
+                run = 0
+            last_trig = f
+        if prev is not None and abs(note - prev) >= 0.75:
+            s = 1 if note > prev else -1
+            if run and s == dirn and f - last <= SWEEP_STEP and abs(note - prev) <= 12:
+                run += 1
+            else:
+                if run >= SWEEP_RUN:
+                    out.append((start, last))
+                dirn, run, start = s, 1, f - 1
+            last = f
+        elif run and f - last > SWEEP_STEP:
+            if run >= SWEEP_RUN:
+                out.append((start, last))
+            run = 0
+        prev = note
+    if run >= SWEEP_RUN:
+        out.append((start, last))
+    return out
+
+
+def _piece(n, a, b, cue):
+    """The frames a..b-1 (relative to its start) of the note n as a note of its own."""
+    pitch = next((x for x in n.pitches[a:b] if x is not None), n.pitch)
+    m = Note(n.ch, n.start + a, int(round(pitch)), cue)
+    m.vols, m.duties, m.pitches = n.vols[a:b], n.duties[a:b], n.pitches[a:b]
+    m.end = n.start + b
+    m.gate_end = min(max(n.gate_end, m.start + 1), m.end)
+    return m
+
+
+def _join(ch, start, group, cue):
+    """One note from start to the end of the notes in group."""
+    m = Note(ch, start, group[0].pitch, cue)
+    for n in group:
+        m.vols += n.vols
+        m.duties += n.duties
+        m.pitches += n.pitches
+    m.end, m.gate_end = group[-1].end, group[-1].gate_end
+    return m
+
+
+def _fold_sweeps(lst, sweeps, ch):
+    """Each sweep is one note from its first frame: a note running through the start of the sweep
+    is cut there, the notes starting inside the sweep (or on the note it lands on) are joined."""
+    for a, b in sweeps:
+        cut = []
+        for n in lst:
+            if n.start < a < n.end:
+                k = int(a - n.start)
+                cut += [_piece(n, 0, k, n.cue), _piece(n, k, len(n.pitches), "trig")]
+            else:
+                cut.append(n)
+        lst = cut
+        group = [n for n in lst if a <= n.start <= b + SWEEP_TAIL]
+        if group:
+            m = _join(ch, a, group, "trig")
+            lst = [n for n in lst if not a <= n.start <= b + SWEEP_TAIL]
+            lst.append(m)
+            lst.sort(key=lambda n: n.start)
+    return lst
+
+
+def _arpeggio_end(lst, i):
+    """End index of an arpeggio starting at lst[i]: notes FAST_GAP frames or less apart cycling
+    through 2 or 3 pitches, standing for a chord (Balloon Fight t1 P2: G#4 E4 G#4 E4 ... = E4 + G#4;
+    Wrecking Crew t2 P2: a new chord every beat, so the cycle restarts where the pitches change)."""
+    best = i + 1
+    for k in (2, 3):
+        if i + k >= len(lst) or len({lst[i + j].pitch for j in range(k)}) < k:
+            continue
+        e = i + 1
+        while (e < len(lst) and lst[e].start - lst[e - 1].start <= FAST_GAP
+               and (e - i < k or lst[e].pitch == lst[e - k].pitch)):
+            e += 1
+        best = max(best, e)
+    return best
+
+
+def fold_fast_figures(notes, frames):
+    """v2.9.26 (user rule: chiptune arpeggios and very fast note groups stand for one note): for
+    tempo and meter detection only, a sweep or an arpeggio counts as one note starting at its first
+    frame / note. The MIDI keeps every note as it is."""
+    out = {}
+    inner = []
+    n_sw = n_arp = 0
+    for ch, lst in notes.items():
+        sweeps = _sweeps(frames, ch) if FOLD_SWEEPS and ch in TONAL else []
+        n_sw += len(sweeps)
+        lst = _fold_sweeps(list(lst), sweeps, ch) if sweeps else list(lst)
+        res, i = [], 0
+        while i < len(lst):
+            e = _arpeggio_end(lst, i)
+            if e - i >= FAST_MIN:
+                res.append(_join(ch, lst[i].start, lst[i:e], lst[i].cue))
+                inner += [n.start for n in lst[i + 1:e]]
+                n_arp += e - i - 1
+                i = e
+            else:
+                res.append(lst[i])
+                i += 1
+        out[ch] = res
+    if n_sw or n_arp:
+        print(f"  Fast figures (tempo / meter detection only): "
+              + (f"{n_sw} sweeps, " if FOLD_SWEEPS else "")
+              + f"{n_arp} arpeggio notes folded into the first")
+    return out, sorted(set(inner))
+
+
+FINE_WINDOW = 480    # frames: fine_rows takes the phase per this many frames
+FIT_FINE = 0.85      # share of the folded notes that must sit on the grid
+
+
+def _local_fit(onsets, unit):
+    """Share of the onsets on the grid with the phase taken per FINE_WINDOW frames (a driver may
+    slip by a frame: Wrecking Crew t2 at 38 s)."""
+    hits = i = 0
+    while i < len(onsets):
+        j = i
+        while j < len(onsets) and onsets[j] < onsets[i] + FINE_WINDOW:
+            j += 1
+        sub = onsets[i:j]
+        hits += sum(grid_hits(sub, unit, grid_phase(sub, unit)))
+        i = j
+    return hits / len(onsets)
+
+
+def fine_rows(segs, onsets):
+    """v2.9.26: the tempo comes from the notes with the fast figures folded; the MIDI keeps every
+    note, so a segment whose folded notes (onsets: the notes after the first of each figure) sit on
+    1/2 or 1/4 of its grid gets 2 or 4 times the rows per beat, the same tempo (Balloon Fight t1 P2:
+    3-frame arpeggio notes on a 6-frame grid; Wrecking Crew t2: on a 12-frame grid after 16 s)."""
+    for k, s in enumerate(segs):
+        end = segs[k + 1].start if k + 1 < len(segs) else float("inf")
+        on = [o for o in onsets if s.start <= o < end]
+        if len(on) < 8 or _local_fit(on, s.unit) >= FIT_FINE:
+            continue
+        for m in (2, 4):
+            u = s.unit / m
+            if u < 1.5:
+                break
+            if _local_fit(on, u) >= FIT_FINE:
+                s.unit, s.rows = u, s.rows * m
+                break
 
 
 ECHO_MAX = 24        # v0.1.44: frames; a note this soon after the same pitch in another channel ...
@@ -756,18 +935,34 @@ def convert(args, should_stop=None):
             else:
                 print(f"  {src:3} {str(kind):28} {cnt:4} -> {gm:3} {GM_NAMES.get(gm, ''):16} "
                       f"MIDI ch {DRUM_CH[src] + 1} ({info})")
-    full = drop_echoes(detect)
-
-    onsets = [o for o in tempo_onsets(full, frames) if o < end_frame]
-    onsets += [d.start for d in in_range if d.src == "DMC"]
-    chan_notes = {ch: {n.start: n.pitch for n in full[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
-                  for ch in notes}
+    unfolded = drop_echoes(detect)
+    full, fine = unfolded, None
+    if not getattr(player, "is_spc", False):
+        full, fine = fold_fast_figures(unfolded, frames)
+        fine = [o for o in fine if o < end_frame]
     drum_on = {}
     for d in in_range:
         drum_on.setdefault(d.src, []).append(d.start)
-    tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
-                             args.tempo, drift=getattr(player, "is_spc", False), drum_onsets=drum_on,
-                             loop_period=loop["period"] if loop else None)
+
+    def tempo_of(full):
+        onsets = [o for o in tempo_onsets(full, frames) if o < end_frame]
+        onsets += [d.start for d in in_range if d.src == "DMC"]
+        chan_notes = {ch: {n.start: n.pitch for n in full[ch] if n.start < end_frame and not n.cue.startswith("pitch")}
+                      for ch in notes}
+        tempo = detect_tempo_map(onsets, frame_rate, args.rows_per_beat, args.unit, chan_notes, args.triplets,
+                                 args.tempo, drift=getattr(player, "is_spc", False), drum_onsets=drum_on,
+                                 loop_period=loop["period"] if loop else None)
+        return onsets, tempo
+
+    onsets, tempo = tempo_of(full)
+    if tempo is None and fine:
+        # v2.9.26: a short tune with too few notes left after folding: detect as before
+        # (Legends of the Diamond t1)
+        print("  Fast figures: too few notes left, detecting with every note")
+        full, fine = unfolded, None
+        onsets, tempo = tempo_of(full)
+    if tempo is not None and fine and not args.rows_per_beat:
+        fine_rows(tempo["segments"], fine)
     tmap = None
     if tempo is None:
         print("\nTempo: not enough notes to detect")

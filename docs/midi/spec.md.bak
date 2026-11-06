@@ -1,6 +1,10 @@
-# nsf2mid 仕様書
+# nsf2mid 仕様書（morokoshi の MIDI 変換）
 
-morokoshi の派生アプリ。NSF（ファミコン音楽ファイル）を読み取り、テンポ検出付きで MIDI に変換する。
+NSF / GBS / SPC を読み取り、テンポ検出付きで MIDI に変換する。morokoshi の Save → MIDI から使う。
+
+> 2026-11-06（morokoshi v2.9.25）に別アプリ nsf2mid（v0.1.44）を morokoshi へ統合した。
+> ソースは `src/nsf2mid_core/`、回帰テストは `tools/regress.py`。バージョンは morokoshi の `APP_VERSION` で管理する。
+> nsf2mid の GUI・簡易再生は廃止（下の「Phase 4 GUI」は記録として残す）。CLI は回帰テスト・調査用に残す。
 
 ## 方針
 
@@ -21,15 +25,11 @@ morokoshi の派生アプリ。NSF（ファミコン音楽ファイル）を読�
 | 5 | 拡張音源 | FDS は v0.1.25、VRC6・VRC7・MMC5・N163・5B は v0.1.26 で対応（下記「Phase 5 拡張音源」） |
 | 6 | GBS（ゲームボーイ） | v0.1.27 で対応（下記「Phase 6 GBS」） |
 
-## 構成（src/）
+## 構成（src/nsf2mid_core/）
 
 | ファイル | 役割 |
 |:---|:---|
-| `nsf2mid.py` | CLI エントリ。`APP_VERSION` を保持。MIDI 構築・各種出力。`convert(args)` が 1 曲分の変換（GUI からも使用）。引数なしで GUI を起動 |
-| `nsf2mid_gui.py` | GUI（PyQt6、未インストールなら自動 pip install）。見た目は morokoshi に合わせる |
-| `player.py` | GUI の簡易再生（libgme を ctypes で呼び sounddevice へ出力） |
-| `dll/` | libgme.dll と依存 DLL（morokoshi と同じビルド）、license.txt |
-| `icon/` | GUI のアイコン（play_pause.png は morokoshi の埋め込みアイコンと同じ画像、スピンボックスの矢印 SVG） |
+| `nsf2mid.py` | CLI エントリ。MIDI 構築・各種出力。`convert(args)` が 1 曲分の変換（morokoshi から使用）。引数なしは使い方を表示 |
 | `gbs.py` | GBS ヘッダ解析・メモリマップ・バンク切替・INIT/PLAY 呼び出し・レジスタ書き込み記録（NSFPlayer と同じインターフェース、v0.1.27） |
 | `cpu_sm83.py` | ゲームボーイ CPU コア（SM83 / LR35902、v0.1.27） |
 | `gb_apu.py` | ゲームボーイ APU 状態モデル（P1/P2/TRI/NOI のキーで返すので以降の処理は NSF と共通、v0.1.27） |
@@ -45,7 +45,7 @@ morokoshi の派生アプリ。NSF（ファミコン音楽ファイル）を読�
 ## 使い方
 
 ```
-python src/nsf2mid.py FILE.nsf [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
+python src/nsf2mid_core/nsf2mid.py FILE.nsf [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
                       [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
                       [--loops N] [--no-loop] [--drop-drums N] [--drum-map MAP]
 ```
@@ -99,7 +99,7 @@ python src/nsf2mid.py FILE.nsf [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--d
 
 - v0.1.27: `.gbs` と GBS 入りの zip も指定できる（`nsf.open_player` がファイルの先頭 3 バイト `GBS` で切り替える）
 
-## Phase 4 GUI（v0.1.12）
+## Phase 4 GUI（v0.1.12、v2.9.25 の統合で廃止。記録として残す）
 
 起動: `nsf2mid.bat`（NSF をドロップしても可）、`python src/nsf2mid.py`（引数なし）、`python src/nsf2mid_gui.py [FILE.nsf]`
 
