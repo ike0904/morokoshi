@@ -10,7 +10,7 @@ if not os.path.isfile(ICON_PATH):
 
 a = Analysis(
     ['morokoshi.py'],
-    pathex=[os.path.join(SPECPATH, 'nsf2mid_core')],   # NSF -> MIDI (copied from nsf2mid by tools/sync_nsf2mid.py)
+    pathex=[os.path.join(SPECPATH, 'nsf2mid_core')],   # NSF / GBS / SPC -> MIDI converter (nsf2mid, merged in v2.9.25)
     binaries=[],
     datas=[(ICON_PATH, '.')],
     hiddenimports=['nsf2mid', 'gbs', 'gb_apu', 'cpu_sm83', 'spc', 'cpu_spc700', 'spc_dsp', 'spc_drums'],   # GBS modules are imported inside functions

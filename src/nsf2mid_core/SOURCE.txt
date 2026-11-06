@@ -1,4 +1,0 @@
-Copied from nsf2mid by tools/sync_nsf2mid.py. Do not edit these files here.
-version: v0.1.44
-commit:  cd94292 2026-11-05 v0.1.44: echoes left out of tempo/meter detection, 3-8th arpeggio runs restarting on 4/4 bar lines stay 4/4, running-8ths 6/8 downbeat at the loop start, loop of a multiple period for a non-repeating channel, steady tempo when one channel stays on the grid, 6/8 tempo shown in dotted quarters; meter_check.md with the user's answers
-files:   apu_state.py, cpu6502.py, cpu_sm83.py, cpu_spc700.py, drums.py, expansion.py, gb_apu.py, gbs.py, loop.py, meter.py, midi.py, notes.py, nsf.py, nsf2mid.py, spc.py, spc_drums.py, spc_dsp.py, tempo.py

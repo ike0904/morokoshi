@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.24"
+APP_VERSION = "v2.9.25"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -264,7 +264,7 @@ def save_global_settings(zoom, volume):
     _update_settings(zoom=zoom, volume=volume)
 
 
-# ── nsf2mid（NSF → MIDI 変換）。src/nsf2mid_core/ は tools/sync_nsf2mid.py で nsf2mid からコピーしたもの
+# ── nsf2mid（NSF / GBS / SPC → MIDI 変換）。本体は src/nsf2mid_core/（v2.9.25 で nsf2mid を統合）
 NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "triplets": "auto",
                     "keep_tail": False,
                     "quantize": True, "odd_meter": True, "drop_drums": 3}

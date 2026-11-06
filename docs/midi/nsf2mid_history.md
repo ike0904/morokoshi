@@ -1,3 +1,11 @@
+# nsf2mid の作業記録（統合前）
+
+> 2026-11-06（morokoshi v2.9.25）に nsf2mid を morokoshi へ統合した。これは nsf2mid の CLAUDE.md（v0.1.44 時点）をそのまま移したもの。
+> 文中のパス `src/〇〇.py` は現在 `src/nsf2mid_core/〇〇.py`、`docs/〇〇.md` は `docs/midi/〇〇.md`、`testdata\` は `tmp\nsf2mid_test\`。
+> GUI（nsf2mid_gui.py）・簡易再生（player.py）は廃止。今後の作業記録は morokoshi の CLAUDE.md に書く。
+
+---
+
 ・C:\Users\ike09\.claude\claude.md 初回起動時と更新あり時は必ず読むこと。
 ・docs/spec.md が仕様書。
 ・バージョンは src/nsf2mid.py の APP_VERSION で管理する。

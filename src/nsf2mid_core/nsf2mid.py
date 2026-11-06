@@ -1,10 +1,10 @@
 """
-nsf2mid - NSF to MIDI converter (derived from morokoshi)
+nsf2mid - NSF / GBS / SPC to MIDI converter of morokoshi (Save -> MIDI)
 
 Phase 1: 6502 emulation + APU register log / per-frame channel state dump.
 Phase 2: note extraction (P1/P2/TRI), tempo detection, quantized MIDI output.
 Phase 3: drums (noise / DPCM / triangle glides -> GM percussion), loop / end detection.
-Phase 4: GUI (nsf2mid_gui.py). Started when no arguments are given.
+Phase 4: GUI (nsf2mid_gui.py; dropped when merged into morokoshi v2.9.25).
 Phase 5: expansion audio (expansion.py): FDS, VRC6, VRC7, MMC5, N163, Sunsoft 5B on MIDI ch 6-.
 Phase 6: GBS (Game Boy, gbs.py / cpu_sm83.py / gb_apu.py): Square 1/2, Wave, Noise on MIDI ch 1-4.
 Phase 7: SPC (Super Famicom, spc.py / cpu_spc700.py / spc_dsp.py): 8 voices on MIDI ch 1-8, one track
@@ -12,7 +12,6 @@ Phase 7: SPC (Super Famicom, spc.py / cpu_spc700.py / spc_dsp.py): 8 voices on M
          bar by bar (driver tempo drift).
 
 Usage:
-    python nsf2mid.py                (GUI)
     python nsf2mid.py FILE.nsf|FILE.gbs|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
                       [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
                       [--loops N] [--no-loop] [--drop-drums N] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
@@ -77,9 +76,11 @@ Usage:
                          8 分 3 個の分散和音が 4/4 の小節線で始まり直す区間は 6/8 にしない、8 分が続く 6/8 の小節頭はループ開始。
                          繰り返さないチャンネルが周期の倍数で繰り返すならその倍数をループに。1 つのチャンネルが
                          グリッドに乗り続ける区間はテンポを追わない
+  (2026-11-06) morokoshi に統合 (morokoshi v2.9.25)。以後のバージョンは morokoshi の APP_VERSION で管理する。
+               GUI (nsf2mid_gui.py)・簡易再生 (player.py) は廃止。CLI は回帰テスト・調査用に残す
 """
 
-APP_VERSION = "v0.1.44"
+APP_VERSION = "(morokoshi)"   # merged into morokoshi v2.9.25; versions are morokoshi's APP_VERSION
 
 import argparse
 import csv
@@ -590,7 +591,7 @@ def note_sample(n):
 
 
 class Cancelled(Exception):
-    """Raised when the GUI asks to stop a conversion."""
+    """Raised when the caller (morokoshi) asks to stop a conversion."""
 
 
 def build_parser():
@@ -811,9 +812,8 @@ def convert(args, should_stop=None):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
-        # no arguments: start the GUI (Phase 4)
-        from nsf2mid_gui import main as gui_main
-        return gui_main()
+        build_parser().print_help()
+        return 2
     return convert(build_parser().parse_args(argv))[0]
 
 

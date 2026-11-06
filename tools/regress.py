@@ -1,7 +1,7 @@
 """
 Regression test over a sample of NSF files.
 
-Runs src/nsf2mid.py on 40 randomly chosen (seed 1) NSF archives plus a few fixed titles from
+Runs src/nsf2mid_core/nsf2mid.py on 40 randomly chosen (seed 1) NSF archives plus a few fixed titles from
 the morokoshi test collection, and prints per file: tempo segments, meters, number of
 tempo-tracked segments, loop / end result and the difference between the MIDI length and
 the detected song length (a timing check of the tempo map).
@@ -24,7 +24,7 @@ if importlib.util.find_spec("mido") is None:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "mido"])
 import mido  # noqa: E402
 
-DEFAULT_DIR = r"E:\Users\takashi\Desktop\ClaudeCode\morokoshi\tmp\nsf_downloads"
+DEFAULT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "nsf_downloads")
 FIXED = ("Mega Man 2 (", "Super Mario Bros. (", "Castlevania (", "Final Fantasy (", "Gradius (")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -43,7 +43,7 @@ def main():
         p = os.path.join(tmp, "x.nsf")
         with open(p, "wb") as f:
             f.write(z.read(nsfs[0]))
-        r = subprocess.run([sys.executable, os.path.join(ROOT, "src", "nsf2mid.py"), p, "-o", tmp, "-s", "600"],
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "src", "nsf2mid_core", "nsf2mid.py"), p, "-o", tmp, "-s", "600"],
                            capture_output=True, text=True)
         out = r.stdout.splitlines()
         segs = [l.strip() for l in out if l.strip().startswith("from ")]
