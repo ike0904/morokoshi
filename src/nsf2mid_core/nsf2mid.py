@@ -80,6 +80,9 @@ Usage:
                GUI (nsf2mid_gui.py)・簡易再生 (player.py) は廃止。CLI は回帰テスト・調査用に残す
   v2.9.26 (2026-11-06) アルペジオ (2〜3 音を 3 フレーム以下で繰り返す) はテンポ・拍子の判定では最初の音だけ (MIDI は元のまま)。
                判定で粗くなったグリッドは 1 拍の行数を 2・4 倍に (fine_rows)。上昇下降型 (FOLD_SWEEPS) は停止中
+  v2.9.27 (2026-11-06) 往復型アルペジオに 4 音を追加 (3・4 音は 2 周以上、すき間なし、12 フレーム以上、ドラムの連打は除く)。
+               アルペジオの音はグライドにまとめない (M.C. Kids)。--arp-chords: アルペジオを和音にして出力。
+               拡張音源が複数指定された NSF は拡張音源なし
 """
 
 APP_VERSION = "(morokoshi)"   # merged into morokoshi v2.9.25; versions are morokoshi's APP_VERSION
@@ -94,7 +97,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from nsf import open_player, nsf_base_name  # noqa: E402
 from apu_state import APUState, note_name  # noqa: E402
-from notes import Note, extract_notes, tempo_onsets, _frame_info  # noqa: E402
+from notes import Note, extract_notes, tempo_onsets, _frame_info, arpeggio_end  # noqa: E402
 from tempo import detect_tempo_map, TickMap, _hits as grid_hits, _phase as grid_phase  # noqa: E402
 from midi import Track, write_smf  # noqa: E402
 from spc_drums import split_spc_drums  # noqa: E402
@@ -497,19 +500,39 @@ def _fold_sweeps(lst, sweeps, ch):
 
 
 def _arpeggio_end(lst, i):
-    """End index of an arpeggio starting at lst[i]: notes FAST_GAP frames or less apart cycling
-    through 2 or 3 pitches, standing for a chord (Balloon Fight t1 P2: G#4 E4 G#4 E4 ... = E4 + G#4;
-    Wrecking Crew t2 P2: a new chord every beat, so the cycle restarts where the pitches change)."""
-    best = i + 1
-    for k in (2, 3):
-        if i + k >= len(lst) or len({lst[i + j].pitch for j in range(k)}) < k:
-            continue
-        e = i + 1
-        while (e < len(lst) and lst[e].start - lst[e - 1].start <= FAST_GAP
-               and (e - i < k or lst[e].pitch == lst[e - k].pitch)):
-            e += 1
-        best = max(best, e)
-    return best
+    """End index of an arpeggio starting at lst[i] (notes.arpeggio_end, notes FAST_GAP frames or
+    less apart). Wrecking Crew t2 P2: a new chord every beat, so the cycle restarts where the pitches
+    change. v2.9.27: 4 pitches too, a cycle of 3-4 pitches goes round twice, no silence between the
+    notes, not a drum roll."""
+    return arpeggio_end(lst, i, FAST_GAP, FAST_MIN)
+
+
+def arpeggio_chords(notes):
+    """v2.9.27 (option --arp-chords, user request): each arpeggio (see _arpeggio_end) becomes a
+    chord in the MIDI: its pitches sound together from its first note to the end of its last note.
+    Silver Surfer-type sweeps are not arpeggios and stay as they are."""
+    out, n = {}, 0
+    for ch, lst in notes.items():
+        lst = sorted(lst, key=lambda x: x.start)
+        res, i = [], 0
+        while i < len(lst):
+            e = _arpeggio_end(lst, i)
+            if e - i < FAST_MIN:
+                res.append(lst[i])
+                i += 1
+                continue
+            group, first = lst[i:e], lst[i]
+            for p in dict.fromkeys(x.pitch for x in group):
+                same = [x for x in group if x.pitch == p]
+                m = _join(ch, first.start, same, first.cue)
+                m.end, m.gate_end = group[-1].end, group[-1].gate_end
+                res.append(m)
+            n += 1
+            i = e
+        out[ch] = res
+    if n:
+        print(f"  Arpeggio chords: {n} arpeggios written as chords")
+    return out
 
 
 def fold_fast_figures(notes, frames):
@@ -798,6 +821,8 @@ def build_parser():
                     help='time signature per tempo segment, e.g. "6/8,4/4" ("-" = auto)')
     ap.add_argument("--no-odd-meter", action="store_true",
                     help="do not detect odd bars (6/8, 9/8, 5/8 ...) inside the loop")
+    ap.add_argument("--arp-chords", action="store_true",
+                    help="write arpeggios (2-4 pitches cycling every 3 frames or less) as chords")
     ap.add_argument("--tri-octave", type=int, default=0,
                     help="octave shift for triangle notes in the MIDI (default 0 = APU pitch)")
     ap.add_argument("--programs", default="",
@@ -992,6 +1017,8 @@ def convert(args, should_stop=None):
             odd_loop_meters(tmap, loop, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame,
                             max(1, args.loops))
         mid_path = mid_out or stem + ".mid"
+        if getattr(args, "arp_chords", False) and not getattr(player, "is_spc", False):
+            notes = arpeggio_chords(notes)
         write_smf(mid_path, build_midi(notes, drums, tmap, h.title, track, end_frame, loop, transpose, programs), PPQ)
         outputs.insert(0, mid_path)
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.26"
+APP_VERSION = "v2.9.27"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -267,7 +267,7 @@ def save_global_settings(zoom, volume):
 # ── nsf2mid（NSF / GBS / SPC → MIDI 変換）。本体は src/nsf2mid_core/（v2.9.25 で nsf2mid を統合）
 NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "triplets": "auto",
                     "keep_tail": False,
-                    "quantize": True, "odd_meter": True, "drop_drums": 3}
+                    "quantize": True, "odd_meter": True, "drop_drums": 3, "arp_chords": False}
 NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
 
@@ -300,6 +300,7 @@ def _nsf2mid_argv(o):
     if o["keep_tail"]: a.append("--keep-tail")
     if not o["quantize"]: a.append("--no-quantize")
     if not o["odd_meter"]: a.append("--no-odd-meter")
+    if o["arp_chords"]: a.append("--arp-chords")
     return a
 
 def _fhash(path):
@@ -649,6 +650,16 @@ def _nsf_chip_names(raw, fmt):
     """拡張音源チップ名のリストを返す（無拡張なら空リスト）"""
     b = _nsf_exp_byte(raw, fmt)
     return [name for bit, name in _NSF_EXP_BITS if b & bit]
+
+
+def _nsf_drop_multi_expansion(nsf_raw: bytes) -> bytes:
+    """拡張音源のビットが 2 つ以上立っている NSF は拡張音源なしとして扱う（$7B を 0 に）。
+    カートリッジの拡張音源は 1 つだけなので吸い出し時の誤り（Platoon・Power Blade など海外版 NES の 9 本が
+    VRC6+VRC7(+FDS)。どの曲も拡張音源のレジスタに書き込まない）。自作曲の複数音源 NSF は対象外（ユーザー判断）"""
+    if len(nsf_raw) > 0x7B and nsf_raw[:5] == b"NESM\x1a" and bin(nsf_raw[0x7B] & 0x3F).count("1") >= 2:
+        _log(f"NSF expansion byte ${nsf_raw[0x7B]:02X} lists several chips: treated as no expansion")
+        return nsf_raw[:0x7B] + b"\x00" + nsf_raw[0x7C:]
+    return nsf_raw
 
 
 def _nsf_pad_banks(nsf_raw: bytes) -> bytes:
@@ -1430,6 +1441,7 @@ class AudioEngine:
         if scb: scb("Loading NSF...")
         with open(path, 'rb') as _f:
             _nsf_raw = _f.read()
+        _nsf_raw = _nsf_drop_multi_expansion(_nsf_raw)  # several expansion chips = header error
         _nsf_raw = _nsf_pad_banks(_nsf_raw)     # pad incomplete trailing bank
         _nsf_raw = _nsf_fix_low_load(_nsf_raw)  # fix LOAD < 0x8000 via trampoline
         # メタデータ取得用の一時emu
@@ -4758,6 +4770,7 @@ class Nsf2MidDialog(QDialog):
         self.ck_tail = check("Keep reverb tails", "Include reverb tails in the note length")
         self.ck_quant = check("Quantize", "Snap notes to the detected beat grid\nOff: keep the exact timing (the tempo is still detected)")
         self.ck_oddmeter = check("Detect odd meters", "Find bars other than 4/4 (6/8, 9/8, 5/8 ...) in the loop\nfrom the repeating rhythm\nOff: no odd meters")
+        self.ck_arpchord = check("Arpeggios as chords", "Write arpeggios (2-4 notes repeating every 3 frames or less,\na chiptune trick for chords) as chords\nOff: write every note as it is")
         bl = QHBoxLayout(); bl.setSpacing(S(6))
         b_def = QPushButton(tr("Defaults")); b_def.clicked.connect(lambda: self._apply(NSF2MID_DEFAULTS))
         b_def.setAutoDefault(False)
@@ -4775,7 +4788,8 @@ class Nsf2MidDialog(QDialog):
         self._rclick = {}
         for key, w in (("loops", self.sp_loops), ("seconds", self.sp_seconds), ("tempo", self.cb_tempo),
                        ("triplets", self.cb_triplets), ("drop_drums", self.sp_dropdrums),
-                       ("keep_tail", self.ck_tail), ("quantize", self.ck_quant), ("odd_meter", self.ck_oddmeter)):
+                       ("keep_tail", self.ck_tail), ("quantize", self.ck_quant), ("odd_meter", self.ck_oddmeter),
+                       ("arp_chords", self.ck_arpchord)):
             targets = [w]
             if isinstance(w, QSpinBox): targets.append(w.lineEdit())   # 右クリックは中の入力欄に届く
             lb = g.itemAtPosition(g.getItemPosition(g.indexOf(w))[0], 0).widget()
@@ -4802,6 +4816,7 @@ class Nsf2MidDialog(QDialog):
         self.ck_tail.setChecked(bool(o["keep_tail"]))
         self.ck_quant.setChecked(bool(o["quantize"]))
         self.ck_oddmeter.setChecked(bool(o["odd_meter"]))
+        self.ck_arpchord.setChecked(bool(o["arp_chords"]))
         self.sp_dropdrums.setValue(int(o["drop_drums"]))
 
     def values(self):
@@ -4810,6 +4825,7 @@ class Nsf2MidDialog(QDialog):
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "keep_tail": self.ck_tail.isChecked(),
                 "quantize": self.ck_quant.isChecked(), "odd_meter": self.ck_oddmeter.isChecked(),
+                "arp_chords": self.ck_arpchord.isChecked(),
                 "drop_drums": self.sp_dropdrums.value()}
 
     def done(self, r):

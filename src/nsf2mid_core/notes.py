@@ -184,6 +184,58 @@ def extract_channel(frames, ch, keep_tail=False):
     return notes, {"trigger_cue": use_trig, "trigger_ratio": (trigs / sounding) if sounding else 0.0}
 
 
+ARP_GAP = 3        # v2.9.27: frames between the notes of an arpeggio (same as nsf2mid.FAST_GAP)
+ARP_MIN_FRAMES = 12  # an arpeggio lasts at least this long (Ganbare Pennant Race! P1: a 9-frame G2 E2 buzz
+                     # once a beat is a drum, not a chord)
+
+
+def _drum_roll(run, k):
+    """A cycle retriggered once, always on the same note, and falling from it all the way is a
+    pitch-drop drum played again and again, not an arpeggio (Kart Fighter TRI: F5 C#5 A#4 every
+    6 frames). The run may start anywhere in the cycle."""
+    trig = [j for j, n in enumerate(run) if "trig" in n.cue]
+    if not trig or any((j - trig[0]) % k for j in trig) or len(trig) < len(run) // k:
+        return False
+    for j in range(1, len(run)):
+        if (j - trig[0]) % k and run[j].pitch >= run[j - 1].pitch:
+            return False
+    return True
+
+
+def arpeggio_end(notes, i, gap=ARP_GAP, min_notes=4):
+    """End index of an arpeggio starting at notes[i] (i + 1 if there is none): notes gap frames or
+    less apart, each starting where the one before ends (no silence: Mega Man 2 TRI plays its falling
+    kick A#4 D#4 A3 G3 every 8 frames with a silent frame between), cycling through 2-4 pitches and
+    going round at least twice for 3-4 pitches (a fast scale is not one), lasting ARP_MIN_FRAMES or more.
+    Not a drum roll (_drum_roll).
+    Balloon Fight t1 P2: G#4 E4 every 3 frames; M.C. Kids t2 P2: G4 B4 D5 every 2 frames."""
+    best = i + 1
+    for k in (2, 3, 4):
+        if i + k >= len(notes) or len({notes[i + j].pitch for j in range(k)}) < k:
+            continue
+        e = i + 1
+        while (e < len(notes) and notes[e].start - notes[e - 1].start <= gap
+               and notes[e].start <= notes[e - 1].end
+               and (e - i < k or notes[e].pitch == notes[e - k].pitch)):
+            e += 1
+        if (e - i >= max(min_notes, 2 * k) and notes[e - 1].end - notes[i].start >= ARP_MIN_FRAMES
+                and not (k >= 3 and _drum_roll(notes[i:e], k))):
+            best = max(best, e)
+    return best
+
+
+def arpeggio_notes(notes):
+    """Indices of the notes that make up an arpeggio (arpeggio_end)."""
+    marked = set()
+    i = 0
+    while i < len(notes):
+        e = arpeggio_end(notes, i)
+        if e - i > 1:
+            marked.update(range(i, e))
+        i = e
+    return marked
+
+
 def merge_slides(notes, keep_tail=False):
     """Merge fast pitch glides into one note.
 
@@ -191,10 +243,15 @@ def merge_slides(notes, keep_tail=False):
     Mega Man 2 "triangle kick": B4 -> G4 -> D#4 -> C4 -> A#3 within 10 frames).
     A note whose length is <= SLIDE_MAX frames absorbs the following contiguous
     pitch-split note.
+    v2.9.27: not the notes of an arpeggio (arpeggio_notes): its pitches come back, a glide's do not
+    (M.C. Kids t2 P2: the D5 of G4 B4 D5 was absorbed into the B4).
     """
+    arp = arpeggio_notes(notes)
+    for idx in arp:
+        notes[idx].cue += "+arp"        # not a pitch-drop drum either (drums.split_drop_drums)
     out = []
-    for n in notes:
-        if out:
+    for idx, n in enumerate(notes):
+        if out and idx not in arp:
             p = out[-1]
             # a long pitch-split note after a glide is the held target note: keep it separate
             if (n.cue == "pitch" and n.start == p.end and n.end - n.start <= SLIDE_MAX

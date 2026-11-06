@@ -122,7 +122,19 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.25 (2026-11-06) ← 最新（プロンプト直接指示: nsf2mid を morokoshi に完全統合。py は分けたまま）
+### v2.9.26 (2026-11-06) ← 最新（プロンプト直接指示: アルペジオなど異常に速い音符群は、最初の音だけを発音タイミングに。シルバーサーファー・バルーンファイト・レッキングクルー）
+- ユーザーの決定: MIDI には元の音のまま細かく出す。テンポ・拍子の判定には使わない
+- 往復型（2〜3 音を 3 フレーム以下で繰り返す。バルーンファイト 1 曲目 2ch、レッキングクルー 2 曲目 2ch）: 判定用の音符で群の先頭だけを使う（nsf2mid.fold_fast_figures）。
+  MIDI の細かい音がグリッドに入るよう、1 拍の行数を 2・4 倍に（fine_rows、BPM は同じ）。まとめるとテンポが出せない短い曲は従来どおり
+  - バルーンファイト 1 曲目: 150 BPM の 1 区間に（従来は区間 4 つ・テンポ追従あり）。レッキングクルー 2 曲目: 150 BPM（3 フレーム × 8 行）のまま
+  - 確認: 回帰テスト 45 本は v2.9.25 と一致、変拍子の正解曲 5 曲とレッキングクルー 1 曲目は変化なし。ランダム 150 本で変わったのは 4 本
+    （上の 2 曲、Treasure Master・Ganbare Pennant Race! はテンポ同じ）。MIDI は 32 分の音が詰まらずに残ることを確認
+- 上昇下降型（シルバーサーファー: 1〜2 フレームごとに同じ向きに動き、戻って繰り返す）は未対応。フレーム単位の判定を試し、シルバーサーファーのテンポはそろったが、
+  Bayou Billy JP（本物の 32 分の下降）が崩れたため止めた（FOLD_SWEEPS = False。詳細は docs/midi/spec.md）
+- 試して戻したもの: グリッド選びで位相を 16 秒ごとに取り直す（Mega Man 2 などが変わった）、位相のずれで区間を分ける
+- 確認用 MIDI: tmp/arp_check/
+
+### v2.9.25 (2026-11-06)（プロンプト直接指示: nsf2mid を morokoshi に完全統合。py は分けたまま）
 - nsf2mid の git 履歴（52 コミット）を morokoshi に取り込んだ（並べ替えたクローンを --allow-unrelated-histories でマージ）。
   `git log --follow src/nsf2mid_core/〇〇.py` で nsf2mid 時代の履歴も見られる
 - src/nsf2mid_core/ を本体に: SOURCE.txt・tools/sync_nsf2mid.py を削除。nsf2mid.py の APP_VERSION は廃止（"(morokoshi)" 表示）、引数なしで GUI → 使い方の表示

@@ -87,6 +87,11 @@ class NSFHeader:
         self.speed_pal = struct.unpack_from("<H", data, 0x78)[0]
         self.pal_flags = data[0x7A]
         self.expansion = data[0x7B]
+        # v2.9.27 (user): several expansion chips = a header error of the rip (a cartridge has one
+        # chip; Platoon, Power Blade ... list VRC6+VRC7(+FDS) and write none of them): no expansion
+        self.expansion_ignored = self.expansion if bin(self.expansion & 0x3F).count("1") >= 2 else 0
+        if self.expansion_ignored:
+            self.expansion = 0
         self.bankswitched = any(self.banks)
 
     @property
@@ -351,10 +356,10 @@ class NSFPlayer:
         """Load the tune and run INIT for `track` (1-based)."""
         h = self.header
         self.warnings = []
-        if len(h.expansion_names) > 1:
-            self.warnings.append(
-                f"Several expansion chips ({', '.join(h.expansion_names)}): not supported as a combination; "
-                f"MIDI channels are numbered on from ch 6.")
+        if h.expansion_ignored:
+            names = [n for bit, n in EXPANSION_NAMES if h.expansion_ignored & bit]
+            self.warnings.append(f"The header lists several expansion chips ({', '.join(names)}): "
+                                 "treated as no expansion (a cartridge has one chip)")
         self.writes = []
         self.dmc_samples = {}
         self.t0 = None

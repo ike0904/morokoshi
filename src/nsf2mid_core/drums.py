@@ -310,7 +310,7 @@ def split_drop_drums(ch_notes, src, min_drop=DROP_DRUM_MIN):
     for n in ch_notes:
         length = n.end - n.start
         ps = [p for p in n.pitches if p is not None]
-        if ps and length <= TRI_DRUM_MAX and is_glide(ps, min_drop):
+        if ps and length <= TRI_DRUM_MAX and "arp" not in n.cue and is_glide(ps, min_drop):
             gm = 36 if min(ps) < 60 else 45
             vel = 110 if src == "TRI" else _vel(n.peak)
             hits.append(DrumHit(src, n.start, n.end, gm, vel, (src,),

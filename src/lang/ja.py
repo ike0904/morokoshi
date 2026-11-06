@@ -114,6 +114,9 @@ STRINGS = {
     "Detect odd meters": "変拍子を検出する",
     "Find bars other than 4/4 (6/8, 9/8, 5/8 ...) in the loop\nfrom the repeating rhythm\nOff: no odd meters":
         "ループ内の 4/4 以外の小節（6/8・9/8・5/8 など）を\nリズムの繰り返しから求めます\nオフ: 変拍子を検出しない",
+    "Arpeggios as chords": "アルペジオを和音にする",
+    "Write arpeggios (2-4 notes repeating every 3 frames or less,\na chiptune trick for chords) as chords\nOff: write every note as it is":
+        "2〜4 音を 3 フレーム以下で繰り返すアルペジオ\n（チップチューンで和音を鳴らす手法）を和音にします\nオフ: 1 音ずつそのまま出します",
     "Defaults": "既定値に戻す",
     "OK": "OK",
     "Cancel": "キャンセル",
