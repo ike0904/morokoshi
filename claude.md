@@ -122,7 +122,18 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.27 (2026-11-06) ← 最新（プロンプト直接指示: 往復型アルペジオを和音にするオプション（3・4 音も）、M.C. Kids 2 曲目、Platoon の 15ch 表示、meter_check の回答）
+### v2.9.28 (2026-11-08) ← 最新（プロンプト直接指示: meter_check の回答 FF3 2 曲目・Platoon・Bikkuriman World 2 曲目・Tom & Jerry / Balda の 180 BPM、30 秒未満の前打ちの試験）
+- FF3 2 曲目 → 4/4、16 音 = 1 小節: ループ末のリタルダンド（9〜10 → 13 フレーム）が 2 フレームの跳びで判定から外れ、256 音が 259 行になっていた。
+  リタルダンドの判定で 1 音ごとの変化を 2 フレームまで許す（tempo.has_ritardando）。エコーの遅れは ±50 % まで除く（リタルダンドで伸びる）
+- Platoon 1 曲目 → 前打ちなし: ノイズが 1 拍おき（前打ちがあると 1・3 拍）かつ三角波が前打ちの間も鳴るなら、ループ開始のための前打ちを入れない（nsf2mid.check_pickup）
+- Bikkuriman World 2 曲目 → 6/8、前打ちなし: 3 連のグリッドの拍の頭をチャンネルごとに測る（tempo.beat_phase。P2 が P1 の 15 フレーム後の音型で、拍の頭がずれていた）
+- Tom & Jerry 1 曲目・Balda (BBG) 1 曲目 → 180 BPM: ループのない曲でも、三角波 + ドラムの周期が全体の周期と一致すれば拍にする（240 BPM まで、テンポ追従なし）
+- 557 曲の比較で 17 曲が変化（ほかにリズム隊の拍で 6 曲のテンポ、前打ちなし 2 曲、テンポ追従 2 曲）。確認用 MIDI は tmp/meter_check/v2928/、一覧は docs/midi/meter_check.md
+- 30 秒未満の曲の前打ち（試験、未反映）: 条件を外すと 99 本中 5 本が変わる。Adventure Island 3 は 3/4 の前打ちになり、ユーザーの答え（前打ち 2 拍）と合わない。
+  Tom & Jerry・AV Mei Shao Nv は変わらない（前打ちの形の判定で外れる）。MIDI は tmp/meter_check/short30/（before / after）。ユーザーの判断待ち
+- Platoon のノイズの音色（Open Hi-Hat）はユーザー指示で対応しない
+
+### v2.9.27 (2026-11-06)（プロンプト直接指示: 往復型アルペジオを和音にするオプション（3・4 音も）、M.C. Kids 2 曲目、Platoon の 15ch 表示、meter_check の回答）
 - MIDI オプション「アルペジオを和音にする」（既定オフ、--arp-chords、JP/EN）: 2〜4 音を 3 フレーム以下で繰り返す群を、使っている音の和音（群の頭から終わりまで）に
 - 往復型の判定（notes.arpeggio_end に一本化、nsf2mid._arpeggio_end も同じもの）: 4 音を追加。3・4 音は 2 周以上、すき間なく続く、12 フレーム以上、
   「周期に 1 回だけ鳴らし直して下がり続ける」ものはドラムの連打（Kart Fighter の三角波）として除外。無音をはさむキックの連打（Mega Man 2 の三角波）も除外

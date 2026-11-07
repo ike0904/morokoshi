@@ -376,6 +376,8 @@ PULSE_NORM = 0.4      # v0.1.42: the long notes line up on the pulse at least th
 PULSE_FRAMES = (18.0, 51.0)   # ... searched over this range (frames at 60 Hz)
 PULSE_LONG = 10       # a note followed by this many frames (60 Hz) in its channel is a long note
 PULSE_WINDOW = 10.0   # seconds per window of the fit
+RHYTHM_NORM = 0.6     # v2.9.28: the triangle + drums alone line up on the same pulse at least this well ...
+RHYTHM_SAME = 0.01    # ... (within this share of the period): the beat of a tune without a loop
 
 
 def _residue_fit(onsets, period, tol=1.0):
@@ -463,7 +465,7 @@ def _ioi_share(channel_notes, u):
     return hit / tot if tot else 0.0
 
 
-def _pulse_grid(onsets, frame_rate, g, pulse, channel_notes=None):
+def _pulse_grid(onsets, frame_rate, g, pulse, channel_notes=None, hi=BPM_HI):
     """v0.1.42: the grid and rows per beat from the pulse when the detected grid does not divide
     it. Returns (unit, rows, ternary) or None."""
     P = pulse
@@ -512,7 +514,7 @@ def _pulse_grid(onsets, frame_rate, g, pulse, channel_notes=None):
     ternary = kk % 3 == 0 and kk % 4 != 0 and kk % 5 != 0
     rows = kk
     # the pulse may be half a beat: binary music keeps BPM_LO..BPM_HI, triplets up to 240
-    hi = 240.0 if ternary else BPM_HI
+    hi = 240.0 if ternary else hi
     while 60.0 * frame_rate / (u * rows) >= hi:
         rows *= 2
     while 60.0 * frame_rate / (u * rows) < BPM_LO and rows % 2 == 0:
@@ -618,16 +620,25 @@ def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel
     # v0.1.43: only for tunes with a loop, and only when the new beat makes the loop a whole
     # number of 4/4 bars (a check the tune itself gives; 480 tunes: tempos of tunes without a
     # loop changed by 3/2, 4/3 ... with nothing to tell which is right)
+    # v2.9.28 (user: "the triangle or the rhythm gives it"): a tune without a loop too, when the
+    # triangle and the drums alone line up on the same pulse; that pulse is the beat (up to 240 BPM).
+    # Tom & Jerry & Tuffy t1, Balda (BBG) t1: 20 frames = 180 BPM (135 / 112.7 before)
     pulse = False
-    if (not rows_per_beat and not unit and not DRIFT_WINDOW and len(segs) == 1 and triplets != "off"
-            and loop_period):
-        pl = note_pulse(channel_notes, frame_rate, drum_onsets)
+    if (not rows_per_beat and not unit and not DRIFT_WINDOW and len(segs) == 1 and triplets != "off"):
+        pl = note_pulse(channel_notes, frame_rate, drum_onsets) if loop_period else None
+        rhythm = False
+        if not loop_period:
+            pl = note_pulse(channel_notes, frame_rate, drum_onsets)
+            rh = note_pulse({"TRI": (channel_notes or {}).get("TRI", {})}, frame_rate, drum_onsets) if pl else None
+            rhythm = bool(rh and rh[1] >= RHYTHM_NORM and abs(rh[0] / pl[0] - 1) < RHYTHM_SAME)
+            if not rhythm:
+                pl = None
         s = segs[0]
         if pl and pl[1] >= PULSE_NORM:
             beat = s.unit * s.rows
             if not any(abs(beat / (pl[0] * m) - 1) < 0.03 for m in (0.5, 1, 2)):
-                pg = _pulse_grid(onsets, frame_rate, g, pl[0], channel_notes)
-                if pg:
+                pg = _pulse_grid(onsets, frame_rate, g, pl[0], channel_notes, 240.0 if rhythm else BPM_HI)
+                if pg and loop_period:
                     beats = loop_period / (pg[0] * pg[1])
                     if abs(beats - round(beats)) > 0.1 or round(beats) % 4:
                         pg = None
@@ -637,6 +648,9 @@ def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel
                     s.bpm = 60.0 * frame_rate / (s.unit * s.rows)
                     g = {"unit": s.unit, "score": s.score, "norm": _fit(onsets, s.unit)[1], "phase": s.phase}
                     shuffle, trip_d, pulse = False, None, True
+                    # the rhythm section keeps one steady beat: no tempo tracking on the poor fit
+                    # of the fine grid (Tom & Jerry t1 swayed 135-152 BPM)
+                    s.steady = rhythm
     kept = 0  # segments left as detected ("double" on an odd number of rows, e.g. 3 rows per beat)
     if not rows_per_beat and tempo in ("half", "double"):
         for s in segs:
@@ -782,6 +796,8 @@ TRACK_FIT = 0.9          # segments fitting worse than this are tempo-tracked (r
 RIT_MIN = 1.045          # v0.1.29: a run of notes this much longer than the channel's usual note ...
 RIT_MAX = 1.6            # ... (but not as long as a different note value) ...
 RIT_RUN = 3              # ... for this many notes in a row is a ritardando
+RIT_STEP = 0.2           # ... changing by at most this x the usual note from note to note ...
+RIT_STEP_FRAMES = 2      # ... or (v2.9.28) by this many frames: frame rounding on short notes
 PHASE_GAIN = 1.25       # v0.1.33: the downbeat by note weight must beat beat 0 by this much ...
 PHASE_MIN_NOTES = 16    # ... over at least this many notes on beats
 PHASE_MIN_SEC = 30.0    # ... in a tune at least this long
@@ -839,7 +855,9 @@ def has_ritardando(starts, unit):
     step (no jump of more than 0.2 x the usual note), and grow from the first note of the run
     (a run that only gets shorter is a speed-up into the tempo, e.g. the Airball intro).
 
-    Example: Dragon Quest III t15 - 8ths of 19 frames slow down twice in the loop."""
+    Example: Dragon Quest III t15 - 8ths of 19 frames slow down twice in the loop.
+    Final Fantasy III t2 - 16ths of 9-10 frames slow down to 13 in the last bar (11, 13, 12, 13)
+    and speed up again in the first; untracked, the 256 notes of the loop took 259 rows (6/8)."""
     st = sorted(starts)
     iois = [b - a for a, b in zip(st, st[1:])]
     if len(iois) < 8:
@@ -850,6 +868,7 @@ def has_ritardando(starts, unit):
     d = max(1, round(common / unit)) * unit
     if d < 4:
         return False
+    step = max(RIT_STEP, RIT_STEP_FRAMES / d)
     run = []
     for i in iois + [0]:
         r = i / d
@@ -857,7 +876,7 @@ def has_ritardando(starts, unit):
             run.append(r)
             continue
         if (len(run) >= RIT_RUN and max(run) - min(run) >= 0.05 and any(abs(x - 1.5) > 0.07 for x in run)
-                and max(run) >= run[0] + 0.05 and all(abs(b - a) <= 0.2 for a, b in zip(run, run[1:]))):
+                and max(run) >= run[0] + 0.05 and all(abs(b - a) <= step + 1e-9 for a, b in zip(run, run[1:]))):
             return True
         run = []
     return False
@@ -871,7 +890,7 @@ MIXED_TRIPLET_ERR = 1.5  # ternary grid: an onset this many frames off the tripl
 MIXED_16TH_ERR = 0.5     # ... and this close to a 16th of the beat is placed on the 16th (v0.1.28)
 
 
-def beat_phase(onsets, unit, origin, rows):
+def beat_phase(onsets, unit, origin, rows, channels=None):
     """Ternary grids (3 / 6 rows per beat): which row (mod rows) starts the beat. Each onset
     scores the rows until the next onset (capped at one beat): in a shuffle the long note of
     the long-short pair starts on the beat, and longer notes start on beats in general.
@@ -880,11 +899,15 @@ def beat_phase(onsets, unit, origin, rows):
     Example: Wrecking Crew t1 - grid 8 frames from frame -4, 16+8 shuffle from frame 108
     (row 14): the beats are rows 2, 5, 8, ... (p = 2)."""
     score = [0.0] * rows
-    pos = [round((o - origin) / unit) for o in onsets]
-    for a, b in zip(pos, pos[1:] + [None]):
-        w = rows if b is None else min(rows, b - a)
-        if w > 0:
-            score[a % rows] += w
+    # v2.9.28: each channel on its own (channels = onsets per channel): a channel playing the
+    # figure of another one a few rows later made the other's notes look short (Bikkuriman World t2:
+    # P2 = P1 15 frames later moved the beat into the middle of the 8ths and gave a pickup)
+    for lst in (channels or [onsets]):
+        pos = [round((o - origin) / unit) for o in lst]
+        for a, b in zip(pos, pos[1:] + [None]):
+            w = rows if b is None else min(rows, b - a)
+            if w > 0:
+                score[a % rows] += w
     # only shifts by whole triplet 8ths (a shift by half a beat is a binary question, not handled)
     best = max(range(0, rows, rows // 3), key=lambda p: score[p])
     return best if score[best] >= BEAT_PHASE_GAIN * score[0] and score[best] > score[0] else 0
@@ -1018,7 +1041,8 @@ class TickMap:
                 if s.rows % 3 == 0 and quantize:
                     # v0.1.28: put the beat on the right triplet row; the rows before it become a
                     # rest at the start (frame 0 then sits inside the first beat)
-                    p = beat_phase(seg_on, s.unit, origin, s.rows)
+                    chans = [sorted({n.start for n in lst if n.start < end}) for lst in (notes or {}).values()]
+                    p = beat_phase(seg_on, s.unit, origin, s.rows, [c for c in chans if c] or None)
                     if p:
                         origin -= (s.rows - p) * s.unit
             else:
@@ -1034,6 +1058,7 @@ class TickMap:
                 for lst in notes.values())
             s.rit = rit
             jitter = s.score < TRACK_FIT and not rit and (
+                getattr(s, "steady", False) or
                 steady_with_jitter(seg_on, s.unit, s.phase)
                 or steady_channel(notes, s.start if k else -1, end, s.unit, s.phase))
             if tmap.get("drift") and len(seg_on) >= 4:

@@ -386,6 +386,28 @@ python src/nsf2mid_core/nsf2mid.py FILE.nsf [-t TRACK] [-s SECONDS] [-o OUTDIR] 
 （1 曲目 128.79 BPM、4 曲目 150 BPM、9 曲目 fit 78 → 96 %）。しかし Bayou Billy JP（3 フレームごとに鳴らし直す本物の 32 分を
 5 音 15 フレームの周期で下降）がまとめられ、拍とずれて崩れた。鳴らし直しが 3 フレーム以上空いたら区切る変更でも、区間が細かく割れた
 
+### アルペジオの和音・4 音・グライドとの区別（morokoshi v2.9.27）
+
+- 判定は `notes.arpeggio_end` に一本化（`nsf2mid._arpeggio_end` は FAST_GAP / FAST_MIN で呼ぶだけ）。条件:
+  - 2・3・4 音を、開始の間隔 3 フレーム以下で繰り返す。**3・4 音は 2 周以上**（速い音階をアルペジオにしない）
+  - **すき間なく続く**（前の音が終わる所で次が始まる）。Mega Man 2 の三角波は A#4 D#4 A3 G3 のキックを 8 フレームごとに無音をはさんで鳴らす
+  - **12 フレーム以上**（`ARP_MIN_FRAMES`）。Ganbare Pennant Race! の 1ch は G2/E2 を 9 フレームだけ、1 拍ごとに鳴らす（ドラム）
+  - **ドラムの連打は除外**（`_drum_roll`）: 周期に 1 回、同じ音で鳴らし直し、そこから下がり続ける（Kart Fighter の三角波 F5 C#5 A#4 を 6 フレームごと）
+- **グライドとしてまとめない**（`notes.merge_slides`）: アルペジオの音（`cue` に `+arp`）は前の短い音にくっつけない。
+  M.C. Kids 2 曲目 2ch の G4 B4 D5（2 フレームずつ、D5 は鳴らし直さない）で D5 が B4 にくっついて消えていた。
+  アルペジオの音は下降音ドラムにもしない（`drums.split_drop_drums`。Stunt Kids 2ch の D5 A5 F#5）
+- **`--arp-chords`**（morokoshi の MIDI オプション「アルペジオを和音にする」、既定オフ）: `nsf2mid.arpeggio_chords` がアルペジオを
+  使っている音の和音にする（群の頭から、最後の音の終わりまで）。テンポ・拍子の判定は変わらない。SPC には使わない
+  - レッキングクルー 2 曲目 2ch: 1 拍ごとに E4+G#4 → C#4+E4 → D4+F#4 …、M.C. Kids 2 曲目 2ch: G4+B4+D5
+
+### 複数の拡張音源が指定された NSF（morokoshi v2.9.27）
+
+- ヘッダーの $7B に 2 つ以上のビットが立っていれば、拡張音源なしとして扱う（`nsf.NSFHeader.expansion_ignored`、警告を出す）。
+  カートリッジの拡張音源は 1 つだけなので吸い出し時の誤り。自作曲の複数音源 NSF は保証しない（ユーザー判断）
+- 手元 1932 本中 9 本（すべて海外版 NES）: Chase H.Q.・Die Hard・Hudson Hawk・Indiana Jones and the Last Crusade・Nigel Mansell's・Platoon・
+  Power Blade・Target: Renegade が 0x07（VRC6+VRC7+FDS）、Power Blade 2 が 0x03。どれも拡張音源のレジスタに書き込まない
+  （FDS への書き込みはプレイヤーの初期化だけ）。拡張音源なしで動かしても書き込みは一致（Hudson Hawk 50 曲目が 3 サイクルずれるだけ）
+
 ### ループのない曲の小節頭・3 連系の拍の決め方（v0.1.33）
 - **ループのない曲の小節頭**: ループ開始が使えないので、拍ごとに「拍の頭で始まる音の長さ（最大 4 拍）」を合計し（ベース = 一番低いチャンネルは 2 倍）、
   小節の何拍目が一番重いかを見る。1 拍目（曲の頭からの数え方）より 1.25 倍以上重い拍があれば、そこを小節の頭として曲頭に前打ちの小節を置く（拍の頭の音 16 個以上のとき）

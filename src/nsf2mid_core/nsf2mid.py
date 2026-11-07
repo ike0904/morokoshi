@@ -605,6 +605,8 @@ def fine_rows(segs, onsets):
 ECHO_MAX = 24        # v0.1.44: frames; a note this soon after the same pitch in another channel ...
 ECHO_SHARE = 0.5     # ... is an echo when this share of the channel's notes follow that channel so ...
 ECHO_MIN = 16        # ... (at least this many notes) with the same delay
+ECHO_SLACK = 0.5     # v2.9.28: once found, notes this share of the delay off it are echoes too (the delay
+                     # is counted in driver ticks: it grows in frames in a ritardando)
 
 
 def drop_echoes(notes):
@@ -614,7 +616,9 @@ def drop_echoes(notes):
     detection (the MIDI keeps them). Two channels that would each be the other's echo play one
     figure in turns (Bikkuriman World t2), not an echo: both are kept.
     Examples: Relics t3 - P2 plays P1 one 8th (16 frames) later, Minna no Taabou t2 - P2 one 16th
-    later."""
+    later.
+    v2.9.28: Final Fantasy III t2 - P2 is P1 13 frames later, 15-16 in the ritardando at the loop
+    end; those echoes counted as notes and moved the first bar line."""
     found = {}
     for b, lb in notes.items():
         if len(lb) < ECHO_MIN:
@@ -646,10 +650,46 @@ def drop_echoes(notes):
         for n in notes[a]:
             src.setdefault(n.pitch, []).append(n.start)
         lb = notes[b]
-        out[b] = [n for n in lb if not any(abs(n.start - f - d) <= 1 for f in src.get(n.pitch, ()))]
+        slack = max(1, int(ECHO_SLACK * d))
+        out[b] = [n for n in lb if not any(abs(n.start - f - d) <= slack for f in src.get(n.pitch, ()))]
         print(f"  Echo: {b} repeats {a} {d} frames later ({len(lb) - len(out[b])} of {len(lb)} notes "
               "left out of tempo / meter detection)")
     return out
+
+BACKBEAT_MIN = 16      # v2.9.28: noise hits; at least this many ...
+BACKBEAT_SHARE = 0.8   # ... this share on beats, and of those this share on every other beat = a backbeat
+
+
+def check_pickup(tmap, notes, drums, end_frame):
+    """v2.9.28 (user rules: the snare is usually on beats 2 and 4; a pickup usually has no bass or
+    drums, or they play differently): the pickup bar that makes the loop start a downbeat
+    (TickMap._set_downbeat) is dropped when the noise plays a backbeat that the pickup would put
+    on beats 1 and 3, and the bass plays all through the pickup as in the rest of the tune.
+    The bar lines then count from the start of the tune.
+    Example: Platoon t1 - the loop starts one beat in (0.6 s) and gave a 1/4 bar; the noise hits
+    every other beat and the triangle plays its 8ths from frame 0: 4/4 from the start, the noise on
+    beats 2 and 4."""
+    part = tmap.parts[0]
+    lead = part.lead_beats
+    if not lead or part.meter != (4, 4) or lead % 2 == 0:
+        return
+    hits = [tmap(d.start) for d in drums if d.src == "NOI" and d.start < end_frame]
+    on = [(t - part.bar_origin) // PPQ for t in hits if (t - part.origin_tick) % PPQ == 0]
+    if len(hits) < BACKBEAT_MIN or len(on) < BACKBEAT_SHARE * len(hits):
+        return
+    if sum(1 for b in on if b % 2 == 0) < BACKBEAT_SHARE * len(on):
+        return                          # not on beats 1 and 3 (with the pickup)
+    bass = [n for n in notes.get("TRI", ()) if n.start < end_frame]
+    beats = {int((tmap(n.start) - part.origin_tick) // PPQ) for n in bass if tmap(n.start) < part.bar_origin}
+    if not all(b in beats for b in range(lead)):
+        return                          # the bass rests in the pickup: a real pickup
+    part.lead_beats = 0
+    part.bar_origin = part.origin_tick
+    if tmap.downbeat_tick is not None:
+        bar = PPQ * 4
+        tmap.downbeat_tick = (tmap.downbeat_tick - part.origin_tick) // bar * bar + part.origin_tick
+    print(f"  Pickup: none (the noise plays on beats 2 and 4 without the {lead}/4 pickup bar, and the bass "
+          "plays through it)")
 
 
 def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
@@ -1013,6 +1053,8 @@ def convert(args, should_stop=None):
                   + ("  [tempo tracked]" if sg.tracked else ""))
             if sg.score < 0.8 and not sg.tracked:
                 print("    Warning: poor grid fit (rubato or unsupported rhythm?)")
+        if not args.time_sig:
+            check_pickup(tmap, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame)
         if loop and not args.no_odd_meter:
             odd_loop_meters(tmap, loop, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame,
                             max(1, args.loops))
