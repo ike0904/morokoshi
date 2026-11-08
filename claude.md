@@ -1,3 +1,22 @@
+## ★ 再起動前のメモ（2026-11-08、v2.9.30 の時点。ユーザーの確認待ち）
+
+**1. v2.9.30 で変わった曲（今回の変更の確認）**
+- Nintendo World Cup 3 曲目: 4/4・233.9 BPM → 6/8・87.7 BPM（一番大きな変化。どちらが正しいか）
+- シャッフル → 普通のリズム（テンポ 3/4 倍）: Mappy-Land、Lode Runner 3 曲目、Chubby Cherub、Kiwi Kraze、SD Gundam Gaiden 3、
+  Zhan Guo Qun Xiong Zhuan 2 曲目。Pasofami Demo はシャッフル → 3 連（75 → 112.5 BPM）
+- 曲頭に前打ちの小節が付いた: Terra Cresta (alt)、Amagon、Bikkuriman World 1 曲目、Pachi Com、Geimos、Pinball 2 曲目、Big Challenge! Dogfight Spirit 3 曲目
+- 三角波ドラム（Ch3 Wave drums）: Tom & Jerry・Wolverine・Treasure Master で、キックが 1 打ずつになり、ベースが拍に合っているか
+
+**2. 以前から確認待ち**
+- v2.9.28: リズム隊の周期でテンポが変わった 6 曲（Platoon 3 曲目 200、Mr. Gold 163.6、Nishimura 133.3、Super Team Games 3 曲目 150、Relics 2 曲目 150、Business Wars 120 BPM）
+- v2.9.27: Pooyan 1 曲目のテンポが 149.9 BPM 一定に
+- v2.9.20・v2.9.21: FDS の NSF（Exciting Soccer・DABABA・DokiDokiPanic）の morokoshi での再生音
+- 画面での操作（v2.9.6・v2.9.11・v2.9.12）: Save の形式の記憶、MIDI オプションの表示位置、オプション内のキー入力
+
+**次の作業の候補**: 1 の比較用 MIDI（新旧）を tmp/meter_check/v2930/ にまとめる（前のセッションの一時フォルダにしか無い。再起動で消える可能性あり → 作り直しは cmp.py 相当で可能）
+
+---
+
 ・C:\Users\ike09\.claude\claude.md 初回起動時と更新あり時は必ず読むこと。
 
 ・v1.8.0としてのビルドリリースのはずだが、ウィンドウタイトルに表記されているバージョンがv1.7.2のまま。
