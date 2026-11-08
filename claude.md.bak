@@ -1,4 +1,4 @@
-## ★ 再起動前のメモ（2026-11-08、v2.9.30 の時点。ユーザーの確認待ち）
+## ★ 再起動前のメモ（2026-11-08、v2.9.31 の時点。ユーザーの確認待ち）
 
 **1. v2.9.30 で変わった曲（今回の変更の確認）**
 - Nintendo World Cup 3 曲目: 4/4・233.9 BPM → 6/8・87.7 BPM（一番大きな変化。どちらが正しいか）
@@ -7,13 +7,13 @@
 - 曲頭に前打ちの小節が付いた: Terra Cresta (alt)、Amagon、Bikkuriman World 1 曲目、Pachi Com、Geimos、Pinball 2 曲目、Big Challenge! Dogfight Spirit 3 曲目
 - 三角波ドラム（Ch3 Wave drums）: Tom & Jerry・Wolverine・Treasure Master で、キックが 1 打ずつになり、ベースが拍に合っているか
 
-**2. 以前から確認待ち**
-- v2.9.28: リズム隊の周期でテンポが変わった 6 曲（Platoon 3 曲目 200、Mr. Gold 163.6、Nishimura 133.3、Super Team Games 3 曲目 150、Relics 2 曲目 150、Business Wars 120 BPM）
-- v2.9.27: Pooyan 1 曲目のテンポが 149.9 BPM 一定に
-- v2.9.20・v2.9.21: FDS の NSF（Exciting Soccer・DABABA・DokiDokiPanic）の morokoshi での再生音
-- 画面での操作（v2.9.6・v2.9.11・v2.9.12）: Save の形式の記憶、MIDI オプションの表示位置、オプション内のキー入力
+**2. 以前から確認待ち**（v2.9.28 の 6 曲・Pooyan・FDS の再生音・画面の操作は 2026-11-08 に回答済み → docs/midi/meter_check.md）
 
-**次の作業の候補**: 1 の比較用 MIDI（新旧）を tmp/meter_check/v2930/ にまとめる（前のセッションの一時フォルダにしか無い。再起動で消える可能性あり → 作り直しは cmp.py 相当で可能）
+**3. v2.9.31 で確認してほしいこと**（MIDI は tmp/meter_check/v2931/）
+- Super Team Games 3 曲目「弱起ではない」の意味（出力はもともと前打ちなしの 4/4）
+- Pooyan 1 曲目の小節頭: 811 フレーム（13.5 秒、三角波 D + 旋律 A4）でよいか。13.8 秒の D（829）は 16 分の位置
+- Mr. Gold 1 曲目: 余韻の鳴らし直しを 1 音に。テンポが 81.8 BPM（163.6 の半分）に
+- 未対応: Business Wars の 6/4、Pooyan の小節頭
 
 ---
 
@@ -141,7 +141,20 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.30 (2026-11-08) ← 最新（プロンプト直接指示: 前のセッションの作業（未コミット）を確認してコミット）
+### v2.9.31 (2026-11-08) ← 最新（プロンプト直接指示: 確認待ちの回答（Mr. Gold・Super Team Games・Relics・Business Wars・Pooyan）、MIDI 出力中の進行表示）
+- チャンネルごとに長さの違うループ: 各チャンネルが自分の周期で 3 回繰り返せば、周期の最小公倍数を全体のループにする（loop._independent_loop、上限 500 秒）。
+  Relics 2 曲目 = P1 44.8 秒・P2 51.2 秒・三角波 6.4 秒 → 358 秒（変換 89 → 63 秒）。Super Team Games 3 曲目 → 51.2 秒（15 → 1 秒）
+- 60 秒以上のループは 2 回の一致で確定（loop.repeats_for）。Business Wars 1 曲目 = 222 秒のループ（ユーザー「3:45 あたり」）を検出（43 → 32 秒）
+- ループが見えた後は確認に足りない分だけエミュレート（最低 20 秒）
+- 減衰した音の後に同じ音程を小さい一定の音量で鳴らし直す余韻は 1 音（notes._release_retrigger）。Mr. Gold 1 曲目 P1 146 → 84 音（テンポは 81.8 = 163.6 の半分に）。
+  ユーザー指摘の DQ3・DQ4・オホーツクは鳴らし直さずに 1 音の中で音量を下げる形で、従来から 1 音（19 曲を新旧比較し変化なし）
+- ループのない曲の 2 分割のグリッドでも拍の頭の行を判定（tempo.beat_phase を 16 分単位、3 倍以上の差）。Pooyan 1 曲目の旋律が拍の頭に。小節頭は未対応（重みが同じ）
+- MIDI 出力中の進行表示（ユーザー提案）: ステータスバーに「emulating 25 s of 60 s」「looking for the loop」「detecting the tempo」など（convert の progress 引数、5 秒ごと）
+- 確認: 回帰テスト 45 本で変わったのは Blackjack（226 秒のループ）だけ（tmp/regress_v2931.txt）。ランダム 200 曲（seed 11、300 秒）で 11 曲が変化（長いループが見つかった 8 曲、Kid Klown 19.5 秒のループ、Igo Shinan の余韻、Battle of Olympus のループ開始 0.8 秒）
+- 未対応: Business Wars の 6/4（スネアがほぼ毎フレーム鳴り、拍子の手がかりにならない）、Pooyan の小節頭、Super Team Games 3 曲目の「弱起ではない」は意味を確認中
+- 画面の進行表示は構文チェックと関数呼び出しでのみ確認（実際の画面はユーザー待ち）
+
+### v2.9.30 (2026-11-08)（プロンプト直接指示: 前のセッションの作業（未コミット）を確認してコミット）
 - シャッフルは音の 8 割以上が長・短の位置に乗るときだけ（tempo.shuffle_lattice）。Adventure Island 3 1 曲目 200 シャッフル → 150 BPM など 9 曲
 - 三角波で下降の途中に鳴らし直すドラムを 1 打にまとめ、直後のベースは打の拍から（drums.split_drop_drums。Tom & Jerry・Wolverine・Treasure Master）。テンポの判定は従来どおり 1 音 = 1 打
 - ループのない曲の前打ちの 30 秒の条件をやめた（ユーザー「戻して」）。Adventure Island 3 は前打ち 2 拍（ユーザーの答えと一致）

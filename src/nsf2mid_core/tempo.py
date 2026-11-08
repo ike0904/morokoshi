@@ -1221,6 +1221,16 @@ class TickMap:
                 score[int(t // self.ppq) % num] += min(4.0, dur) * (2 if ch == bass else 1)
                 count += 1
         best = max(range(num), key=lambda p: score[p])
+        entry = self._bass_entry(part, per, bass, num)
+        if entry is not None and count >= PHASE_MIN_NOTES and score[0] < PHASE_GAIN * score[entry]:
+            # v2.9.31: the bass comes in after an intro without it: its entry is a downbeat (user rule:
+            # a pickup has no bass). Pooyan t1 - sound effects in P1 for 7 s, then the triangle G#3
+            # (2 beats) on beat 18 and every 4 beats; the weights alone were a tie (56 / 59 for beats
+            # 0 and 2), now the D3 + A4 at 13.5 s (beat 34) starts a bar
+            if entry:
+                part.lead_beats = entry
+                part.bar_origin = part.origin_tick + entry * self.ppq
+            return
         if count < PHASE_MIN_NOTES or best == 0 or score[best] < PHASE_GAIN * score[0]:
             return
         # v0.1.33: the opening must look like a pickup: before beat `best` only short notes (< 1 beat),
@@ -1240,6 +1250,23 @@ class TickMap:
             return
         part.lead_beats = best
         part.bar_origin = part.origin_tick + best * self.ppq
+
+    def _bass_entry(self, part, per, bass, num):
+        """v2.9.31: the beat of the bar (0 .. num-1) where the bass enters after an intro of at least a
+        bar without it, or None. The entry must be a note of a beat or more starting on a beat, and
+        other channels must have played before it."""
+        first = per[bass][0]
+        t = self._tick_in(part, first.start) - part.origin_tick
+        others = [lst[0].start for ch, lst in per.items() if ch != bass]
+        if not others or t % self.ppq or t < num * self.ppq:
+            return None
+        if self._tick_in(part, min(others)) - part.origin_tick > t - num * self.ppq:
+            return None                 # the others start less than a bar before it
+        d = (self._tick_in(part, first.gate_end if first.gate_end is not None else first.end)
+             - part.origin_tick - t) / self.ppq
+        if d < 1:
+            return None
+        return int(t // self.ppq) % num
 
     def _detect_meter(self, part, notes, end):
         """6/8 if notes longer than one 8th start on 3-eighth boundaries, else 4/4."""

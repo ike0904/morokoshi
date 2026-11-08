@@ -693,6 +693,47 @@ def check_pickup(tmap, notes, drums, end_frame):
           "plays through it)")
 
 
+def check_even_pickup(tmap, notes, drums, end_frame):
+    """v2.9.31: a pickup bar (loop start as a downbeat: TickMap._set_downbeat, or _phase_downbeat) is dropped
+    when the tune starts with a drum hit and the melody of the pickup is as long as the notes on the
+    downbeat (no short notes leading to an arrival). Super Team Games t1/t2 - C5 with a bass drum
+    on frame 0, the bass enters with G on the next beat (the loop start): C G A B are even quarters,
+    4/4 from the start (user). A real pickup leads into the downbeat with shorter notes
+    (Double Dragon III t2: B D E 16ths into a long A5; Exciting Billiard t1: G G# A into A#4)."""
+    part = tmap.parts[0]
+    lead = part.lead_beats
+    if not lead or part.meter != (4, 4) or part.bar_origin is None:
+        return
+    t0 = part.origin_tick
+    if not any(tmap(d.start) == t0 for d in drums if d.start < end_frame):
+        return
+    both = 0
+    for ch in ("P1", "P2"):
+        pick, down = [], []
+        for n in notes.get(ch, ()):
+            if n.start >= end_frame:
+                continue
+            t = tmap(n.start)
+            g = tmap(n.gate_end if n.gate_end is not None else n.end) - t
+            if t0 <= t < part.bar_origin:
+                pick.append(g)
+            elif t == part.bar_origin:
+                down.append(g)
+        if pick and down:
+            if min(pick) < max(down):
+                return                  # this channel leads into the downbeat with shorter notes
+            both += 1
+    if not both:
+        return
+    part.lead_beats = 0
+    part.bar_origin = part.origin_tick
+    if tmap.downbeat_tick is not None:
+        bar = PPQ * 4
+        tmap.downbeat_tick = (tmap.downbeat_tick - part.origin_tick) // bar * bar + part.origin_tick
+    print(f"  Pickup: none (the {lead}/4 pickup bar starts with a drum hit and its melody is no shorter than "
+          "the downbeat's)")
+
+
 def odd_loop_meters(tmap, loop, notes, drums, end_frame, loops):
     """v0.1.30: a loop that is not a whole number of 4/4 bars gets its odd bars (meter.odd_bars).
     v0.1.41: a loop of whole 4/4 bars is searched for odd stretches too (meter.odd_runs)."""
@@ -1095,6 +1136,7 @@ def convert(args, should_stop=None, progress=None):
         stage("detecting the meter")
         if not args.time_sig:
             check_pickup(tmap, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame)
+            check_even_pickup(tmap, notes, drums, end_frame)
         if loop and not args.no_odd_meter:
             odd_loop_meters(tmap, loop, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame,
                             max(1, args.loops))
