@@ -95,6 +95,32 @@ def find_gate_end(vols):
     return n
 
 
+SWELL_MIN_RISE = 4     # v2.9.29: times a fade-in steps up before a same-pitch retrigger is its decay
+SWELL_MIN_FRAMES = 16
+SWELL_TOP_SHARE = 0.25  # the fade-in reached its top only in this last share of the note
+
+
+def _swell_retrigger(cur, pitch, vol):
+    """A retrigger that only switches a fade-in to its decay is not a new note.
+
+    Platoon t1 P1: C#4 v0 1 2 .. B (45 frames), then $4003 written again at C#4 v7 and decaying;
+    bar 8 G4 v0 .. 8 then v7. The note's volume never fell, it climbed SWELL_MIN_RISE steps or more,
+    and the retrigger comes in no louder than where the fade-in stopped (a repeated note would
+    start again from the bottom, or jump up as an accent). The note must still be climbing:
+    a quick attack then a held level (SD Sangoku Bushou Retsuden t2: 6 7 9 A A A A A, Monty on the
+    Run t1: 0 5 5 5 ..) is a note of its own and the retrigger the next one.
+    """
+    if cur is None or cur.pitch != pitch or len(cur.vols) < SWELL_MIN_FRAMES:
+        return False
+    v = cur.vols
+    steps = [b - a for a, b in zip(v, v[1:])]
+    if any(s < 0 for s in steps) or sum(1 for s in steps if s > 0) < SWELL_MIN_RISE:
+        return False
+    last = v[-1]
+    top = len(v) - v.index(last)
+    return top <= SWELL_TOP_SHARE * len(v) and vol <= last and vol * 2 >= last
+
+
 def extract_channel(frames, ch, keep_tail=False):
     infos = [_frame_info(f["state"], f["written"], ch) for f in frames]
 
@@ -138,7 +164,7 @@ def extract_channel(frames, ch, keep_tail=False):
             elif pending_trig and abs(pending_trig[1] - note) < 0.5 and f - pending_trig[0] <= 2:
                 start_new = "trig"
                 start_frame = pending_trig[0]
-        elif trig:
+        elif trig and not _swell_retrigger(cur, rp, vol):
             start_new = "trig"
             start_frame = f
         else:
