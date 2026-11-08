@@ -910,11 +910,12 @@ COMPOUND_GAIN = 0.15     # ... clearly more often than on 2-eighth boundaries
 REP6_MIN = 0.15          # v0.1.43: the melody comes back after 6 8ths at least this often ...
 REP6_RATIO = 2.0         # ... and this many times as often as after 4 or 8
 BEAT_PHASE_GAIN = 1.15   # ternary grid: another row starts the beat if it scores this much better (v0.1.28)
+BINARY_PHASE_GAIN = 3.0  # v2.9.31: binary grid of a tune without a loop: another row must score this much better
 MIXED_TRIPLET_ERR = 1.5  # ternary grid: an onset this many frames off the triplet rows ...
 MIXED_16TH_ERR = 0.5     # ... and this close to a 16th of the beat is placed on the 16th (v0.1.28)
 
 
-def beat_phase(onsets, unit, origin, rows, channels=None):
+def beat_phase(onsets, unit, origin, rows, channels=None, step=None, gain=None):
     """Ternary grids (3 / 6 rows per beat): which row (mod rows) starts the beat. Each onset
     scores the rows until the next onset (capped at one beat): in a shuffle the long note of
     the long-short pair starts on the beat, and longer notes start on beats in general.
@@ -933,8 +934,9 @@ def beat_phase(onsets, unit, origin, rows, channels=None):
             if w > 0:
                 score[a % rows] += w
     # only shifts by whole triplet 8ths (a shift by half a beat is a binary question, not handled)
-    best = max(range(0, rows, rows // 3), key=lambda p: score[p])
-    return best if score[best] >= BEAT_PHASE_GAIN * score[0] and score[best] > score[0] else 0
+    # v2.9.31: step / gain for the binary grids (BINARY_PHASE_GAIN)
+    best = max(range(0, rows, step or rows // 3), key=lambda p: score[p])
+    return best if score[best] >= (gain or BEAT_PHASE_GAIN) * score[0] and score[best] > score[0] else 0
 
 
 def track_rows(onsets, unit, origin):
@@ -1067,6 +1069,15 @@ class TickMap:
                     # rest at the start (frame 0 then sits inside the first beat)
                     chans = [sorted({n.start for n in lst if n.start < end}) for lst in (notes or {}).values()]
                     p = beat_phase(seg_on, s.unit, origin, s.rows, [c for c in chans if c] or None)
+                    if p:
+                        origin -= (s.rows - p) * s.unit
+                elif s.rows % 2 == 0 and s.rows >= 4 and quantize and downbeat is None and notes:
+                    # v2.9.31: the same on a binary grid, for a tune without a loop, by 16ths. Pooyan t1:
+                    # sound effects for 13.5 s put the grid half a beat off the melody's quarters
+                    # (A4 G4 F#4 E4 D4 every 24 frames from frame 811, with the triangle's D3)
+                    chans = [sorted({n.start for n in lst if n.start < end}) for lst in notes.values()]
+                    p = beat_phase(seg_on, s.unit, origin, s.rows, [c for c in chans if c] or None,
+                                   step=s.rows // 4, gain=BINARY_PHASE_GAIN)
                     if p:
                         origin -= (s.rows - p) * s.unit
             else:

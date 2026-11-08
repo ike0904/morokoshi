@@ -103,7 +103,7 @@ from midi import Track, write_smf  # noqa: E402
 from spc_drums import split_spc_drums  # noqa: E402
 from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split, parse_drum_map,  # noqa: E402
                    summarize, GM_NAMES, DROP_DRUM_CHANNELS, DROP_DRUM_MIN)
-from loop import detect_loop, REPEATS as LOOP_REPEATS  # noqa: E402
+from loop import detect_loop, repeats_for  # noqa: E402
 from expansion import channel_table  # noqa: E402
 from meter import odd_bars, odd_runs, SNARES as SNARE_NOTES  # noqa: E402
 
@@ -119,6 +119,7 @@ TONAL = ("P1", "P2", "TRI")
 MIDI_PROG = {"P1": None, "P2": None, "TRI": None}
 CHUNK_SEC = 60.0      # emulate in chunks; stop when a loop or the end of the song is found
 SILENCE_SEC = 4.0     # this much silence after the last note = song ended
+PROGRESS_SEC = 5.0    # v2.9.31: emulate a chunk in pieces this long to report the progress
 CONFIRM_SEC = 20.0    # at least this much repeat after the first loop (short loops)
 
 REG_NAMES = {
@@ -888,12 +889,17 @@ def build_parser():
     return ap
 
 
-def convert(args, should_stop=None):
+def convert(args, should_stop=None, progress=None):
     """Convert one track as described by the parsed arguments.
 
     Progress is printed to stdout. should_stop() is polled between emulation chunks;
-    returning True raises Cancelled. Returns (exit code, list of output files).
+    returning True raises Cancelled. progress(stage) (v2.9.31) is told what is being done
+    (a short English text for the status bar). Returns (exit code, list of output files).
     """
+    def stage(msg):
+        if progress:
+            progress(msg)
+
     if args.loops <= 0:  # --loops 0 = no loop detection (same as --no-loop)
         args.no_loop = True
     drum_map = parse_drum_map(args.drum_map)
@@ -928,30 +934,52 @@ def convert(args, should_stop=None):
     n_frames = 0
     end_reason = "max length"
     prev_loop = None
+    step = chunk
     while n_frames < max_frames:
         if should_stop and should_stop():
             raise Cancelled()
-        n_frames = player.advance(min(chunk, max_frames - n_frames))
+        # v2.9.31: in pieces of PROGRESS_SEC, so the status (progress) moves during a long chunk
+        target = min(n_frames + step, max_frames)
+        while n_frames < target:
+            stage(f"emulating {n_frames / frame_rate:.0f} s of {target / frame_rate:.0f} s"
+                  + (f" (loop of {prev_loop['period'] / frame_rate:.0f} s found, confirming)" if prev_loop else ""))
+            if should_stop and should_stop():
+                raise Cancelled()
+            n_frames = player.advance(min(int(PROGRESS_SEC * frame_rate), target - n_frames))
+            if player.aborted:
+                break
         if args.no_loop or player.aborted:
             if player.aborted:
                 end_reason = "emulation aborted"
             if player.aborted:
                 break
             continue
+        stage(f"looking for the loop ({n_frames / frame_rate:.0f} s emulated)")
         frames, notes, stats, drums, events, loop, detect, tempo_drums = analyze(player, n_frames, args, drum_map)
         # accept a loop only when it is stable over two chunks and heard LOOP_REPEATS times in a row
+        # v2.9.31: channels looping on their own (loop._independent_loop) were each heard 3 times; the
+        # whole loop (their least common multiple) only needs to be emulated once. Loops of 60 s and
+        # more are taken after 2 rounds (loop.repeats_for)
+        need = (loop["period"] if loop and loop.get("independent")
+                else max(repeats_for(loop["period"]) * loop["period"], loop["period"] + CONFIRM_SEC * frame_rate)
+                if loop else 0)
         if (loop and prev_loop and abs(loop["start"] - prev_loop["start"]) <= 2
                 and abs(loop["period"] - prev_loop["period"]) <= 2
-                and n_frames - loop["start"] >= max(LOOP_REPEATS * loop["period"],
-                                                    loop["period"] + CONFIRM_SEC * frame_rate)):
+                and n_frames - loop["start"] >= need):
             end_reason = "loop found"
             break
         prev_loop = loop
+        # v2.9.31: once a loop is seen, emulate only what is still needed to confirm it, not a whole
+        # chunk; at least CONFIRM_SEC, so it must still hold a while later (King of Kings t1: a loop
+        # seen at 60 s, the song ends at 71 s)
+        step = chunk if not loop else int(max(CONFIRM_SEC * frame_rate,
+                                              min(chunk, loop["start"] + need - n_frames)))
         last_end = max([n.end for lst in notes.values() for n in lst] + [d.end for d in drums], default=0)
         if last_end and n_frames - last_end >= SILENCE_SEC * frame_rate:
             end_reason = "song ended"
             break
     player.finish_warnings()
+    stage("analyzing notes")
     frames, notes, stats, drums, events, loop, detect, tempo_drums = analyze(player, n_frames, args, drum_map)
     print(f"  {n_frames} frames ({n_frames / frame_rate:.1f} s) in {time.time() - t0:.2f} s, "
           f"{len(player.writes)} register writes; stopped: {end_reason}")
@@ -964,6 +992,9 @@ def convert(args, should_stop=None):
         end_frame = loop["start"] + loop["period"] * max(1, args.loops)
         print(f"\nLoop: starts at {loop['start'] / frame_rate:.2f} s, length {loop['period'] / frame_rate:.2f} s "
               f"({loop['period']} frames); writing intro + {max(1, args.loops)} loop(s)")
+        if loop.get("independent"):
+            print("  channels loop on their own: " + ", ".join(
+                f"{k} {v[1] / frame_rate:.2f} s" for k, v in sorted(loop["channels"].items())))
     else:
         loop = None
         end_frame = last_end if end_reason == "song ended" else n_frames
@@ -1026,6 +1057,7 @@ def convert(args, should_stop=None):
                                  loop_period=loop["period"] if loop else None)
         return onsets, tempo
 
+    stage("detecting the tempo")
     onsets, tempo = tempo_of(full)
     if tempo is None and fine:
         # v2.9.26: a short tune with too few notes left after folding: detect as before
@@ -1060,6 +1092,7 @@ def convert(args, should_stop=None):
                   + ("  [tempo tracked]" if sg.tracked else ""))
             if sg.score < 0.8 and not sg.tracked:
                 print("    Warning: poor grid fit (rubato or unsupported rhythm?)")
+        stage("detecting the meter")
         if not args.time_sig:
             check_pickup(tmap, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame)
         if loop and not args.no_odd_meter:
@@ -1068,6 +1101,7 @@ def convert(args, should_stop=None):
         mid_path = mid_out or stem + ".mid"
         if getattr(args, "arp_chords", False) and not getattr(player, "is_spc", False):
             notes = arpeggio_chords(notes)
+        stage("writing the MIDI file")
         write_smf(mid_path, build_midi(notes, drums, tmap, h.title, track, end_frame, loop, transpose, programs), PPQ)
         outputs.insert(0, mid_path)
 

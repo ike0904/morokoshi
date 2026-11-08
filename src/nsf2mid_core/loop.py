@@ -29,6 +29,10 @@ MIN_LOOP_FRAMES = 120   # ignore periods shorter than 2 s
 LOOSE_MIN = 2           # v0.1.38: events of a non-repeating channel inside the loop that refute it
 REPEATS = 3             # the loop body must be heard this many times in a row
 MULT_MAX_FRAMES = 6000  # v0.1.44: longest multiple of the period tried for a non-repeating channel
+LONG_LOOP_FRAMES = 3600  # v2.9.31: a loop this long (60 s) is taken after 2 rounds (Business Wars t1: 222 s)
+LCM_MAX_FRAMES = 30000  # v2.9.31: longest loop made of channels that loop on their own (500 s)
+
+from math import gcd
 
 
 def _scan(t, tok, k, period=None):
@@ -54,6 +58,13 @@ def _scan(t, tok, k, period=None):
     return s, int(round(L)), span
 
 
+def repeats_for(period):
+    """How many rounds of a loop must be heard: REPEATS, but 2 for loops of LONG_LOOP_FRAMES and more
+    (v2.9.31: a 222 s loop needed 666 s of emulation). The rule of 3 is for short sections played
+    twice before a chorus."""
+    return 2 if period >= LONG_LOOP_FRAMES else REPEATS
+
+
 def channel_period(events):
     """events: sorted [(frame, token)]. Returns (loop_start_frame, period) or None."""
     if len(events) < MIN_EVENTS:
@@ -67,7 +78,7 @@ def channel_period(events):
         if r is None:
             continue
         s, L, span = r
-        if L < MIN_LOOP_FRAMES or span < (REPEATS - 1) * L - TOL or (n - s) < MIN_EVENTS:
+        if L < MIN_LOOP_FRAMES or span < (repeats_for(L) - 1) * L - TOL or (n - s) < MIN_EVENTS:
             continue
         cand = (t[s], L)
         if best is None or cand[0] < best[0] - TOL or (abs(cand[0] - best[0]) <= TOL and L < best[1]):
@@ -111,6 +122,35 @@ def repeat_share(events, start, period):
     return hit / len(sel)
 
 
+def _independent_loop(channel_events, per):
+    """v2.9.31: channels that loop on their own with different lengths (Relics t2: P1 every 2688
+    frames, P2 every 3072, the triangle every 384) - the whole tune comes back after the least
+    common multiple (21504 frames = 358 s), which can never be heard REPEATS times. Each channel has
+    been heard REPEATS times with its own period (channel_period), so the loop is the LCM from the
+    latest channel start. Periods may be a frame or two off: they are taken as multiples of the
+    shortest one when they are close to one. Channels without a period of their own (Relics t2:
+    drum bursts every ~9076 frames, which drift by a few frames) are left as they are.
+    Returns the loop dict with "independent": True, or None."""
+    base = min(L for _, L in per.values())
+    mult = [round(L / base) for _, L in per.values()]
+    if all(abs(L - k * base) <= TOL for (_, L), k in zip(per.values(), mult)):
+        lcm = 1
+        for k in mult:
+            lcm = lcm * k // gcd(lcm, k)
+        period = lcm * base
+    else:
+        # periods that are not multiples of the shortest (Super Team Games t3: P1 1024, the triangle
+        # 384, the drums 192 frames): the exact least common multiple (3072)
+        period = 1
+        for _, L in per.values():
+            L = int(round(L))
+            period = period * L // gcd(period, L)
+    if period > LCM_MAX_FRAMES:
+        return None
+    start = max(s for s, _ in per.values())
+    return {"start": start, "period": period, "channels": per, "independent": True}
+
+
 def detect_loop(channel_events, strict=False):
     """channel_events: {name: sorted [(frame, token)]}. strict (SPC, v0.1.38): channels without
     a repeat of the common period that still play in the loop refute it.
@@ -134,7 +174,7 @@ def detect_loop(channel_events, strict=False):
         if s is None:
             # a channel that does not repeat with the common period -> no reliable loop
             if name in per:
-                return None
+                return _independent_loop(channel_events, per)
             loose.append(name)
             continue
         if strict and s == ev[0][0]:

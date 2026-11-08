@@ -121,6 +121,31 @@ def _swell_retrigger(cur, pitch, vol):
     return top <= SWELL_TOP_SHARE * len(v) and vol <= last and vol * 2 >= last
 
 
+def _release_retrigger(cur, pitch, vol, f, infos):
+    """A retrigger that only starts the release of a decayed note is not a new note (v2.9.31).
+
+    Mr. Gold t1 P1: E5 v F F F F E E E E D D D D C C C C, then $4003 written again at E5 and held at
+    v6 for 6 frames; A4 decays to 6, then v3 flat for 32 frames, then v2 flat. The note decayed
+    (never rose, ended below its start), the retrigger comes in quieter than where the decay
+    stopped, and it stays flat (no envelope of its own) until the next trigger, rest or other
+    pitch. A soft repeated note would have an envelope of its own; a driver without envelopes
+    has no decayed note before it.
+    """
+    if cur is None or cur.pitch != pitch or len(cur.vols) < 2:
+        return False
+    v = cur.vols
+    if v[-1] >= v[0] or any(b > a for a, b in zip(v, v[1:])) or not 0 < vol < v[-1]:
+        return False
+    n = 0
+    for vol2, note2, trig2, _ in infos[f + 1:]:
+        if vol2 == 0 or trig2 or abs(note2 - pitch) >= PITCH_SPLIT:
+            break
+        if vol2 != vol:
+            return False
+        n += 1
+    return n >= 1
+
+
 def extract_channel(frames, ch, keep_tail=False):
     infos = [_frame_info(f["state"], f["written"], ch) for f in frames]
 
@@ -164,7 +189,7 @@ def extract_channel(frames, ch, keep_tail=False):
             elif pending_trig and abs(pending_trig[1] - note) < 0.5 and f - pending_trig[0] <= 2:
                 start_new = "trig"
                 start_frame = pending_trig[0]
-        elif trig and not _swell_retrigger(cur, rp, vol):
+        elif trig and not _swell_retrigger(cur, rp, vol) and not _release_retrigger(cur, rp, vol, f, infos):
             start_new = "trig"
             start_frame = f
         else:

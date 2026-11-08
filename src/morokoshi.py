@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v2.9.30"
+APP_VERSION = "v2.9.31"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -7384,10 +7384,12 @@ class MainWindow(QMainWindow):
 
     def _save_midi_th(self, src, track, path, opts):
         import io, contextlib, time as _time
-        t0=_time.time(); buf=io.StringIO()
+        t0=_time.time(); buf=io.StringIO(); stage=[""]
         def should_stop():
-            self._st(f"Saving MIDI... {int(_time.time()-t0)}s (Esc: cancel)")
+            self._st(f"Saving MIDI... {int(_time.time()-t0)}s{' - '+stage[0] if stage[0] else ''} (Esc: cancel)")
             return self._mid_stop
+        def progress(msg):  # v2.9.31: いま何をしているかをステータスバーに
+            stage[0]=msg; should_stop()
         try:
             n2m=_import_nsf2mid()
             argv=[src,"-t",str(track),"--mid-out",path]+_nsf2mid_argv(opts)
@@ -7398,7 +7400,7 @@ class MainWindow(QMainWindow):
             should_stop()
             try:
                 with contextlib.redirect_stdout(buf):
-                    code,outs=n2m.convert(args, should_stop)
+                    code,outs=n2m.convert(args, should_stop, progress)
             except n2m.Cancelled:
                 _log(f"save midi cancelled: {path}")
                 self._st("MIDI save cancelled"); return
