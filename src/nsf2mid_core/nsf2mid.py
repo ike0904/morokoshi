@@ -791,14 +791,20 @@ def analyze(player, n_frames, args, drum_map):
     detect = dict(notes)
     detect["TRI"], detect_tri = detect_triangle_split(notes["TRI"])
     drop_drums = []
+    min_drop = 0 if args.no_drop_drums else args.drop_drums
+    # v2.9.30: the triangle drums for the tempo detection stay one per note (drums played in
+    # pieces are merged in the output only; Tom & Jerry t1 lost its 180 BPM with the extra hits)
+    tempo_drums = list(base) + split_drop_drums(notes["TRI"], "TRI", min_drop, pieces=False)[1]
     for ch in DROP_DRUM_CHANNELS:
-        notes[ch], hits = split_drop_drums(notes[ch], ch, 0 if args.no_drop_drums else args.drop_drums)
+        notes[ch], hits = split_drop_drums(notes[ch], ch, min_drop)
         drop_drums += hits
+        if ch != "TRI":
+            tempo_drums += hits
     drums = sorted(base + drop_drums, key=lambda d: d.start)
     events = {ch: [(n.start, n.pitch) for n in lst] for ch, lst in detect.items()}
     events["DRUM"] = [(d.start, (d.src, d.kind)) for d in sorted(base + detect_tri, key=lambda d: d.start)]
     loop = None if args.no_loop else detect_loop(events)
-    return frames, notes, stats, drums, events, loop, detect
+    return frames, notes, stats, drums, events, loop, detect, tempo_drums
 
 
 def analyze_spc(frames, args, frame_cycles, dsp, drum_map):
@@ -824,7 +830,7 @@ def analyze_spc(frames, args, frame_cycles, dsp, drum_map):
     loop = None if args.no_loop else detect_loop(events, strict=True)
     tonal, drums = split_spc_drums(notes, frames, dsp, drum_map)
     tonal = {k: tonal.get(k, []) for k in notes}
-    return frames, tonal, stats, drums, events, loop, detect
+    return frames, tonal, stats, drums, events, loop, detect, drums
 
 
 def note_sample(n):
@@ -932,7 +938,7 @@ def convert(args, should_stop=None):
             if player.aborted:
                 break
             continue
-        frames, notes, stats, drums, events, loop, detect = analyze(player, n_frames, args, drum_map)
+        frames, notes, stats, drums, events, loop, detect, tempo_drums = analyze(player, n_frames, args, drum_map)
         # accept a loop only when it is stable over two chunks and heard LOOP_REPEATS times in a row
         if (loop and prev_loop and abs(loop["start"] - prev_loop["start"]) <= 2
                 and abs(loop["period"] - prev_loop["period"]) <= 2
@@ -946,7 +952,7 @@ def convert(args, should_stop=None):
             end_reason = "song ended"
             break
     player.finish_warnings()
-    frames, notes, stats, drums, events, loop, detect = analyze(player, n_frames, args, drum_map)
+    frames, notes, stats, drums, events, loop, detect, tempo_drums = analyze(player, n_frames, args, drum_map)
     print(f"  {n_frames} frames ({n_frames / frame_rate:.1f} s) in {time.time() - t0:.2f} s, "
           f"{len(player.writes)} register writes; stopped: {end_reason}")
     for w in player.warnings:
@@ -1006,8 +1012,9 @@ def convert(args, should_stop=None):
         full, fine = fold_fast_figures(unfolded, frames)
         fine = [o for o in fine if o < end_frame]
     drum_on = {}
-    for d in in_range:
-        drum_on.setdefault(d.src, []).append(d.start)
+    for d in sorted(tempo_drums, key=lambda d: d.start):
+        if d.start < end_frame:
+            drum_on.setdefault(d.src, []).append(d.start)
 
     def tempo_of(full):
         onsets = [o for o in tempo_onsets(full, frames) if o < end_frame]

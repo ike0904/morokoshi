@@ -164,7 +164,32 @@ def shuffle_step(onsets, unit):
         share = hit / len(pairs)
         if share > best:
             best, best_s = share, step
-    return best_s if best >= SHUFFLE_PAIRS else None
+    if best < SHUFFLE_PAIRS or shuffle_lattice(onsets, unit, best_s) < SHUFFLE_LATTICE:
+        return None
+    return best_s
+
+
+SHUFFLE_LATTICE = 0.8    # v2.9.30: share of the onsets on the long-short positions of the beat
+SHUFFLE_WINDOW = 32      # onsets per window (the phase is taken per window)
+
+
+def shuffle_lattice(onsets, unit, step):
+    """v2.9.30: in a shuffle the onsets sit on the two positions of the long-short beat (0 and 2s
+    of 3s); 16th-8th-16th syncopations on a straight beat also alternate 1:2 and 2:1, but their
+    onsets fall anywhere in a 3s cycle. Share of the onsets on the two positions, the phase taken
+    per SHUFFLE_WINDOW onsets.
+    470 tunes: real shuffles 0.84-1.00 (Super Mario Bros. 3 t1 0.91, Wrecking Crew t1 0.92),
+    straight tunes 0.69-0.73 (Adventure Island 3 t1 0.70: 6-frame 16ths, 150 BPM, was 200 shuffle)."""
+    period = 3 * step
+    hit = tot = 0
+    for i in range(0, len(onsets), SHUFFLE_WINDOW):
+        w = onsets[i:i + SHUFFLE_WINDOW]
+        if len(w) < 4:
+            continue
+        pos = [round((o - w[0]) / unit) for o in w]
+        hit += max(sum(1 for p in pos if (p - ph) % period in (0, 2 * step)) for ph in range(period))
+        tot += len(w)
+    return hit / tot if tot else 0.0
 
 
 TRIPLET_REP_GAIN = 0.15   # pitches repeat after 3 notes clearly more often than after 4 ...
@@ -800,7 +825,6 @@ RIT_STEP = 0.2           # ... changing by at most this x the usual note from no
 RIT_STEP_FRAMES = 2      # ... or (v2.9.28) by this many frames: frame rounding on short notes
 PHASE_GAIN = 1.25       # v0.1.33: the downbeat by note weight must beat beat 0 by this much ...
 PHASE_MIN_NOTES = 16    # ... over at least this many notes on beats
-PHASE_MIN_SEC = 30.0    # ... in a tune at least this long
 CONTINUOUS_ROWS = 2      # v0.1.29: a segment starting this close after the last note keeps its natural tick
 
 
@@ -1188,13 +1212,11 @@ class TickMap:
         best = max(range(num), key=lambda p: score[p])
         if count < PHASE_MIN_NOTES or best == 0 or score[best] < PHASE_GAIN * score[0]:
             return
-        # v0.1.33: only short tunes are skipped (bars are hard to tell there, user decision) and
-        # the opening must look like a pickup: before beat `best` only short notes (< 1 beat), and
-        # the first long note starts right on it (DQ3 t26: G C D as triplets, then a long G).
+        # v0.1.33: the opening must look like a pickup: before beat `best` only short notes (< 1 beat),
+        # and the first long note starts right on it (DQ3 t26: G C D as triplets, then a long G).
         # James Bond Jr. t1 has its weight on beat 2 all through but no pickup.
-        last = max(n.start for sel in per.values() for n in sel)
-        if (last - part.origin_frame) / self.fr < PHASE_MIN_SEC:
-            return
+        # v2.9.30: short tunes too (v0.1.33-v2.9.29 skipped tunes under 30 s; user: "undo it".
+        # Adventure Island 3 t1, 14 s, now a 2-beat pickup, its shuffle was the problem)
         first_long = None
         for sel in per.values():
             for n in sel:

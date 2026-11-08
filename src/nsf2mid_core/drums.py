@@ -38,6 +38,7 @@ Pitch-drop drums (v0.1.20: also on the pulse channels)
   next note, e.g. Gradius II), is not a drum.
 """
 
+import copy
 import math
 
 from apu_state import DMC_RATE_NTSC
@@ -302,21 +303,93 @@ def detect_triangle_split(tri_notes):
     return tonal, hits
 
 
-def split_drop_drums(ch_notes, src, min_drop=DROP_DRUM_MIN):
-    """Split one channel (P1 / P2 / TRI) into (tonal_notes, drum_hits). min_drop <= 0: off."""
+def _falls(ps):
+    return len(ps) >= 2 and all(b - a < -GLIDE_TOL for a, b in zip(ps, ps[1:]))
+
+
+def _first_pitch(n):
+    return next((p for p in n.pitches if p is not None), None)
+
+
+HEAD_STEP = 7   # v2.9.30: semitones a 1-2 frame struck note may sit above the drum right after it
+BASS_DROP = 12  # v2.9.30: semitones from a struck falling triangle note down to the next note (the bass)
+
+
+def split_drop_drums(ch_notes, src, min_drop=DROP_DRUM_MIN, pieces=True):
+    """Split one channel (P1 / P2 / TRI) into (tonal_notes, drum_hits). min_drop <= 0: off.
+
+    v2.9.30, triangle only: a drum that the driver plays in pieces, retriggering on the way down,
+    is one hit. Tom & Jerry t1 TRI plays drums and bass: the kick C3 G#2 D2 | C2 A#1 (retriggered
+    at C2) and the snare G#3 G3 F#3 | C2 A#1, each followed by the bass note. A struck note falling on
+    every frame and followed by a note BASS_DROP or more below takes the first frame of that note into
+    its fall (the snare's own fall is 2 semitones), and short falling pieces right after a hit belong
+    to it (also when they would make a hit of their own: Wolverine t1 G#2 D2 | C2 A#1, then G#1). The bass note
+    right after such a hit starts with it. Not melody figures: a slide split off by pitch (Dragon Ball
+    Z 3 t1 TRI F#4 F4 | E4 D#4 D4 C#4 again and again, then G3) or a falling arpeggio (the same tune:
+    D#4 with a slide, B3, G#3). pieces=False: one hit per note, as before (tempo detection)."""
     if min_drop <= 0:
         return ch_notes, []
     tonal, hits = [], []
-    for n in ch_notes:
-        length = n.end - n.start
+
+    def glide_at(i):
+        """The falling pitches if ch_notes[i] is a pitch-drop drum, else None."""
+        n = ch_notes[i]
         ps = [p for p in n.pitches if p is not None]
-        if ps and length <= TRI_DRUM_MAX and "arp" not in n.cue and is_glide(ps, min_drop):
-            gm = 36 if min(ps) < 60 else 45
-            vel = 110 if src == "TRI" else _vel(n.peak)
-            hits.append(DrumHit(src, n.start, n.end, gm, vel, (src,),
-                                f"glide {ps[0]:.0f}->{min(ps):.0f}", n))
-        else:
+        if not ps or n.end - n.start > TRI_DRUM_MAX or "arp" in n.cue:
+            return None
+        contour = ps
+        nxt = ch_notes[i + 1] if i + 1 < len(ch_notes) else None
+        if (src == "TRI" and pieces and "trig" in n.cue and nxt is not None and nxt.start - n.end <= 1
+                and _falls(ps)):
+            p = _first_pitch(nxt)
+            if p is not None and p <= ps[-1] - BASS_DROP:
+                contour = ps + [p]
+        return contour if is_glide(contour, min_drop) else None
+
+    i = 0
+    while i < len(ch_notes):
+        n = ch_notes[i]
+        contour = glide_at(i)
+        if contour is None:
             tonal.append(n)
+            i += 1
+            continue
+        ps = [p for p in n.pitches if p is not None]
+        gm = 36 if min(ps) < 60 else 45
+        vel = 110 if src == "TRI" else _vel(n.peak)
+        h = DrumHit(src, n.start, n.end, gm, vel, (src,), f"glide {contour[0]:.0f}->{min(contour):.0f}", n)
+        hits.append(h)
+        if src == "TRI" and pieces and i > 0 and tonal and tonal[-1] is ch_notes[i - 1]:
+            q = ch_notes[i - 1]
+            qp = [p for p in q.pitches if p is not None]
+            if (qp and "trig" in q.cue and q.end - q.start <= 2 and q.end == n.start
+                    and 0 < min(qp) - ps[0] <= HEAD_STEP and all(b - a <= GLIDE_TOL for a, b in zip(qp, qp[1:]))):
+                # the head of the drum, struck a moment before its fall (Treasure Master t1: C3 | G#2 D2 ...)
+                tonal.pop()
+                h.start = q.start
+        i += 1
+        while src == "TRI" and pieces and i < len(ch_notes):
+            m = ch_notes[i]
+            mp = [p for p in m.pitches if p is not None]
+            if not (mp and m.start - h.end <= 1 and "trig" in m.cue and m.end - m.start <= 3
+                    and mp[0] < contour[-1] + GLIDE_TOL and all(b - a <= GLIDE_TOL for a, b in zip(mp, mp[1:]))
+                    and m.end - h.start <= TRI_DRUM_MAX):
+                break
+            h.end = m.end
+            contour = mp
+            i += 1
+        if (src == "TRI" and pieces and i < len(ch_notes) and 0 <= ch_notes[i].start - h.end <= 1
+                and glide_at(i) is None and not _falls([p for p in ch_notes[i].pitches if p is not None])):
+            # the bass note after the drum was played with it, on the drum's beat (a copy:
+            # the notes are shared with the detection inputs)
+            m = copy.copy(ch_notes[i])
+            k = m.start - h.start
+            m.vols = m.vols[:1] * k + m.vols
+            m.duties = m.duties[:1] * k + m.duties
+            m.pitches = [None] * k + m.pitches
+            m.start = h.start
+            tonal.append(m)
+            i += 1
     return tonal, hits
 
 

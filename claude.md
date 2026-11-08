@@ -122,7 +122,19 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.28 (2026-11-08) ← 最新（プロンプト直接指示: meter_check の回答 FF3 2 曲目・Platoon・Bikkuriman World 2 曲目・Tom & Jerry / Balda の 180 BPM、30 秒未満の前打ちの試験）
+### v2.9.30 (2026-11-08) ← 最新（プロンプト直接指示: 前のセッションの作業（未コミット）を確認してコミット）
+- シャッフルは音の 8 割以上が長・短の位置に乗るときだけ（tempo.shuffle_lattice）。Adventure Island 3 1 曲目 200 シャッフル → 150 BPM など 9 曲
+- 三角波で下降の途中に鳴らし直すドラムを 1 打にまとめ、直後のベースは打の拍から（drums.split_drop_drums。Tom & Jerry・Wolverine・Treasure Master）。テンポの判定は従来どおり 1 音 = 1 打
+- ループのない曲の前打ちの 30 秒の条件をやめた（ユーザー「戻して」）。Adventure Island 3 は前打ち 2 拍（ユーザーの答えと一致）
+- 610 曲の比較で 32 曲が変化（前のセッションの cmp3.txt）。要確認: Nintendo World Cup 3 曲目 4/4 233.9 → 6/8 87.7 BPM
+- 回帰テスト 45 本は v2.9.29 と一致（tmp/regress_v2930.txt）。前のセッションのバックグラウンド処理が残って回帰テストを実行していたため、終了まで待った
+- 詳細は docs/midi/spec.md
+
+### v2.9.29 (2026-11-08)（プロンプト直接指示: Platoon で 2 音鳴らしてしまう件をコミット）
+- フェードインの途中・最後に同じ音程で鳴らし直して減衰に切り替える音を 1 音にする（notes._swell_retrigger）。Platoon 1 曲目 1ch の C#4・G4
+- 回帰テスト 45 本は v2.9.28 と一致（tmp/regress_v2928.txt・regress_v2929.txt）
+
+### v2.9.28 (2026-11-08)（プロンプト直接指示: meter_check の回答 FF3 2 曲目・Platoon・Bikkuriman World 2 曲目・Tom & Jerry / Balda の 180 BPM、30 秒未満の前打ちの試験）
 - FF3 2 曲目 → 4/4、16 音 = 1 小節: ループ末のリタルダンド（9〜10 → 13 フレーム）が 2 フレームの跳びで判定から外れ、256 音が 259 行になっていた。
   リタルダンドの判定で 1 音ごとの変化を 2 フレームまで許す（tempo.has_ritardando）。エコーの遅れは ±50 % まで除く（リタルダンドで伸びる）
 - Platoon 1 曲目 → 前打ちなし: ノイズが 1 拍おき（前打ちがあると 1・3 拍）かつ三角波が前打ちの間も鳴るなら、ループ開始のための前打ちを入れない（nsf2mid.check_pickup）
