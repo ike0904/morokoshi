@@ -1,4 +1,4 @@
-## ★ 再起動前のメモ（2026-11-08、v2.9.32 の時点。ユーザーの確認待ち）
+## ★ 再起動前のメモ（2026-11-09、v2.9.33 の時点。ユーザーの確認待ち）
 
 **1. v2.9.30 で変わった曲（今回の変更の確認）**
 - Nintendo World Cup 3 曲目: 4/4・233.9 BPM → 6/8・87.7 BPM（一番大きな変化。どちらが正しいか）
@@ -9,11 +9,12 @@
 
 **2. 以前から確認待ち**（v2.9.28 の 6 曲・Pooyan・FDS の再生音・画面の操作は 2026-11-08 に回答済み → docs/midi/meter_check.md）
 
-**3. v2.9.32 で確認してほしいこと**（MIDI は tmp/meter_check/v2932/、一覧は docs/midi/meter_check.md）
-- Super Team Games 1・2 曲目: 前打ちなしの 4/4 に
-- Pooyan 1 曲目: 2/4 の前打ち + 4/4（811 フレームの D が小節頭）
-- 同じ規則で前打ちが消えた曲: Shockwave 1 曲目・Cosmic Epsilon 1 曲目・Adian no Tsue 2 曲目
-- 未対応（優先度低）: Business Wars の 6/4（スネアの 3 連 6 拍分のフレーズ）
+**3. v2.9.33 で確認してほしいこと**（MIDI は tmp/meter_check/v2933/、一覧は docs/midi/meter_check.md。v2.9.32 の分は 2026-11-09 に回答済み）
+- Bubble Bobble 1 曲目: 4/4 ×4 → 3/8 → ループ開始から 4/4
+- Tiny Toon Adventures 2 1 曲目: 5 小節目 2ch の D#4・G4 が 3 回ずつに
+- Tecmo Super Bowl 3 曲目: 2/4 の前打ち + 4/4
+- ほかに変わった曲: Yamamura Misa Suspense 2 曲目（3/8 が入った）、Super Cars 3 曲目（前打ちなしに）、Silva Saga 3 曲目（ループ検出）、Hydlide 3 1 曲目（38 秒からのテンポ 92.5 → 74.1。悪化の可能性）
+- 未対応（優先度低）: Business Wars の 6/4、Pooyan 1 曲目の 6 小節目より前（実は 135 くらいの 4/4 で 4 小節）
 
 ---
 
@@ -141,7 +142,19 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.32 (2026-11-08) ← 最新（プロンプト直接指示: Super Team Games の弱起は 1 曲目、Pooyan は 811 フレームの D で合っている、Business Wars の 6/4 の手がかり）
+### v2.9.33 (2026-11-09) ← 最新（プロンプト直接指示: v2.9.32 の確認結果（Super Team Games・Pooyan・Shockwave・Cosmic Epsilon・Adian no Tsue は OK、Bubble Bobble・Tiny Toon 2・Tecmo Super Bowl の指摘））
+- 音量レジスタだけを書き直して同じ音程を鳴らし直す音を別の音に（notes._volume_reattack、cue「vol」）。Tiny Toon Adventures 2 1 曲目 2ch の D#4・G4 が 3 回ずつに
+  - 条件: 5 フレーム以上鳴り、上がらずに最初の音量の 1/4 以下まで減衰 → 1 フレームで 3/4 以上に戻る。Castle of Dragon 3 曲目の震える立ち上がり（3 フレームごと）は 1 音のまま
+- 前打ちをやめる場面（check_even_pickup）で、ベースの音名が変わる拍がはっきりしていればそこを小節頭に（bass_change_beat）。Tecmo Super Bowl 3 曲目 → 2/4 の前打ち（ユーザーの答えと一致）
+- 同じ場面で、ループ開始が 8 分裏ならループ開始の前に 8 分単位の短い小節（_Part.short_bar）。Bubble Bobble 1 曲目 → 4/4 ×4、3/8、ループ（ユーザーの答えと一致）
+  - 1 拍 16 行の曲（Tiny Toon）と、ループの音が 8 分裏の方に重い曲（Super Cars 3 曲目）は対象外
+- TickMap.phase_scores を _phase_downbeat から切り出した（動作は同じ）
+- 確認: 回帰テスト 45 本で変わったのは Hydlide 3（38 秒からのテンポ 92.50 → 74.10、鳴らし直しの音が 1 つ増えたため。未対応）（tmp/regress_v2933.txt）。
+  ランダム 300 曲（seed 5）で 17 曲が変化（鳴らし直しで音が増えた 15 曲、Yamamura Misa 2 曲目に 3/8、Silva Saga 3 曲目でループ検出）。変拍子の正解曲 4 曲は変化なし
+- Pooyan 1 曲目の 6 小節目より前（135 くらいの 4/4 4 小節）はユーザー判断で優先度低。未対応
+- 確認用 MIDI: tmp/meter_check/v2933/
+
+### v2.9.32 (2026-11-08)（プロンプト直接指示: Super Team Games の弱起は 1 曲目、Pooyan は 811 フレームの D で合っている、Business Wars の 6/4 の手がかり）
 - ループのない曲で、ベースのない前奏（1 小節以上）の後にベースが拍の頭で 1 拍以上の音で入るなら、その拍を小節頭にする（tempo.TickMap._bass_entry）。
   Pooyan 1 曲目 → 2/4 の前打ち + 4/4、811 フレームの D が小節頭（ユーザーの答えと一致）
 - 前打ちの小節が曲頭のドラムで始まり、P1・P2 の前打ちの音が小節頭の音より短くないなら前打ちにしない（nsf2mid.check_even_pickup）。Super Team Games 1・2 曲目 → 4/4

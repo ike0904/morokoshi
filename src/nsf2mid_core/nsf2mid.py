@@ -693,13 +693,68 @@ def check_pickup(tmap, notes, drums, end_frame):
           "plays through it)")
 
 
-def check_even_pickup(tmap, notes, drums, end_frame):
+CHANGE_MIN = 6      # v2.9.33: bass pitch changes on one beat of the bar; at least this many ...
+CHANGE_GAIN = 2.0   # ... and this many times those on any other beat = the bass marks the downbeat
+
+
+def bass_change_beat(tmap, notes, end_frame):
+    """v2.9.33: the beat of the 4/4 bar (0-3, counted from the tune's start) where the bass mostly
+    changes its pitch class (the harmony changes on the downbeat), or None when no beat stands out.
+    Only notes on a beat count, and an octave jump is no change.
+    Example: Tecmo Super Bowl t3 - the triangle A A G G F F E (a note a beat) changes on beats
+    2, 6, 10 ... (0 / 1 / 9 / 0 per beat of the bar): a 2-beat pickup."""
+    part = tmap.parts[0]
+    r = tmap.phase_scores(part, notes, end_frame)
+    if r is None:
+        return None
+    cnt = [0] * 4
+    prev = None
+    for n in r[2][r[3]]:
+        if n.start >= end_frame or tmap._part_for(n.start) is not part:
+            break
+        pc = n.pitch % 12
+        t = tmap(n.start) - part.origin_tick
+        if prev is not None and pc != prev and t % PPQ == 0:
+            cnt[int(t // PPQ) % 4] += 1
+        prev = pc
+    best = max(range(4), key=lambda b: cnt[b])
+    other = max(c for b, c in enumerate(cnt) if b != best)
+    if cnt[best] >= CHANGE_MIN and cnt[best] >= CHANGE_GAIN * other:
+        return best
+    return None
+
+
+LOOP_BEAT_GAIN = 1.1  # v2.9.33: notes on the loop start's beats must outweigh those an 8th off by this much
+
+
+def _loop_on_beat(tmap, notes, start, end_frame):
+    """v2.9.33: do the notes of the loop (from tick `start`) weigh more on the beats counted from the loop
+    start than an 8th off them? Weight = length in beats (up to 4). Bubble Bobble t1 304 / 249 (the loop
+    start is a beat), Super Cars t3 97 / 112 (it is not: the 2/4 pickup stays)."""
+    w = [0.0, 0.0]
+    for lst in notes.values():
+        for n in lst:
+            if n.start >= end_frame:
+                continue
+            t = tmap(n.start) - start
+            if t < 0 or t % (PPQ // 2):
+                continue
+            g = tmap(n.gate_end if n.gate_end is not None else n.end) - tmap(n.start)
+            w[(t // (PPQ // 2)) % 2] += min(4.0, g / PPQ)
+    return w[0] >= LOOP_BEAT_GAIN * w[1]
+
+
+def check_even_pickup(tmap, notes, drums, end_frame, loop=None):
     """v2.9.31: a pickup bar (loop start as a downbeat: TickMap._set_downbeat, or _phase_downbeat) is dropped
     when the tune starts with a drum hit and the melody of the pickup is as long as the notes on the
     downbeat (no short notes leading to an arrival). Super Team Games t1/t2 - C5 with a bass drum
     on frame 0, the bass enters with G on the next beat (the loop start): C G A B are even quarters,
     4/4 from the start (user). A real pickup leads into the downbeat with shorter notes
-    (Double Dragon III t2: B D E 16ths into a long A5; Exciting Billiard t1: G G# A into A#4)."""
+    (Double Dragon III t2: B D E 16ths into a long A5; Exciting Billiard t1: G G# A into A#4).
+    v2.9.33: when the bass changes its pitch on one beat of the bar (bass_change_beat), that beat is the
+    downbeat instead (Tecmo Super Bowl t3: 2-beat pickup, user; the loop start gave 3).
+    v2.9.33: a loop that starts on an 8th off the beat a bar or more into the tune gets a short bar
+    in 8ths before it (Bubble Bobble t1: four 4/4 bars, 3/8, then the loop on a downbeat, user)."""
     part = tmap.parts[0]
     lead = part.lead_beats
     if not lead or part.meter != (4, 4) or part.bar_origin is None:
@@ -725,11 +780,31 @@ def check_even_pickup(tmap, notes, drums, end_frame):
             both += 1
     if not both:
         return
+    bar = PPQ * 4
+    beat = bass_change_beat(tmap, notes, end_frame)
+    if beat:
+        part.lead_beats = beat
+        part.bar_origin = t0 + beat * PPQ
+        if tmap.downbeat_tick is not None:
+            tmap.downbeat_tick = (tmap.downbeat_tick - part.bar_origin) // bar * bar + part.bar_origin
+        if beat != lead:
+            print(f"  Pickup: {beat}/4 (the bass changes its pitch on that beat of the bar; "
+                  f"the loop start gave {lead}/4)")
+        return
     part.lead_beats = 0
-    part.bar_origin = part.origin_tick
+    part.bar_origin = t0
+    ls = tmap(loop["start"]) - t0 if loop else 0
+    rem = ls % bar
+    if ls >= bar and rem % PPQ == PPQ // 2 and part.seg.rows <= 8 and _loop_on_beat(tmap, notes, t0 + ls, end_frame):
+        # 16 rows a beat is a halved tempo: an 8th there is a beat (Tiny Toon Adventures 2 t1, 90 BPM)
+        part.bar_origin = t0 + ls
+        part.short_bar = (t0 + ls - rem, (rem * 2 // PPQ, 8))
+        tmap.downbeat_tick = t0 + ls
+        print(f"  Pickup: none; a {rem * 2 // PPQ}/8 bar before the loop start (it starts on an 8th off the beat, "
+              f"beat {ls / PPQ:g})")
+        return
     if tmap.downbeat_tick is not None:
-        bar = PPQ * 4
-        tmap.downbeat_tick = (tmap.downbeat_tick - part.origin_tick) // bar * bar + part.origin_tick
+        tmap.downbeat_tick = (tmap.downbeat_tick - t0) // bar * bar + t0
     print(f"  Pickup: none (the {lead}/4 pickup bar starts with a drum hit and its melody is no shorter than "
           "the downbeat's)")
 
@@ -1136,7 +1211,7 @@ def convert(args, should_stop=None, progress=None):
         stage("detecting the meter")
         if not args.time_sig:
             check_pickup(tmap, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame)
-            check_even_pickup(tmap, notes, drums, end_frame)
+            check_even_pickup(tmap, notes, drums, end_frame, loop)
         if loop and not args.no_odd_meter:
             odd_loop_meters(tmap, loop, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame,
                             max(1, args.loops))

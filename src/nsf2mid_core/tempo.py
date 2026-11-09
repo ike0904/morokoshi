@@ -1007,6 +1007,7 @@ class _Part:
         self.lead_beats = 0             # length of the pickup bar at the start (0 = none)
         self.lead_meter = None          # v0.1.43: meter of a pickup bar in 8ths (6/8 tunes), at lead_tick
         self.lead_tick = 0
+        self.short_bar = None           # v2.9.33: (tick, meter) of a short bar before bar_origin (bars before it count from origin_tick)
         self.meter_phase = 0            # v0.1.43: 6/8 bar lines this many 8ths after the grid origin
 
     def rows_at(self, frame):
@@ -1199,27 +1200,10 @@ class TickMap:
         num, den = part.meter
         if den != 4 or num < 2:
             return
-        per = {}
-        for ch, lst in notes.items():
-            sel = [n for n in lst if part.origin_frame - 1 <= n.start < end]
-            if len(sel) >= 8:
-                per[ch] = sel
-        if not per:
+        r = self.phase_scores(part, notes, end)
+        if r is None:
             return
-        bass = min(per, key=lambda ch: sorted(n.pitch for n in per[ch])[len(per[ch]) // 2])
-        score = [0.0] * num
-        count = 0
-        for ch, sel in per.items():
-            for n in sel:
-                t = self._tick_in(part, n.start) - part.origin_tick
-                if t < 0 or t % self.ppq:
-                    continue
-                dur = (self._tick_in(part, n.gate_end if n.gate_end is not None else n.end)
-                       - part.origin_tick - t) / self.ppq
-                if dur <= 0:
-                    continue
-                score[int(t // self.ppq) % num] += min(4.0, dur) * (2 if ch == bass else 1)
-                count += 1
+        score, count, per, bass = r
         best = max(range(num), key=lambda p: score[p])
         entry = self._bass_entry(part, per, bass, num)
         if entry is not None and count >= PHASE_MIN_NOTES and score[0] < PHASE_GAIN * score[entry]:
@@ -1250,6 +1234,34 @@ class TickMap:
             return
         part.lead_beats = best
         part.bar_origin = part.origin_tick + best * self.ppq
+
+    def phase_scores(self, part, notes, end):
+        """Weight of the notes starting on each beat of the bar (0 .. num-1, counted from the part's
+        origin): length in beats (up to 4), twice for the bass (the channel with the lowest notes).
+        Returns (score, count, per, bass) or None (see _phase_downbeat)."""
+        num = part.meter[0]
+        per = {}
+        for ch, lst in notes.items():
+            sel = [n for n in lst if part.origin_frame - 1 <= n.start < end]
+            if len(sel) >= 8:
+                per[ch] = sel
+        if not per:
+            return
+        bass = min(per, key=lambda ch: sorted(n.pitch for n in per[ch])[len(per[ch]) // 2])
+        score = [0.0] * num
+        count = 0
+        for ch, sel in per.items():
+            for n in sel:
+                t = self._tick_in(part, n.start) - part.origin_tick
+                if t < 0 or t % self.ppq:
+                    continue
+                dur = (self._tick_in(part, n.gate_end if n.gate_end is not None else n.end)
+                       - part.origin_tick - t) / self.ppq
+                if dur <= 0:
+                    continue
+                score[int(t // self.ppq) % num] += min(4.0, dur) * (2 if ch == bass else 1)
+                count += 1
+        return score, count, per, bass
 
     def _bass_entry(self, part, per, bass, num):
         """v2.9.31: the beat of the bar (0 .. num-1) where the bass enters after an intro of at least a
@@ -1430,6 +1442,9 @@ class TickMap:
                 ev.append((int(round(p.lead_tick)), p.lead_meter))
             elif p.lead_beats:
                 ev.append((int(round(p.origin_tick)), (p.lead_beats, 4)))
+            elif p.short_bar:
+                ev.append((int(round(p.origin_tick)), p.meter))
+                ev.append((int(round(p.short_bar[0])), p.short_bar[1]))
             ev.append((int(round(p.bar_origin)), p.meter))
         if self.extra_meters:
             # odd bars inside the loop (meter.odd_bars, v0.1.30): they replace the meter events

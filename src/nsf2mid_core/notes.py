@@ -146,6 +146,29 @@ def _release_retrigger(cur, pitch, vol, f, infos):
     return n >= 1
 
 
+REATTACK_LOW = 0.25    # v2.9.33: a note decayed to this share of its attack level or lower ...
+REATTACK_HIGH = 0.75   # ... and its volume jumps back to this share of it or higher = a repeated note
+REATTACK_MIN_FRAMES = 5  # ... after sounding at least this long (Castle of Dragon t3: 8 6 2 / 7 5 1 / 6 4 4 ..
+                         # is one note with a stuttering attack, not three)
+
+
+def _volume_reattack(cur, pitch, vol, vol_written):
+    """A same-pitch note struck again by a volume write alone (no $4003/$4007 write) is a new note.
+
+    Tiny Toon Adventures 2 t1 P2 (bar 5): D#4 v 8 7 6 6 6 5 4 3 2 1, then $4004 = 8 and the same
+    decay, three times (user: three notes, not one). The note must have decayed without rising
+    (a tremolo or swell rises and falls) down to REATTACK_LOW of its attack, and come back to
+    REATTACK_HIGH of it or louder in one frame, after REATTACK_MIN_FRAMES or more.
+    """
+    if cur is None or not vol_written or cur.pitch != pitch or len(cur.vols) < REATTACK_MIN_FRAMES:
+        return False
+    v = cur.vols
+    top = max(v[:2])
+    if any(b > a for a, b in zip(v[1:], v[2:])):
+        return False
+    return v[-1] <= REATTACK_LOW * top and vol >= REATTACK_HIGH * top and vol - v[-1] >= 3
+
+
 def extract_channel(frames, ch, keep_tail=False):
     infos = [_frame_info(f["state"], f["written"], ch) for f in frames]
 
@@ -191,6 +214,10 @@ def extract_channel(frames, ch, keep_tail=False):
                 start_frame = pending_trig[0]
         elif trig and not _swell_retrigger(cur, rp, vol) and not _release_retrigger(cur, rp, vol, f, infos):
             start_new = "trig"
+            start_frame = f
+        elif (not trig and ch != "TRI" and abs(note - cur.pitch) < PITCH_SPLIT
+              and _volume_reattack(cur, rp, vol, 0 in frames[f]["written"].get(ch, ()))):
+            start_new = "vol"
             start_frame = f
         else:
             if abs(note - cur.pitch) >= PITCH_SPLIT:

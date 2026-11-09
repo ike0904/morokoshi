@@ -1,4 +1,4 @@
-## ★ 再起動前のメモ（2026-11-08、v2.9.31 の時点。ユーザーの確認待ち）
+## ★ 再起動前のメモ（2026-11-08、v2.9.32 の時点。ユーザーの確認待ち）
 
 **1. v2.9.30 で変わった曲（今回の変更の確認）**
 - Nintendo World Cup 3 曲目: 4/4・233.9 BPM → 6/8・87.7 BPM（一番大きな変化。どちらが正しいか）
@@ -9,11 +9,11 @@
 
 **2. 以前から確認待ち**（v2.9.28 の 6 曲・Pooyan・FDS の再生音・画面の操作は 2026-11-08 に回答済み → docs/midi/meter_check.md）
 
-**3. v2.9.31 で確認してほしいこと**（MIDI は tmp/meter_check/v2931/）
-- Super Team Games 3 曲目「弱起ではない」の意味（出力はもともと前打ちなしの 4/4）
-- Pooyan 1 曲目の小節頭: 811 フレーム（13.5 秒、三角波 D + 旋律 A4）でよいか。13.8 秒の D（829）は 16 分の位置
-- Mr. Gold 1 曲目: 余韻の鳴らし直しを 1 音に。テンポが 81.8 BPM（163.6 の半分）に
-- 未対応: Business Wars の 6/4、Pooyan の小節頭
+**3. v2.9.32 で確認してほしいこと**（MIDI は tmp/meter_check/v2932/、一覧は docs/midi/meter_check.md）
+- Super Team Games 1・2 曲目: 前打ちなしの 4/4 に
+- Pooyan 1 曲目: 2/4 の前打ち + 4/4（811 フレームの D が小節頭）
+- 同じ規則で前打ちが消えた曲: Shockwave 1 曲目・Cosmic Epsilon 1 曲目・Adian no Tsue 2 曲目
+- 未対応（優先度低）: Business Wars の 6/4（スネアの 3 連 6 拍分のフレーズ）
 
 ---
 
@@ -141,7 +141,17 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
-### v2.9.31 (2026-11-08) ← 最新（プロンプト直接指示: 確認待ちの回答（Mr. Gold・Super Team Games・Relics・Business Wars・Pooyan）、MIDI 出力中の進行表示）
+### v2.9.32 (2026-11-08) ← 最新（プロンプト直接指示: Super Team Games の弱起は 1 曲目、Pooyan は 811 フレームの D で合っている、Business Wars の 6/4 の手がかり）
+- ループのない曲で、ベースのない前奏（1 小節以上）の後にベースが拍の頭で 1 拍以上の音で入るなら、その拍を小節頭にする（tempo.TickMap._bass_entry）。
+  Pooyan 1 曲目 → 2/4 の前打ち + 4/4、811 フレームの D が小節頭（ユーザーの答えと一致）
+- 前打ちの小節が曲頭のドラムで始まり、P1・P2 の前打ちの音が小節頭の音より短くないなら前打ちにしない（nsf2mid.check_even_pickup）。Super Team Games 1・2 曲目 → 4/4
+  - 先に試した「遅れて入るチャンネルでループ開始を小節頭にしない」は、Double Dragon III 2 曲目・Exciting Billiard 1 曲目の本物の前打ちまで消したので取りやめ
+  - 同じ規則で前打ちが消えた曲: Shockwave 1・Cosmic Epsilon 1・Adian no Tsue 2（曲頭からベースかドラム）→ 確認リストへ
+- 確認: 回帰テスト 45 本は v2.9.31 と一致（tmp/regress_v2932.txt）。拍子記号の比較はランダム 450 曲（seed 5）
+- Business Wars の 6/4 はユーザー判断で優先度低（スネアの 3 連 6 拍分のフレーズを見つければ導ける）。未対応
+- 確認用 MIDI: tmp/meter_check/v2932/
+
+### v2.9.31 (2026-11-08)（プロンプト直接指示: 確認待ちの回答（Mr. Gold・Super Team Games・Relics・Business Wars・Pooyan）、MIDI 出力中の進行表示）
 - チャンネルごとに長さの違うループ: 各チャンネルが自分の周期で 3 回繰り返せば、周期の最小公倍数を全体のループにする（loop._independent_loop、上限 500 秒）。
   Relics 2 曲目 = P1 44.8 秒・P2 51.2 秒・三角波 6.4 秒 → 358 秒（変換 89 → 63 秒）。Super Team Games 3 曲目 → 51.2 秒（15 → 1 秒）
 - 60 秒以上のループは 2 回の一致で確定（loop.repeats_for）。Business Wars 1 曲目 = 222 秒のループ（ユーザー「3:45 あたり」）を検出（43 → 32 秒）
