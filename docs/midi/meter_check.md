@@ -1,6 +1,12 @@
-# 変拍子・テンポの判定 確認リスト（morokoshi v2.9.33、2026-11-09 更新）
+# 変拍子・テンポの判定 確認リスト（morokoshi v3.0.0、2026-11-09 更新）
 
-## まず確認してほしいこと（v2.9.33）
+v3.0.0 で公開（2026-11-09、ユーザー「きりがないので、いったんここまで」）。この時点で残っている未確認・未対応の項目:
+- 未確認: v2.9.33 の副作用（Yamamura Misa Suspense 2 曲目・Super Cars 3 曲目・Silva Saga 3 曲目・Hydlide 3 1 曲目）
+- 未確認: v2.9.30 で変わった曲 — Nintendo World Cup 3 曲目（4/4・233.9 BPM → 6/8・87.7 BPM）、シャッフル → 普通のリズム（Mappy-Land・Lode Runner 3・Chubby Cherub・Kiwi Kraze・SD Gundam Gaiden 3・Zhan Guo Qun Xiong Zhuan 2、Pasofami Demo は 3 連に）、曲頭に前打ちが付いた曲（Terra Cresta (alt)・Amagon・Bikkuriman World 1・Pachi Com・Geimos・Pinball 2・Big Challenge! Dogfight Spirit 3）、三角波ドラム（Tom & Jerry・Wolverine・Treasure Master）
+- 未対応（優先度低）: Business Wars の 6/4、Pooyan 1 曲目の 6 小節目より前
+
+
+## v2.9.33（回答済み: Bubble Bobble・Tiny Toon Adventures 2・Tecmo Super Bowl の 3 曲とも OK、2026-11-09）
 
 MIDI は `morokoshi\tmp\meter_check\v2933\`（変換ログ *.log も同じフォルダ）。
 
