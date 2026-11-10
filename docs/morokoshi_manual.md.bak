@@ -2,7 +2,7 @@
 <p style="font-size: 26pt; font-weight: bold; color: #1a1a2e; margin: 0 0 6px;">もろこしタイム</p>
 <p style="font-size: 14pt; color: #555; margin: 0 0 24px;">Morokoshi Time</p>
 <p style="font-size: 13pt; color: #333; margin: 0 0 16px;">ユーザーマニュアル / User Manual</p>
-<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v2.9.0</p>
+<p style="font-size: 11pt; color: #888; margin: 0 0 50px;">v3.0.0</p>
 <hr style="width: 50%; border: none; border-top: 1px solid #ccc; margin: 0 auto 24px;">
 <p style="font-size: 9.5pt; color: #666; margin: 0 0 6px;">日本語マニュアルは次のページから始まります。</p>
 <p style="font-size: 9.5pt; color: #666; margin: 0;">English manual starts on the second half of this document.</p>
@@ -10,7 +10,7 @@
 
 # 耳コピ特化型メディアプレイヤー「もろこしタイム」 ユーザーマニュアル
 
-(対象バージョン: v2.9.0)
+(対象バージョン: v3.0.0)
 
 ---
 
@@ -31,7 +31,8 @@
 * **NSF（NES/ファミコン）・SPC（SNES/スーパーファミコン）・GBS（Game Boy）のゲーム音楽ファイルに対応**。チャンネル個別ON/OFF・複数曲の切り替えなど、耳コピに役立つ機能が揃っています（詳細は「6. ゲームモードの使い方」参照）。
 * **ZIPファイルをそのまま開ける**ので、解凍の手間なくゲーム音楽を楽しめます。
 * **WAV / MP3 / M4A への書き出し**に対応。Speed・Key・Fine を反映した曲全体の音声を保存できるので、練習用の音源をそのまま持ち出せます（詳細は「5. 保存（Save）・MIDI 変換」参照）。
-* **NSF ファイルの MIDI（.mid）変換**に対応。テンポ・拍子を自動検出して拍に合わせた MIDI を出力し、ノイズ・DPCM のドラム変換やループ検出も行います。DAW や楽譜ソフトでの採譜にすぐ使えます（NSF 形式・2A03 本体の音のみ。拡張音源と NSFe は対象外。詳細は「5. 保存（Save）・MIDI 変換」参照）。
+* **NSF ファイルの MIDI（.mid）変換**に対応。テンポ・拍子を自動検出して拍に合わせた MIDI を出力し、ノイズ・DPCM のドラム変換やループ検出も行います。v3.0.0 で**テンポ・拍子・小節頭の検出精度が大幅に向上**し、変拍子や前打ち（弱起）の曲、拡張音源（VRC6・VRC7・FDS・MMC5・N163・5B）にも対応しました。DAW や楽譜ソフトでの採譜にすぐ使えます（NSFe は対象外。詳細は「5. 保存（Save）・MIDI 変換」参照）。
+* **GBS・SPC の MIDI 変換**にも対応（**β版**）。
 * **省スペースでシンプル**、かつ直感的で使いやすいデザイン。映像ウィンドウに画面を圧迫されることもありません。
 
 ---
@@ -161,7 +162,7 @@ C:\Users\(あなたのユーザー名)\.morokoshi_cache\
 | 項目 | 説明 |
 | :---------------------- | :-------------------------------------------------------- |
 | <img src="icons/help.png" width="20"> **Help** | 取扱説明書（PDF版）を、お使いのパソコンの既定のアプリで開きます。`morokoshi.exe` と同じフォルダに `morokoshi_manual.pdf` がある場合に開けます。<br>**右クリック**（または **Alt+H**）で表示言語（English / 日本語）を切り替えます。初めて起動したときは、パソコンの言語が日本語なら日本語、それ以外は English で表示します。 |
-| <img src="icons/save.png" width="20"> **Save** | 曲全体を WAV / MP3 / M4A で保存します。NSF では MIDI にも変換できます（「5. 保存（Save）・MIDI 変換」参照）。 |
+| <img src="icons/save.png" width="20"> **Save** | 曲全体を WAV / MP3 / M4A で保存します。NSF・GBS・SPC では MIDI にも変換できます（「5. 保存（Save）・MIDI 変換」参照）。 |
 | <img src="icons/open.png" width="20"> **ファイルを開く** | メディアファイルを選択して読み込みます。**Shift+クリック**でフォルダ選択ダイアログを開きます。**右クリック**（または **Alt+O**）で最近開いたファイルの履歴を表示します（最大10件）。 |
 | <img src="icons/tempo_search.png" width="20"> **テンポ検出** | 現在の再生位置の前後約10秒からテンポ（BPM）を自動検出します。検出中はアイコンが**赤**になります。**Shift+クリック**でタップテンポ（アイコンが**青**）になります。 |
 | <img src="icons/reset.png" width="20"> **すべてリセット** | マーカー・速度・キー・Fine・テンポ・フィルターなどを初期状態に戻します。 |
@@ -437,24 +438,29 @@ Ear Mode中は、A・Bが常に「セットで」動きます。
 * 保存ダイアログは、**前回保存したフォルダ**で開きます（アプリを再起動しても記憶しています）。
 * 保存の進み具合は、最下部のメッセージ欄に表示されます。
 
-### MIDI に変換して保存する（NSF のみ）
+### MIDI に変換して保存する（NSF・GBS・SPC）
 
-NSF ファイルを開いているときは、「ファイルの種類」に **MIDI (\*.mid)** が加わります。
+NSF・GBS・SPC ファイルを開いているときは、「ファイルの種類」に **MIDI (\*.mid)** が加わります。
 表示中の曲を MIDI に変換します。
+
+> ⚠️ **GBS・SPC の MIDI 変換は β版です。** 対応はしていますが、十分な検証ができていません。テンポ・拍子・音程・ドラムの割り当てが正しくない場合があります。
 
 1. <img src="icons/save.png" width="20"> **Save** で保存ダイアログを開き、「ファイルの種類」で **MIDI** を選びます。
 2. 保存ダイアログの横に **MIDI options**（変換オプション）が表示されます。必要に応じて変更します。
-3. 保存ダイアログの「保存」を押すと変換が始まります。1 曲あたり数秒〜十数秒かかり、メッセージ欄に経過秒数が表示されます。**Esc** キーで中止できます。
+3. 保存ダイアログの「保存」を押すと変換が始まります。1 曲あたり数秒〜数十秒かかり、メッセージ欄に進み具合（エミュレートした秒数・ループの検索・テンポの検出など）が表示されます。**Esc** キーで中止できます。
 
 * オプションは次回も引き継がれます。「Defaults」ですべて初期値に戻ります。各項目（または項目名）を**右クリック**すると、その項目だけ初期値に戻ります。
 * 「ファイルの種類」を変えずにファイル名へ `.mid` と入力した場合は、OK / Cancel 付きのオプション画面が表示されます。
 * 変換の特徴:
   * **テンポ検出付き**: 発音タイミングからテンポ・拍子を検出し、拍に合わせた（クオンタイズ済みの）MIDI を出力します。
-    曲の途中でテンポや拍子が変わる曲、3 連ノリ・シャッフルの曲にも対応します。
+    曲の途中でテンポや拍子が変わる曲、3 連ノリ・シャッフルの曲、リタルダンドにも対応します。
+    ループの中の**変拍子**（6/8・9/8・5/8 など）や、曲頭の**前打ち（弱起）の小節**も検出し、小節頭が正しい位置に来るようにします。
   * **自然なノート判定**: 音色（duty 比）の変化、音量の揺れ、ビブラートは 1 つの音の中の変化として扱います。
     小さな音量で鳴らし続ける「リバーブ余韻」もノートの長さから除きます。
   * **ドラム変換**: ノイズ・DPCM（サンプル）を GM ドラムに自動で割り当てます。三角波のキックや矩形波のタム（短く音程が急に下がる音）は、元の音程のままドラム用のトラックに分けます。
-  * **ループ検出**: ループ点とループ長を検出し、「イントロ＋ループ 1 回」のように必要な長さだけを書き出します。
+    同じサンプルを複数の音程で鳴らす DPCM（ベースなど）は、波形から音程を推定して音符として出力します。
+  * **ループ検出**: ループ点とループ長を検出し、「イントロ＋ループ 1 回」のように必要な長さだけを書き出します。チャンネルごとにループの長さが違う曲にも対応します。
+  * **拡張音源**: VRC6・VRC7・FDS・MMC5・N163・5B の音も変換します（MIDI ch はチャンネルボタンと同じ番号）。
 
 #### MIDI options（変換オプション）
 
@@ -464,9 +470,11 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | **Max seconds** | 600 | エミュレートする最大の長さ（秒）。ループが確定するか曲が終わると、その時点で自動的に止まります |
 | **Tempo** | Auto | Auto（自動検出したテンポ）/ Half（その半分）/ Double（その 2 倍）。<br>テンポが倍・半分に検出されたときに指定します |
 | **Triplets** | Auto | 3 連ノリの曲を「1 拍 = 3 音」で出力するか。Auto（自動検出）/ On（常にオン）/ Off（常にオフ） |
-| **Pitch-drop drums** | 3 | 鳴り始めから音程が下がり続ける短い音（三角波のキック・矩形波のタム）を、この半音数以上下がるならドラム用トラックに分けます。<br>0 なら分けず、各チャンネルの音符のまま残します |
+| **Pitch-drop drums** | 3 | 鳴り始めから音程が下がり続ける短い音（三角波のキック・矩形波のタム）を、この半音数以上下がるならドラム用トラックに分けます（MIDI ch は元のチャンネルのまま）。<br>0 なら分けず、各チャンネルの音符のまま残します |
 | **Keep reverb tails** | オフ | 小さな音量で鳴らし続ける余韻も、音の長さに含めます |
 | **Quantize** | オン | 音符を拍のグリッドに合わせます。オフにすると実際のタイミングのまま出力します（テンポは検出します） |
+| **Detect odd meters** | オン | ループの中の 4/4 以外の小節（6/8・9/8・5/8 など）を、リズムの繰り返しから検出します。オフなら変拍子を使いません |
+| **Arpeggios as chords** | オフ | 和音の代わりに使われる速いアルペジオ（2〜4 音を 3 フレーム以下で繰り返すもの）を和音として出力します。オフなら 1 音ずつそのまま出力します |
 
 #### うまく変換できないとき
 
@@ -476,6 +484,7 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | 3 連の曲が 2 分割になる / その逆 | 「Triplets」を「On」/「Off」に |
 | 音符が細切れ / 長さが不自然 | 「Quantize」をオフに、または「Keep reverb tails」をオンにして試す |
 | ループしない曲が途中で切れる / ループ判定が誤る | 「Loops」を 0 にして「Max seconds」で長さを指定 |
+| 4/4 の曲に変拍子の小節が入る | 「Detect odd meters」をオフに |
 
 #### 出力される MIDI
 
@@ -484,9 +493,15 @@ NSF ファイルを開いているときは、「ファイルの種類」に **M
 | Track 0 | 曲名・テンポマップ・拍子・ループマーカー（`loopStart` / `loopEnd`） | — |
 | Ch1 Pulse / Ch2 Pulse | 矩形波 1 / 矩形波 2 | 1 / 2 |
 | Ch3 Wave | 三角波 | 3 |
-| Ch4 Noise drums / Ch5 DPCM drums | ノイズ / DPCM のドラム（GM ドラム） | 10 |
-| Ch1 Pulse drums / Ch2 Pulse drums / Ch3 Wave drums | 矩形波 1 / 矩形波 2 / 三角波のドラム（元の音程のまま） | 11 / 12 / 13 |
+| Ch1 Pulse drums / Ch2 Pulse drums / Ch3 Wave drums | 矩形波 1 / 矩形波 2 / 三角波のドラム（元の音程のまま） | 1 / 2 / 3 |
+| Ch4 Noise drums | ノイズのドラム（GM ドラム） | 4 |
+| Ch5 DPCM drums | DPCM のドラム（GM ドラム） | 5 |
+| Ch5 DPCM $アドレス | 複数の音程で鳴らす DPCM（ベースなど）。サンプルごとのトラック | 5 |
+| Ch6〜 （拡張音源名） | VRC6・VRC7・FDS・MMC5・N163・5B（チャンネルボタンと同じ番号） | 6〜13 |
 
+* GBS: Square 1 / Square 2 / Wave / Noise（GM ドラム）が MIDI ch 1 / 2 / 3 / 4 になります。
+* SPC: 8 つのボイスが MIDI ch 1〜8 になります。音色（サンプル）が変わると同じ ch の別トラックに分け、打楽器は「ChN Drums」トラックの GM ドラムになります。
+* 複数の拡張音源の指定がある NSF は、拡張音源なしとして扱います。
 * 音色（プログラムチェンジ）は出力しません。楽譜ソフトが音色番号から楽器を推測し、移調楽器として表示したり、トラックを並べ替えたりするのを防ぐためです。
 * 三角波は APU の実際の音高で出力します。強弱は NSF の音量からベロシティに変換します。
 
@@ -590,7 +605,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | :---------------------- | :--------------------------------------------------------------- |
 | **チャンネル認識の誤検出** | 特定のゲーム音楽ファイルで、一部のチャンネルが「使用している」と誤って認識され、正しくグレーアウトされない場合があります。この場合、手動でOFFにすることができます。 |
 | **ゲームモードのスペクトラムアナライザー非対応** | NSF/SPC/GBSモード中はスペクトラムアナライザーおよびフィルターは使用できません。 |
-| **MIDI 変換の対応範囲** | MIDI に変換できるのは NSF（NESM 形式）のみです。NSFe・SPC・GBS、NSF の拡張音源（VRC6 など）の音は変換されません（2A03 本体の音のみ）。テンポが倍・半分に検出されることがあります（「5. 保存（Save）・MIDI 変換」参照）。 |
+| **MIDI 変換の対応範囲** | MIDI に変換できるのは NSF（NESM 形式）・GBS・SPC です。NSFe は変換できません。GBS・SPC の変換は**β版**で、十分な検証ができていません。テンポが倍・半分に検出されることがあります（「5. 保存（Save）・MIDI 変換」参照）。 |
 | **テンポ検出の精度** | テンポ検出はオンセット検出とビートトラッキングによる推定です。複雑なリズムの曲や一定でないテンポの曲では、誤った値が検出される場合があります。 |
 
 ---
@@ -674,7 +689,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 
 ---
 
-**Morokoshi Time v2.9.0**  
+**Morokoshi Time v3.0.0**  
 *Created by Ike-san*
 
 ## 更新履歴 {style="page-break-before: always;"}
@@ -696,6 +711,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 | **v2.6.0** | 2026/10/4 | **タップテンポ**機能を追加（Shift+T / テンポ検出アイコンのShift+クリック / テンキーEnter+8）。<br>テンポ検出中はテンポ検出アイコンを赤、タップテンポ中は青で表示。<br>**スクロールバーの端をドラッグ**して表示範囲（ズーム幅）を調整可能に。再生中は再生位置が画面外に出ないよう制限。<br>波形エリアの**右クリックでA・B両方のマーカーをリセット**可能に。 |
 | **v2.7.0** | 2026/10/10 | 波形の上に**時間目盛り**を追加。拡大率に応じて目盛りの間隔を自動で切り替え。ゲームモードでも表示。<br>波形の拡大上限を「画面の幅が**1秒**になるまで」に変更。<br>**フィルター使用中に再生が途切れる・もたつく**問題を修正（フィルター処理を大幅に高速化）。<br>その他軽微な修正。 |
 | **v2.9.0** | 2026/11/1 | **Save（保存）機能を追加**。曲全体を WAV / MP3 / M4A で保存（Speed・Key・Fine を反映）。前回保存したフォルダを記憶。<br>**NSF を MIDI に変換して保存**（テンポ検出・ドラム変換・ループ検出付き）。<br>**表示言語の切り替え**（English / 日本語）。Help アイコンの右クリック（Alt+H）で選択。初回はパソコンの言語に合わせる。<br>Zoom をウィンドウの**最大化ボタン**（タイトルバーのダブルクリック）に移動。空いた位置に Save アイコンを配置（テンキー ＊ も Save に）。<br>**Alt+O** で最近開いたファイルの履歴を表示。履歴・言語の一覧はキー（↑↓・Enter・数字・Esc）でも選択可能。<br>**音量の %** をドラッグ・ホイール・直接入力で変更可能に。<br>テンキー Enter を**押しながら**の操作にも対応。タップテンポ中はテンキー **8** だけでタップ可能。<br>Speed の直接入力で `8`・`1/2`・`x1/4` などの書き方に対応。<br>最下段のメッセージが長いときは横スクロールで表示。<br>NSF の一部の曲で**曲頭〜数秒が無音**になる問題を修正。SPC・GBS の一部の曲で曲頭に余分な無音が入る問題を修正。<br>その他軽微な修正。 |
+| **v3.0.0** | 2026/11/9 | **NSF の MIDI 変換の検出精度を大幅に向上**。テンポ・拍子・小節頭・ループの検出を改良し、変拍子（6/8・9/8・5/8 など）、前打ち（弱起）の小節、3 連ノリ・シャッフル、リタルダンド、チャンネルごとに長さの違うループに対応。音符の切れ目（鳴らし直し・余韻・アルペジオ）の判定も改善。<br>**NSF の拡張音源（VRC6・VRC7・FDS・MMC5・N163・5B）の MIDI 変換**に対応。<br>音程のある DPCM（ベースなど）を音程付きで出力。ノイズ・DPCM・ドラム用トラックの MIDI ch を変更（ノイズ 4、DPCM 5、矩形波・三角波のドラムは元のチャンネル）。<br>MIDI options に **Detect odd meters**（変拍子の検出）・**Arpeggios as chords**（アルペジオを和音に）を追加。変換中は進み具合を表示。<br>**GBS・SPC の MIDI 変換**に対応（**β版**。十分な検証はできていません）。<br>Save で前回選んだファイル形式を記憶。<br>FDS の NSF の一部で音が出ない・読み込めない問題を修正（DLL 更新）。<br>複数の拡張音源の指定がある NSF は、拡張音源なしとして再生。<br>MIDI options の操作中に本体のショートカットが反応する問題を修正。<br>その他軽微な修正。 |
 
 ---
 
@@ -704,7 +720,7 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 <!-- EN_START -->
 # Morokoshi Time – Music Transcription Media Player User Manual
 
-(Target version: v2.9.0)
+(Target version: v3.0.0)
 
 ---
 
@@ -725,7 +741,8 @@ NSFファイルのみ、以下の拡張音源チャンネルに対応してい�
 * **NSF (NES/Famicom), SPC (SNES/Super Famicom), and GBS (Game Boy) game music support.** Features include per-channel ON/OFF muting and multi-track switching — everything you need for game music transcription. (See "6. Game Mode" for details.)
 * **Open ZIP files directly** — no need to extract game music files first.
 * **Export to WAV / MP3 / M4A.** Save the whole song with your Speed / Key / Fine settings applied — take your practice audio anywhere (see "5. Save & MIDI Conversion").
-* **Convert NSF files to MIDI (.mid).** Tempo and time signature are detected automatically to produce beat-aligned MIDI, with noise/DPCM drum conversion and loop detection — ready for your DAW or notation software (NSF format, 2A03 channels only; expansion audio and NSFe are not supported. See "5. Save & MIDI Conversion").
+* **Convert NSF files to MIDI (.mid).** Tempo and time signature are detected automatically to produce beat-aligned MIDI, with noise/DPCM drum conversion and loop detection. v3.0.0 **greatly improves the detection of tempo, meter and downbeats**, and adds odd meters, pickup bars and expansion audio (VRC6, VRC7, FDS, MMC5, N163, 5B) — ready for your DAW or notation software (NSFe is not supported. See "5. Save & MIDI Conversion").
+* **MIDI conversion of GBS and SPC** is also supported (**beta**).
 * **Compact and simple design** that stays out of your way, with no video window crowding your screen.
 
 ---
@@ -854,7 +871,7 @@ Icons are arranged in 4 rows corresponding to the numpad layout (see "8. Shortcu
 | Item | Description |
 | :---------------------- | :-------------------------------------------------------- |
 | <img src="icons/help.png" width="20"> **Help** | Opens the user manual PDF in your default PDF viewer. Requires `morokoshi_manual.pdf` in the same folder as `morokoshi.exe`.<br>**Right-click** (or **Alt+H**) to switch the display language (English / 日本語). On first start, Japanese is used if Windows is set to Japanese, otherwise English. |
-| <img src="icons/save.png" width="20"> **Save** | Saves the whole song as WAV / MP3 / M4A. NSF songs can also be converted to MIDI (see "5. Save & MIDI Conversion"). |
+| <img src="icons/save.png" width="20"> **Save** | Saves the whole song as WAV / MP3 / M4A. NSF, GBS and SPC songs can also be converted to MIDI (see "5. Save & MIDI Conversion"). |
 | <img src="icons/open.png" width="20"> **Open File** | Opens a file selection dialog to load a media file. **Shift+click** opens a folder-selection dialog. **Right-click** (or **Alt+O**) shows a history of recently opened files (up to 10 entries). |
 | <img src="icons/tempo_search.png" width="20"> **Detect Tempo** | Analyzes approximately 10 seconds around the current position to auto-detect BPM. The icon turns **red** during detection. **Shift+click** for Tap Tempo (the icon turns **blue**). |
 | <img src="icons/reset.png" width="20"> **Reset All** | Resets markers, speed, key, Fine, tempo, filters, and more to their defaults. |
@@ -1130,24 +1147,29 @@ During playback, **15 bars** appear in real time showing how much of each freque
 * The save dialog opens in the **folder you last saved to** (remembered across restarts).
 * Progress is shown in the message area at the bottom.
 
-### Converting to MIDI (NSF only)
+### Converting to MIDI (NSF, GBS, SPC)
 
-While an NSF file is open, **MIDI (\*.mid)** is added to the file types.
+While an NSF, GBS or SPC file is open, **MIDI (\*.mid)** is added to the file types.
 The current song is converted to MIDI.
+
+> ⚠️ **MIDI conversion of GBS and SPC is a beta.** It is supported but has not been fully verified. The tempo, meter, pitch or drum mapping may be wrong.
 
 1. Open the save dialog with <img src="icons/save.png" width="20"> **Save** and choose **MIDI** as the file type.
 2. The **MIDI options** panel appears next to the save dialog. Change the options if needed.
-3. Press "Save" in the save dialog to start. Each song takes a few to about ten seconds; the elapsed time is shown in the message area. Press **Esc** to cancel.
+3. Press "Save" in the save dialog to start. Each song takes a few to several tens of seconds; the progress (seconds emulated, looking for the loop, detecting the tempo, etc.) is shown in the message area. Press **Esc** to cancel.
 
 * The options are kept for next time. "Defaults" resets them all. **Right-click** an option (or its name) to reset just that one.
 * If you type a `.mid` file name without changing the file type, an options window with OK / Cancel is shown instead.
 * Conversion features:
   * **Tempo detection**: Detects the tempo and time signature from the note timing and writes quantized MIDI aligned to the beat.
-    Tempo / meter changes, triplet feel and shuffle are supported.
+    Tempo / meter changes, triplet feel, shuffle and ritardandos are supported.
+    **Odd meters** inside the loop (6/8, 9/8, 5/8, etc.) and **pickup bars** at the start are detected so that the bars start in the right place.
   * **Natural note detection**: Changes of the duty cycle (timbre), volume and vibrato are treated as changes inside one note.
     Quiet "reverb tails" that some drivers keep playing are cut from the note length.
   * **Drums**: Noise and DPCM (samples) are mapped to GM drums automatically. Triangle kicks and pulse toms (short notes with a sharp pitch drop) go to their own drum tracks at their original pitch.
-  * **Loop detection**: Detects the loop point and loop length, and writes only what is needed (e.g. "intro + 1 loop").
+    DPCM samples played at several pitches (bass, etc.) are written as notes, with the pitch estimated from the waveform.
+  * **Loop detection**: Detects the loop point and loop length, and writes only what is needed (e.g. "intro + 1 loop"). Songs whose channels loop with different lengths are also supported.
+  * **Expansion audio**: VRC6, VRC7, FDS, MMC5, N163 and 5B are converted too (MIDI ch = the channel button number).
 
 #### MIDI options
 
@@ -1157,9 +1179,11 @@ The current song is converted to MIDI.
 | **Max seconds** | 600 | Maximum length to emulate (seconds). Stops automatically when the loop is confirmed or the song ends |
 | **Tempo** | Auto | Auto (detected tempo) / Half / Double (of the detected tempo).<br>Set it when the tempo is detected doubled or halved |
 | **Triplets** | Auto | Whether triplet-feel songs are written as 3 notes per beat. Auto / On (always) / Off (never) |
-| **Pitch-drop drums** | 3 | Short notes that keep falling from the start (triangle kicks, pulse toms) go to the drum tracks when they fall by at least this many semitones.<br>0 = keep them as notes of their channel |
+| **Pitch-drop drums** | 3 | Short notes that keep falling from the start (triangle kicks, pulse toms) go to the drum tracks when they fall by at least this many semitones (the MIDI ch stays that of the channel).<br>0 = keep them as notes of their channel |
 | **Keep reverb tails** | Off | Include the quiet tails in the note length |
 | **Quantize** | On | Snap notes to the beat grid. Off = keep the exact timing (the tempo is still detected) |
+| **Detect odd meters** | On | Find bars other than 4/4 (6/8, 9/8, 5/8, etc.) inside the loop from the repeating rhythm. Off = no odd meters |
+| **Arpeggios as chords** | Off | Write fast arpeggios used in place of chords (2–4 notes repeating every 3 frames or less) as chords. Off = write every note as it is |
 
 #### If the result is not right
 
@@ -1169,6 +1193,7 @@ The current song is converted to MIDI.
 | A triplet song comes out in straight time / or the opposite | Set "Triplets" to "On" / "Off" |
 | Notes are chopped / lengths look odd | Try turning "Quantize" off or "Keep reverb tails" on |
 | A non-looping song is cut / the loop is wrong | Set "Loops" to 0 and set the length with "Max seconds" |
+| A 4/4 song gets odd-meter bars | Turn "Detect odd meters" off |
 
 #### Output MIDI
 
@@ -1177,9 +1202,15 @@ The current song is converted to MIDI.
 | Track 0 | Title, tempo map, time signatures, loop markers (`loopStart` / `loopEnd`) | — |
 | Ch1 Pulse / Ch2 Pulse | Pulse 1 / Pulse 2 | 1 / 2 |
 | Ch3 Wave | Triangle | 3 |
-| Ch4 Noise drums / Ch5 DPCM drums | Noise / DPCM drums (GM drums) | 10 |
-| Ch1 Pulse drums / Ch2 Pulse drums / Ch3 Wave drums | Pulse 1 / Pulse 2 / triangle drums (original pitch) | 11 / 12 / 13 |
+| Ch1 Pulse drums / Ch2 Pulse drums / Ch3 Wave drums | Pulse 1 / Pulse 2 / triangle drums (original pitch) | 1 / 2 / 3 |
+| Ch4 Noise drums | Noise drums (GM drums) | 4 |
+| Ch5 DPCM drums | DPCM drums (GM drums) | 5 |
+| Ch5 DPCM $address | DPCM played at several pitches (bass, etc.), one track per sample | 5 |
+| Ch6– (chip name) | VRC6, VRC7, FDS, MMC5, N163, 5B (same numbers as the channel buttons) | 6–13 |
 
+* GBS: Square 1 / Square 2 / Wave / Noise (GM drums) are MIDI ch 1 / 2 / 3 / 4.
+* SPC: the 8 voices are MIDI ch 1–8. When the instrument (sample) changes, the notes go to another track on the same ch; percussion becomes GM drums on the "ChN Drums" track.
+* NSFs that specify more than one expansion chip are treated as having no expansion audio.
 * No program changes (instruments) are written, so notation software does not guess instruments from them, show transposing instruments, or reorder tracks.
 * The triangle is written at the APU's actual pitch. NSF volume is converted to note velocity.
 
@@ -1283,7 +1314,7 @@ NSF files support the following expansion audio chips:
 | :---------------------- | :--------------------------------------------------------------- |
 | **False channel detection** | For certain game music files, some channels may be incorrectly identified as "in use" and not greyed out properly. These can be manually turned OFF. |
 | **No spectrum analyzer in Game Mode** | The spectrum analyzer and filter are unavailable while an NSF/SPC/GBS file is open. |
-| **MIDI conversion scope** | Only NSF (NESM format) can be converted to MIDI. NSFe, SPC, GBS and NSF expansion audio (VRC6, etc.) are not converted (only the 2A03 sound). The tempo may be detected doubled or halved (see "5. Save & MIDI Conversion"). |
+| **MIDI conversion scope** | NSF (NESM format), GBS and SPC can be converted to MIDI. NSFe cannot. GBS and SPC conversion is a **beta** and has not been fully verified. The tempo may be detected doubled or halved (see "5. Save & MIDI Conversion"). |
 | **Tempo detection accuracy** | Tempo detection uses onset detection and beat tracking and is an estimate. It may return incorrect values for songs with complex rhythms or non-constant tempos. |
 
 ---
@@ -1365,7 +1396,7 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 
 ---
 
-**Morokoshi Time v2.9.0**
+**Morokoshi Time v3.0.0**
 *Created by Ike-san*
 
 ## Update History {style="page-break-before: always;"}
@@ -1387,3 +1418,4 @@ I hope "Morokoshi Time" makes your transcription sessions — and your music cre
 | **v2.6.0** | 2026/10/4 | Added **Tap Tempo** (Shift+T / Shift+click on the Detect Tempo icon / numpad Enter+8).<br>The Detect Tempo icon now turns red during tempo detection and blue during Tap Tempo.<br>**Drag the scroll bar edges** to adjust the visible range (zoom width). During playback, zooming is limited so the playback position stays on screen.<br>**Right-click the waveform area to reset both A and B markers.** |
 | **v2.7.0** | 2026/10/10 | Added a **time ruler** above the waveform. The tick interval switches automatically with the zoom level. It is also shown in Game Mode.<br>The maximum zoom is now "until the visible width is **1 second**".<br>Fixed **choppy / lagging playback while the filter is in use** (filter processing is now much faster).<br>Other minor fixes. |
 | **v2.9.0** | 2026/11/1 | **Added Save**: save the whole song as WAV / MP3 / M4A (Speed, Key and Fine applied). The last save folder is remembered.<br>**Convert NSF to MIDI and save it** (with tempo detection, drum conversion and loop detection).<br>**Display language** can be switched (English / 日本語) by right-clicking the Help icon (Alt+H). On first start it follows the Windows language.<br>Zoom moved to the window's **maximize button** (or double-click on the title bar). The Save icon takes its old place (numpad \* is now Save too).<br>**Alt+O** shows recently opened files. The history and language lists can also be used with the keyboard (↑↓, Enter, numbers, Esc).<br>The **volume %** can be changed by dragging, the wheel or typing a value.<br>Numpad Enter can now be **held** for Enter combinations. During Tap Tempo, numpad **8** alone taps.<br>Speed input accepts `8`, `1/2`, `x1/4`, etc.<br>Long messages at the bottom now scroll.<br>Fixed **silence at the start (up to a few seconds)** of some NSF songs. Fixed extra silence at the start of some SPC / GBS songs.<br>Other minor fixes. |
+| **v3.0.0** | 2026/11/9 | **Greatly improved detection for NSF to MIDI conversion.** Better tempo, meter, downbeat and loop detection, with odd meters (6/8, 9/8, 5/8, etc.), pickup bars, triplet feel / shuffle, ritardandos and channels looping with different lengths. Note boundaries (re-strikes, reverb tails, arpeggios) are also detected better.<br>**MIDI conversion of NSF expansion audio** (VRC6, VRC7, FDS, MMC5, N163, 5B).<br>Pitched DPCM (bass, etc.) is written with its pitch. The MIDI channels of the noise, DPCM and drum tracks changed (noise 4, DPCM 5, pulse / triangle drums on their own channel).<br>New MIDI options: **Detect odd meters** and **Arpeggios as chords**. The progress is shown during conversion.<br>**MIDI conversion of GBS and SPC** (**beta**; not fully verified).<br>Save remembers the last file type.<br>Fixed some FDS NSFs that were silent or failed to load (DLL update).<br>NSFs that specify more than one expansion chip are played without expansion audio.<br>Fixed main-window shortcuts reacting while using the MIDI options.<br>Other minor fixes. |
