@@ -125,6 +125,7 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
   - ループ確定は 3 回連続一致（2 回繰り返した後にサビが入る曲がある）
   - 冒頭の空白は保持する。3 連ノリ（シャッフル）は 3 連として出す
   - テンポの半分・2 倍は許容（MIDI オプションで調整できる）
+  - Detect = None（テンポ固定）の出力は楽譜ソフトでの見え方を考えなくてよい（v3.0.1）
 
 ---
 
@@ -138,6 +139,7 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 - 「Tempo」（Auto / Half / Double）→「Tempo scale」（x1 / x1/2 / x2）に名称変更（「Tempo」が 2 つの意味になるため。ユーザー指摘）。保存値は同じ（auto/half/double）
 - docs/midi/spec.md に --detect を追記。回帰テスト（既定モード）: v2.9.33 と差分なし（tmp/regress_v301.txt）
 - マニュアル未更新（公開バージョン時に反映する）
+- ユーザー: テンポ未検出データは楽譜ソフトのことを考慮しなくて OK（Sibelius での確認は不要。決まりごとに追記）
 
 ### v3.0.0 マニュアル修正 (2026-11-10)（プロンプト直接指示: マニュアルの「MIDI options（変換オプション）」を日本語化し、PDF と dist を作り直す）
 - 日本語マニュアル 5 章の MIDI options 表: 項目名に日本語の意味を併記（例: Loops（ループ回数））、Auto（自動）など既定値も日本語を併記。

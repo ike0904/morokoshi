@@ -130,12 +130,21 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
+### v3.0.1 (2026-11-17) ← 最新（プロンプト直接指示: テンポを検出しないモードを追加。テンポは 1/60 秒を意識した一定値。オプション表示の検討から）
+- MIDI options に「Detect」（検出）を追加: None (fixed tempo) / Tempo / Tempo + meter（既定 = 従来どおり）。nsf2mid は `--detect none|tempo|meter`
+  - None: 1 拍 = 30 フレーム固定（1 フレーム = 16 tick）。テンポはヘッダ等の実際のフレームレート × 2
+    （NTSC 120.2・PAL 100.00（20000 µs）・GB vblank 119.46・GB タイマーは曲ごと（例 122.27）・SPC 120 BPM）。曲頭から 4/4。Triplets・Quantize は灰色
+  - Tempo: テンポだけ検出、小節線は検出したグリッドの頭から 4/4（前打ち・小節頭・変拍子は検出しない）。Detect odd meters は灰色
+- 「Tempo」（Auto / Half / Double）→「Tempo scale」（x1 / x1/2 / x2）に名称変更（「Tempo」が 2 つの意味になるため。ユーザー指摘）。保存値は同じ（auto/half/double）
+- docs/midi/spec.md に --detect を追記。回帰テスト（既定モード）: v2.9.33 と差分なし（tmp/regress_v301.txt）
+- マニュアル未更新（公開バージョン時に反映する）
+
 ### v3.0.0 マニュアル修正 (2026-11-10)（プロンプト直接指示: マニュアルの「MIDI options（変換オプション）」を日本語化し、PDF と dist を作り直す）
 - 日本語マニュアル 5 章の MIDI options 表: 項目名に日本語の意味を併記（例: Loops（ループ回数））、Auto（自動）など既定値も日本語を併記。
   「画面上の項目名は英語で表示されます」の一文を追加。「うまく変換できないとき」の表と「Defaults（初期値に戻す）」も同様に併記
 - PDF 再生成（61 ページ）。dist/morokoshi300 の PDF を差し替えて morokoshi300.zip を作り直した（exe は変更なし、アプリのバージョンは v3.0.0 のまま）
 
-### v3.0.0 (2026-11-09) ← 最新（プロンプト直接指示: v2.9.33 の 3 曲は OK。v3.0.0 でリリース、マニュアル更新。SPC・GBS は未検証なので β版、NSF は MIDI の検出精度大幅向上と書く）
+### v3.0.0 (2026-11-09)（プロンプト直接指示: v2.9.33 の 3 曲は OK。v3.0.0 でリリース、マニュアル更新。SPC・GBS は未検証なので β版、NSF は MIDI の検出精度大幅向上と書く）
 - 公開バージョン v3.0.0 としてリリース（v2.9.x の作業記録は消去。nsf2mid 統合前の記録は docs/midi/nsf2mid_history.md、MIDI の仕様は docs/midi/spec.md）
   - APP_VERSION を v3.0.0 に更新してからビルド。exe のウィンドウタイトルで「Morokoshi Time v3.0.0」を確認
   - dist/morokoshi300（exe・dll/（libgme.dll は v2.9.21 の改造版）・license.txt・PDF）と morokoshi300.zip を作成
