@@ -130,6 +130,11 @@ pyinstaller --onefile --windowed --icon=app_icon.ico --add-data "app_icon.ico;."
 
 ## 作業記録
 
+### v3.0.0 マニュアル修正 (2026-11-10)（プロンプト直接指示: マニュアルの「MIDI options（変換オプション）」を日本語化し、PDF と dist を作り直す）
+- 日本語マニュアル 5 章の MIDI options 表: 項目名に日本語の意味を併記（例: Loops（ループ回数））、Auto（自動）など既定値も日本語を併記。
+  「画面上の項目名は英語で表示されます」の一文を追加。「うまく変換できないとき」の表と「Defaults（初期値に戻す）」も同様に併記
+- PDF 再生成（61 ページ）。dist/morokoshi300 の PDF を差し替えて morokoshi300.zip を作り直した（exe は変更なし、アプリのバージョンは v3.0.0 のまま）
+
 ### v3.0.0 (2026-11-09) ← 最新（プロンプト直接指示: v2.9.33 の 3 曲は OK。v3.0.0 でリリース、マニュアル更新。SPC・GBS は未検証なので β版、NSF は MIDI の検出精度大幅向上と書く）
 - 公開バージョン v3.0.0 としてリリース（v2.9.x の作業記録は消去。nsf2mid 統合前の記録は docs/midi/nsf2mid_history.md、MIDI の仕様は docs/midi/spec.md）
   - APP_VERSION を v3.0.0 に更新してからビルド。exe のウィンドウタイトルで「Morokoshi Time v3.0.0」を確認

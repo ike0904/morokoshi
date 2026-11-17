@@ -46,7 +46,7 @@ NSF / GBS / SPC を読み取り、テンポ検出付きで MIDI に変換する�
 
 ```
 python src/nsf2mid_core/nsf2mid.py FILE.nsf [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
-                      [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
+                      [--keep-tail] [--no-quantize] [--detect none|tempo|meter] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
                       [--loops N] [--no-loop] [--drop-drums N] [--drum-map MAP]
 ```
 
@@ -59,6 +59,7 @@ python src/nsf2mid_core/nsf2mid.py FILE.nsf [-t TRACK] [-s SECONDS] [-o OUTDIR] 
 | `--no-quantize` | グリッドへのスナップをしない（テンポには合わせる） |
 | `--unit` | グリッド単位（フレーム数）を手動指定 |
 | `--rows-per-beat` | 1 拍あたりの行数を手動指定（4 = 16分音符グリッド）。全区間が同じ行数になり、シャッフル・3 連ノリの自動検出も止まる（GUI には無い） |
+| `--detect` | 何を検出するか（v3.0.1〜。morokoshi「Detect」）: `meter`（既定。テンポと拍子 = 従来どおり）/ `tempo`（テンポだけ。拍子・小節頭・前打ち・変拍子は検出せず、グリッドの頭から 4/4）/ `none`（検出しない。1 拍 = 30 フレーム固定で 1 フレーム = 16 tick、テンポは実際のフレームレート × 2: NTSC 120.2・PAL 100（ヘッダの速度 20000 µs のとき）・GB vblank 119.46・SPC 120 BPM、曲頭から 4/4、クオンタイズ・3 連判定なし。`--tempo half/double` は 60 / 15 フレーム = 1 拍） |
 | `--tempo` | 自動検出したテンポの補正（v0.1.19〜）: `auto`（既定）/ `half`（半分 = 行数を 2 倍）/ `double`（2 倍 = 行数を半分）。区間ごとに検出後の行数へ適用するので、区間分割・3 連・シャッフルの検出はそのまま。`double` で行数が奇数（3 など）の区間は検出のまま（ログに表示）。`--rows-per-beat` 指定時は無効 |
 | `--loops` | ループ部を何回書き出すか（既定 1 = イントロ＋ループ 1 回）。0 = ループ検出をしない（`--no-loop` と同じ、v0.1.19〜） |
 | `--no-loop` | ループ検出をしない（`-s` の秒数をそのまま変換）。`--loops 0` と同じ |

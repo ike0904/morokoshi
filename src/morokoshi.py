@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Morokoshi Time v1.4.17 (PyQt6) by ikeさん"""
-APP_VERSION = "v3.0.0"
+APP_VERSION = "v3.0.1"
 import sys, os, time, hashlib, json, tempfile, subprocess, copy, math
 import threading, base64, io
 from fractions import Fraction
@@ -265,10 +265,11 @@ def save_global_settings(zoom, volume):
 
 
 # ── nsf2mid（NSF / GBS / SPC → MIDI 変換）。本体は src/nsf2mid_core/（v2.9.25 で nsf2mid を統合）
-NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "tempo": "auto", "triplets": "auto",
+NSF2MID_DEFAULTS = {"loops": 1, "seconds": 600, "detect": "meter", "tempo": "auto", "triplets": "auto",
                     "keep_tail": False,
                     "quantize": True, "odd_meter": True, "drop_drums": 3, "arp_chords": False}
-NSF2MID_TEMPO = (("Auto", "auto"), ("Half", "half"), ("Double", "double"))
+NSF2MID_DETECT = (("None (fixed tempo)", "none"), ("Tempo", "tempo"), ("Tempo + meter", "meter"))
+NSF2MID_TEMPO = (("x1", "auto"), ("x1/2", "half"), ("x2", "double"))
 NSF2MID_TRIPLETS = (("Auto", "auto"), ("On", "on"), ("Off", "off"))
 
 def _import_nsf2mid():
@@ -295,6 +296,7 @@ def _nsf2mid_argv(o):
     """オプション dict → nsf2mid のコマンドライン引数（Loops=0 はループ検出なし）"""
     a = ["-s", str(int(o["seconds"])), "--loops", str(max(0, int(o["loops"]))),
          "--drop-drums", str(max(0, int(o["drop_drums"])))]
+    if o["detect"] != "meter": a += ["--detect", o["detect"]]
     if o["tempo"] != "auto": a += ["--tempo", o["tempo"]]
     if o["triplets"] != "auto": a += ["--triplets", o["triplets"]]
     if o["keep_tail"]: a.append("--keep-tail")
@@ -4759,8 +4761,12 @@ class Nsf2MidDialog(QDialog):
             "How many times to write the loop body\n0: no loop detection (convert the full max seconds)\nWheel: change")
         self.sp_seconds = add("Max seconds", spin(10, 3600, 60),
             "Max length to emulate (seconds)\nStops automatically when a loop or the song end is found\nWheel: change")
-        self.cb_tempo = add("Tempo", QComboBox(),
-            "Auto: detected tempo\nHalf / Double: use when the tempo comes out doubled or halved")
+        self.cb_detect = add("Detect", QComboBox(),
+            "None: no detection, a fixed tempo of 30 frames per beat\n(1 frame = 16 ticks; NTSC 120.2 BPM, PAL 100 BPM, Game Boy 119.46 BPM),\n4/4 from the start\n"
+            "Tempo: detect the tempo only (4/4 from the start)\nTempo + meter: also detect bar lines, pickups and odd meters")
+        self.cb_detect.addItems([tr(t[0]) for t in NSF2MID_DETECT])
+        self.cb_tempo = add("Tempo scale", QComboBox(),
+            "Multiplies the tempo (detected or fixed)\nx1/2 / x2: use when the tempo comes out doubled or halved")
         self.cb_tempo.addItems([tr(t[0]) for t in NSF2MID_TEMPO])
         self.cb_triplets = add("Triplets", QComboBox(),
             "Write triplet-feel songs as 3 notes per beat\nAuto: detect / On: always / Off: never")
@@ -4783,10 +4789,12 @@ class Nsf2MidDialog(QDialog):
             bl.addWidget(b_ok); bl.addWidget(b_cancel)
         g.addLayout(bl, self._r, 0, 1, 2)
         g.setColumnMinimumWidth(1, S(150))
+        self.cb_detect.currentIndexChanged.connect(self._update_enabled)
         self._apply(opts)
         # 右クリックでその項目だけ既定値に戻す（メイン画面と同じ。項目名の右クリックでも可）
         self._rclick = {}
-        for key, w in (("loops", self.sp_loops), ("seconds", self.sp_seconds), ("tempo", self.cb_tempo),
+        for key, w in (("loops", self.sp_loops), ("seconds", self.sp_seconds), ("detect", self.cb_detect),
+                       ("tempo", self.cb_tempo),
                        ("triplets", self.cb_triplets), ("drop_drums", self.sp_dropdrums),
                        ("keep_tail", self.ck_tail), ("quantize", self.ck_quant), ("odd_meter", self.ck_oddmeter),
                        ("arp_chords", self.ck_arpchord)):
@@ -4811,6 +4819,7 @@ class Nsf2MidDialog(QDialog):
     def _apply(self, o):
         self.sp_loops.setValue(int(o["loops"]))
         self.sp_seconds.setValue(int(o["seconds"]))
+        self.cb_detect.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_DETECT) if t[1] == o["detect"]), 2))
         self.cb_tempo.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TEMPO) if t[1] == o["tempo"]), 0))
         self.cb_triplets.setCurrentIndex(next((i for i, t in enumerate(NSF2MID_TRIPLETS) if t[1] == o["triplets"]), 0))
         self.ck_tail.setChecked(bool(o["keep_tail"]))
@@ -4818,9 +4827,20 @@ class Nsf2MidDialog(QDialog):
         self.ck_oddmeter.setChecked(bool(o["odd_meter"]))
         self.ck_arpchord.setChecked(bool(o["arp_chords"]))
         self.sp_dropdrums.setValue(int(o["drop_drums"]))
+        self._update_enabled()
+
+    def _update_enabled(self):
+        """検出しない項目は灰色（v3.0.1）: テンポ固定なら Triplets・Quantize、拍子を検出しないなら Detect odd meters"""
+        d = NSF2MID_DETECT[self.cb_detect.currentIndex()][1]
+        g = self.layout()
+        lb = g.itemAtPosition(g.getItemPosition(g.indexOf(self.cb_triplets))[0], 0).widget()
+        for w in (self.cb_triplets, lb, self.ck_quant):
+            w.setEnabled(d != "none")
+        self.ck_oddmeter.setEnabled(d == "meter")
 
     def values(self):
         return {"loops": self.sp_loops.value(), "seconds": self.sp_seconds.value(),
+                "detect": NSF2MID_DETECT[self.cb_detect.currentIndex()][1],
                 "tempo": NSF2MID_TEMPO[self.cb_tempo.currentIndex()][1],
                 "triplets": NSF2MID_TRIPLETS[self.cb_triplets.currentIndex()][1],
                 "keep_tail": self.ck_tail.isChecked(),

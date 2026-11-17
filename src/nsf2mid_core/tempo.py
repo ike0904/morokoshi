@@ -689,6 +689,16 @@ def _detect_tempo_map(onsets, frame_rate, rows_per_beat=None, unit=None, channel
     return {"drift": bool(DRIFT_WINDOW), "tempo_kept": kept, "global": g, "segments": segs, "ternary": ternary, "shuffle": shuffle, "triplet": bool(trip_d), "pulse": pulse}
 
 
+def fixed_tempo_map(frame_rate, frames_per_beat, tempo="auto"):
+    """v3.0.1 (--detect none): one tempo of `frames_per_beat` frames per beat, one row per frame
+    (PPQ / frames_per_beat ticks each), so every note keeps its frame. half / double: 2x / 1/2 rows."""
+    s = Segment(0, 1.0, 0.0, 1.0)
+    s.rows = frames_per_beat * 2 if tempo == "half" else frames_per_beat // 2 if tempo == "double" else frames_per_beat
+    s.bpm = 60.0 * frame_rate / s.rows
+    return {"drift": False, "tempo_kept": 0, "global": {"unit": 1.0, "score": 1.0, "norm": 1.0, "phase": 0.0},
+            "segments": [s], "ternary": False, "shuffle": False, "triplet": False, "pulse": False, "fixed": True}
+
+
 def _segment(onsets, frame_rate, g):
     win = frame_rate * WINDOW_SEC
     t0 = onsets[0]
@@ -1045,7 +1055,8 @@ class TickMap:
     """
 
     def __init__(self, tmap, ppq, quantize=True, frame_rate=60.0, onsets=None, notes=None,
-                 meters=None, downbeat=None, loop_period=None):
+                 meters=None, downbeat=None, loop_period=None, bars=True):
+        """bars=False (v3.0.1, --detect none / tempo): no meter detection, 4/4 bars from the grid origin."""
         self.ppq = ppq
         self.loop = (downbeat, loop_period) if downbeat is not None and loop_period else None
         self.quantize = quantize
@@ -1112,12 +1123,16 @@ class TickMap:
             part.last_onset = seg_on[-1] if seg_on else origin
             if meters and k < len(meters) and meters[k]:
                 part.meter = meters[k]
+            elif not bars:
+                part.meter = (4, 4)
             else:
                 part.meter = self._detect_meter(part, notes, end)
             part.bar_ticks = int(round(ppq * 4 * part.meter[0] / part.meter[1]))
             s.meter = part.meter
             s.tracked = bool(anchors)
-            if k == 0 and part.meter_phase:
+            if k == 0 and not bars:
+                pass                    # v3.0.1: no pickup / downbeat, 4/4 from the grid origin
+            elif k == 0 and part.meter_phase:
                 self._compound_pickup(part, notes, end,
                                       downbeat if downbeat is not None and (len(segs) == 1 or downbeat < segs[1].start)
                                       else None)

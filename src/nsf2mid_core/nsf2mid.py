@@ -13,7 +13,7 @@ Phase 7: SPC (Super Famicom, spc.py / cpu_spc700.py / spc_dsp.py): 8 voices on M
 
 Usage:
     python nsf2mid.py FILE.nsf|FILE.gbs|FILE.zip [-t TRACK] [-s SECONDS] [-o OUTDIR] [--info] [--dump]
-                      [--keep-tail] [--no-quantize] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
+                      [--keep-tail] [--no-quantize] [--detect none|tempo|meter] [--unit FRAMES] [--rows-per-beat N] [--tempo auto|half|double]
                       [--loops N] [--no-loop] [--drop-drums N] [--drum-map MAP] [--triplets auto|on|off] [--mid-out FILE.mid]
 
 バージョン履歴:
@@ -98,7 +98,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nsf import open_player, nsf_base_name  # noqa: E402
 from apu_state import APUState, note_name  # noqa: E402
 from notes import Note, extract_notes, tempo_onsets, _frame_info, arpeggio_end  # noqa: E402
-from tempo import detect_tempo_map, TickMap, _hits as grid_hits, _phase as grid_phase  # noqa: E402
+from tempo import detect_tempo_map, fixed_tempo_map, TickMap, _hits as grid_hits, _phase as grid_phase  # noqa: E402
 from midi import Track, write_smf  # noqa: E402
 from spc_drums import split_spc_drums  # noqa: E402
 from drums import (noise_hits, dmc_hits, split_drop_drums, detect_triangle_split, parse_drum_map,  # noqa: E402
@@ -108,6 +108,7 @@ from expansion import channel_table  # noqa: E402
 from meter import odd_bars, odd_runs, SNARES as SNARE_NOTES  # noqa: E402
 
 PPQ = 480
+FIXED_FRAMES_PER_BEAT = 30     # --detect none: 1 frame = PPQ / 30 = 16 ticks (60 Hz: 120 BPM)
 MIDI_CH = {"P1": 0, "P2": 1, "TRI": 2}
 # Expansion channels use MIDI ch 6- in the order of morokoshi's channel buttons (libgme voices):
 # expansion.channel_table() adds them to MIDI_CH / TRACK_NAMES (v0.1.25-)
@@ -975,6 +976,10 @@ def build_parser():
     ap.add_argument("--no-quantize", action="store_true", help="do not snap notes to the detected grid")
     ap.add_argument("--unit", type=float, default=None, help="override grid unit (frames per row)")
     ap.add_argument("--rows-per-beat", type=int, default=None, help="override rows per beat (e.g. 4 = 16th rows)")
+    ap.add_argument("--detect", choices=("none", "tempo", "meter"), default="meter",
+                    help="none = no detection: fixed tempo of 30 frames per beat (1 frame = 16 ticks; "
+                         "NTSC 120.2 BPM, PAL 100 BPM), 4/4 from the start; tempo = detect the tempo only "
+                         "(4/4 from the start of the grid); meter = tempo and meter (default)")
     ap.add_argument("--tempo", choices=("auto", "half", "double"), default="auto",
                     help="auto = detected tempo (default), half / double = halve / double the detected tempo")
     ap.add_argument("--loops", type=int, default=1,
@@ -1173,8 +1178,13 @@ def convert(args, should_stop=None, progress=None):
                                  loop_period=loop["period"] if loop else None)
         return onsets, tempo
 
-    stage("detecting the tempo")
-    onsets, tempo = tempo_of(full)
+    mode = getattr(args, "detect", "meter")   # what to detect (v3.0.1)
+    if mode == "none":
+        # v3.0.1: no detection, 30 frames per beat (1 frame = 16 ticks, so every note keeps its frame)
+        onsets, tempo, fine = [], fixed_tempo_map(frame_rate, FIXED_FRAMES_PER_BEAT, args.tempo), None
+    else:
+        stage("detecting the tempo")
+        onsets, tempo = tempo_of(full)
     if tempo is None and fine:
         # v2.9.26: a short tune with too few notes left after folding: detect as before
         # (Legends of the Diamond t1)
@@ -1195,9 +1205,13 @@ def convert(args, should_stop=None, progress=None):
                   "(odd rows per beat cannot be halved)")
         meters = [tuple(int(x) for x in m.split("/")) if m.strip() not in ("", "-") else None
                   for m in args.time_sig.split(",")] if args.time_sig else None
-        tmap = TickMap(tempo, PPQ, not args.no_quantize, frame_rate, onsets,
-                       {ch: [n for n in lst if n.start < end_frame] for ch, lst in full.items()}, meters,
-                       downbeat=loop["start"] if loop else None, loop_period=loop["period"] if loop else None)
+        if mode == "none":
+            tmap = TickMap(tempo, PPQ, False, frame_rate, meters=[(4, 4)], bars=False)
+        else:
+            tmap = TickMap(tempo, PPQ, not args.no_quantize, frame_rate, onsets,
+                           {ch: [n for n in lst if n.start < end_frame] for ch, lst in full.items()}, meters,
+                           downbeat=loop["start"] if loop else None, loop_period=loop["period"] if loop else None,
+                           bars=mode == "meter")
         tmap.pulse_beat = bool(tempo.get("pulse"))
         for sg in tempo["segments"]:
             print(f"  from {sg.start / frame_rate:7.2f} s: {sg.bpm:7.2f} BPM  "
@@ -1208,11 +1222,14 @@ def convert(args, should_stop=None, progress=None):
                   + ("  [tempo tracked]" if sg.tracked else ""))
             if sg.score < 0.8 and not sg.tracked:
                 print("    Warning: poor grid fit (rubato or unsupported rhythm?)")
-        stage("detecting the meter")
-        if not args.time_sig:
+        if mode != "meter":
+            print(f"  Meter: not detected (--detect {mode}), 4/4 from the start")
+        else:
+            stage("detecting the meter")
+        if not args.time_sig and mode == "meter":
             check_pickup(tmap, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame)
             check_even_pickup(tmap, notes, drums, end_frame, loop)
-        if loop and not args.no_odd_meter:
+        if loop and not args.no_odd_meter and mode == "meter":
             odd_loop_meters(tmap, loop, {ch: full.get(ch, lst) for ch, lst in notes.items()}, drums, end_frame,
                             max(1, args.loops))
         mid_path = mid_out or stem + ".mid"
